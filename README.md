@@ -23,7 +23,7 @@ PERSIAPAN (sekali)
   3. config.yaml: isi paths.excel (path INPUT_PARAMETER.xlsx) dan paths.ok_image (gambar
      tombol OK popup awal; bila tidak ada, bot mencoba klik popup lewat Selenium)
   4. Folder snapshot: config.yaml memakai nama "snapshots" (samakan dengan folder Anda)
-  5. Ganti password BMKG Satu: password lama masih tertulis di legacy/V6SATU.py
+  5. legacy/V6SATU.py juga membaca kredensial dari .env; jangan unggah file .env.
 
 URUTAN UJI YANG DISARANKAN (jangan langsung kirim sungguhan)
   A. python tests/test_validator.py ; python tests/test_bot_flow.py ;

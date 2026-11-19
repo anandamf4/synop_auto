@@ -1,0 +1,2653 @@
+"""
+V7SATU.py  -  SYNOP otomatis ke BMKGSoft v2  (turunan V6SATU.py)
+
+PERUBAHAN dari V6SATU (SEMUA fungsi V6 dipertahankan; penambahan ditandai [F1.x]):
+  [F1.1] Kredensial dari .env, path & pengaturan dari config.yaml (tidak ada password di kode)
+  [F1.3] Excel divalidasi (core/validator.py) saat start dan sebelum tiap baris dikirim;
+         baris ber-ERROR dilewati dan dicatat
+  [F1.4/F1.5] Log status per slot (core/db.py): sent tidak dikirim ulang; gagal/dilewati tercatat;
+         tanggal web dipilih PER SLOT (UTC) sehingga tidak basi saat melewati pergantian hari
+  [F1.5/T21] Tombol "Send & Update" dikenali bila data jam itu sudah ada di web
+  [F1.6] Launcher: pilih observer dari daftar (tidak mengetik di terminal)
+  [F1.7] Mode dry-run: isi form sampai Preview, simpan sandi, TIDAK mengirim
+  [F1.8] Override curah hujan (kolom hujan_override_aktif / hujan_override_mm)
+  [F1.9] isi_data: total tutupan 0 / 9 / "/" melewati awan; vertical visibility saat total 9;
+         CL/CM/CH berkode 0 atau "/" dilewati; puncak awan rendah tidak diisi bila CL=1
+
+Cara pakai (di folder proyek):
+    python V7SATU.py                       # launcher observer, kirim sungguhan
+    python V7SATU.py --dry-run             # uji: sampai Preview saja
+    python V7SATU.py --observer "Nama" --no-gui
+    python V7SATU.py --check-only          # hanya validasi Excel, tanpa browser
+"""
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from datetime import datetime, timezone, timedelta
+import time
+import pandas as pd
+import pyautogui
+import os
+import traceback
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+# [F1.x] modul proyek: konfigurasi, validator, log status
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from core.config import load_config, resolve_path, get_credentials  # noqa: E402
+from core.validator import Validator, load_excel, format_report  # noqa: E402
+from core.db import SendLog  # noqa: E402
+
+# 🔑 Data login dan pilihan  [F1.1: tidak ada kredensial di kode; dibaca dari .env / config.yaml]
+CFG = load_config()
+STATION_ID = None        # diisi di main() dari .env
+PASSWORD = None          # diisi di main() dari .env
+STASIUN_YANG_DIPILIH = CFG["station"]["name"]
+nama_observer = None     # diisi di main() lewat launcher (F1.6) atau --observer
+DRY_RUN = bool(CFG["features"].get("dry_run", False))   # [F1.7]
+EXCEL_PATH = resolve_path(CFG, "excel")
+SNAPSHOT_DIR = resolve_path(CFG, "snapshots")
+OK_IMAGE_PATH = str(resolve_path(CFG, "ok_image"))
+
+# [speed] pengaturan kecepatan (opsional di config.yaml, bagian 'speed:')
+_SPEED = CFG.get("speed", {}) or {}
+SPEED_SCALE = float(_SPEED.get("scale", 0.5))                 # 1.0 = jeda asli V6; 0.5 = setengahnya
+_T_OPSI = float(_SPEED.get("optional_timeout", 3))            # batas tunggu field OPSIONAL (V6: 5 detik)
+SNAPSHOT_OPTIONAL = bool(_SPEED.get("snapshot_optional", False))   # snapshot saat field opsional gagal
+GAGAL_OPSIONAL = []   # field opsional yang gagal diisi pada baris berjalan (dicatat ke log)
+
+
+def _terapkan_opsi_anti_popup(opts):
+    # [F1.1] Popup "Change your password" (Google Password Manager: password ditemukan di data breach)
+    # adalah JENDELA CHROME, bukan bagian halaman web -> tidak terlihat Selenium/snapshot dan gambar
+    # ok.PNG mudah meleset karena skala layar. Cara andal: cegah munculnya.
+    opts.add_experimental_option("prefs", {
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+        "profile.password_manager_leak_detection": False,
+    })
+    opts.add_argument("--disable-features=PasswordLeakDetection,PasswordCheck")
+    opts.add_argument("--disable-save-password-bubble")
+    opts.add_argument("--disable-notifications")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+
+
+# === BACA DATA EXCEL ===
+def baca_data_terbaru(silent=False):
+    """Fungsi untuk membaca data terbaru dari file excel dengan format yang konsisten"""
+    if not silent:
+        print("\n🔍 Memuat data terbaru dari file...")
+    try:
+        df = load_excel(EXCEL_PATH)   # [F1.1] path dari config.yaml; kolom dirapikan, baris kosong dibuang
+        df['waktu_eksekusi'] = pd.to_datetime(df['waktu_eksekusi'])
+        df['jam_input'] = df['jam_input'].astype(str).str.zfill(5)
+        if not silent:
+            print("✅ Data berhasil dimuat")
+        return df
+    except Exception as e:
+        print(f"❌ Gagal memuat data: {str(e)}")
+        return None
+
+# 🔧 Setup driver
+chrome_options = Options()
+chrome_options.add_argument("--start-maximized")
+_terapkan_opsi_anti_popup(chrome_options)   # [F1.1] cegah popup password Chrome
+service = Service()
+driver = None   # [F1.6] browser dibuat di main() setelah launcher (lihat buat_driver)
+
+#=============================== GENERAL ======================================#
+def safe_click(driver, element):
+    driver.execute_script("arguments[0].scrollIntoView(true);", element)
+    try:
+        element.click()
+    except:
+        driver.execute_script("arguments[0].click();", element)
+
+
+def wait_for_presence(driver, locator, timeout=10):
+    try:
+        return WebDriverWait(driver, timeout).until(EC.presence_of_element_located(locator))
+    except Exception as e:
+        print(f"❌ Timeout menunggu keberadaan elemen {locator}: {e}")
+        return None
+
+
+def wait_for_clickable(driver, locator, timeout=10):
+    try:
+        return WebDriverWait(driver, timeout).until(EC.element_to_be_clickable(locator))
+    except Exception as e:
+        print(f"❌ Timeout menunggu elemen dapat diklik {locator}: {e}")
+        return None
+
+
+def save_debug_snapshot(driver, tag="debug"):
+    png = None   # [F1.4] dikembalikan agar bisa dicatat di log status
+    if not SNAPSHOT_OPTIONAL and str(tag).startswith(("isi_input_", "pilih_arah_")):
+        return None   # [speed] field opsional gagal tidak perlu snapshot (hemat 1-2 detik tiap kali)
+    try:
+        base = str(SNAPSHOT_DIR)
+        os.makedirs(base, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        png = os.path.join(base, f"{ts}_{tag}.png")
+        html = os.path.join(base, f"{ts}_{tag}.html")
+        try:
+            driver.save_screenshot(png)
+            print(f"📸 Screenshot saved: {png}")
+        except Exception as e:
+            print(f"⚠️ Gagal simpan screenshot: {e}")
+        try:
+            with open(html, "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            print(f"📄 HTML snapshot saved: {html}")
+        except Exception as e:
+            print(f"⚠️ Gagal simpan page source: {e}")
+    except Exception as e:
+        print(f"⚠️ save_debug_snapshot error: {e}\n{traceback.format_exc()}")
+    return png
+
+
+def pilih_opsi_unsur(driver, unsur):
+    try:
+        opsi_list = WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.XPATH, f"//li[contains(text(), '{unsur}')]"))
+        )
+        if opsi_list:
+            safe_click(driver, opsi_list[0])
+            print(f"✅ Opsi dipilih (mengandung '{unsur}'): {opsi_list[0].text}")
+            return True
+        print(f"❌ Tidak ada opsi mengandung '{unsur}' ditemukan")
+        return False
+    except Exception as e:
+        print(f"❌ Gagal pilih opsi '{unsur}': {e}")
+        return False
+
+
+def pilih_dropdown_ant_select(driver, id_div, nilai, timeout=12, max_attempts=2):
+    attempt = 0
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            container = wait_for_presence(driver, (By.ID, id_div), timeout=timeout)
+            if not container:
+                print(f"⚠️ [{attempt}] Container {id_div} tidak ditemukan")
+                _jeda(0.6)
+                continue
+            driver.execute_script("arguments[0].scrollIntoView(true);", container)
+
+            dropdown = wait_for_clickable(driver, (By.XPATH, f"//div[@id='{id_div}']//div[contains(@class,'ant-select-selection__rendered')]"), timeout=timeout)
+            if not dropdown:
+                print(f"⚠️ [{attempt}] Dropdown {id_div} tidak clickable")
+                _jeda(0.6)
+                continue
+            safe_click(driver, dropdown)
+            _jeda(0.5)
+
+            search_input = wait_for_presence(driver, (By.XPATH, f"//div[@id='{id_div}']//input[contains(@class,'ant-select-search__field')]"), timeout=timeout)
+            if search_input:
+                search_input.clear()
+                search_input.send_keys(nilai)
+                _jeda(0.3)
+                search_input.send_keys(Keys.ENTER)
+                _tunggu_nilai_terpilih(driver, id_div, nilai)   # [speed] ganti sleep tetap 0.8 dtk
+                _jeda(0.1)
+                print(f"✅ {id_div} dipilih dengan '{nilai}'")
+                return True
+
+            opsi = wait_for_clickable(driver, (By.XPATH, f"//div[@id='{id_div}']//li[contains(normalize-space(.),'{nilai}')]"), timeout=timeout)
+            if opsi:
+                safe_click(driver, opsi)
+                print(f"✅ {id_div} dipilih dengan '{nilai}' (fallback tanpa input search)")
+                _jeda(0.8)
+                return True
+
+            print(f"⚠️ [{attempt}] Tidak menemukan input atau opsi untuk {id_div} dengan nilai '{nilai}'")
+            _jeda(0.6)
+        except Exception as e:
+            print(f"⚠️ [{attempt}] Gagal pilih {id_div} dengan '{nilai}': {e}")
+            _jeda(0.6)
+    try:
+        save_debug_snapshot(driver, f"pilih_dropdown_{id_div}_{nilai}")
+    except Exception:
+        pass
+    print(f"❌ Gagal pilih {id_div} dengan '{nilai}' setelah {max_attempts} percobaan")
+    return False
+
+
+def isi_input_text(driver, id_input, nilai, timeout=12):
+    try:
+        input_field = wait_for_presence(driver, (By.ID, id_input), timeout=timeout)
+        if not input_field:
+            return False
+        driver.execute_script("arguments[0].scrollIntoView(true);", input_field)
+        input_field.clear()
+        input_field.send_keys(str(nilai))
+        input_field.send_keys(Keys.RETURN)
+        print(f"✅ {id_input} diisi dengan {nilai}")
+        return True
+    except Exception as e:
+        print(f"❌ Gagal isi {id_input}: {e}")
+        try:
+            save_debug_snapshot(driver, f"isi_input_{id_input}")
+        except Exception:
+            pass
+        return False
+
+
+def attempt_click(driver, element):
+    try:
+        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+        try:
+            element.click()
+            return True
+        except Exception:
+            try:
+                ActionChains(driver).move_to_element(element).pause(0.1).click().perform()
+                return True
+            except Exception:
+                driver.execute_script("arguments[0].click();", element)
+                return True
+    except Exception as e:
+        print(f"⚠️ attempt_click gagal: {e}")
+        return False
+
+
+def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
+    aria_id = combobox.get_attribute("aria-controls")
+    if not aria_id:
+        print(f"❌ {nama_field}: aria-controls tidak ditemukan")
+        return False
+
+    def nilai_terpilih():
+        values = combobox.find_elements(
+            By.CSS_SELECTOR, ".ant-select-selection-selected-value"
+        )
+        if not values:
+            return ""
+        return (values[0].get_attribute("title") or values[0].text).strip()
+
+    try:
+        if target_teks in nilai_terpilih():
+            print(f"✅ {nama_field} sudah berisi '{target_teks}'")
+            return True
+
+        target_normalized = " ".join(target_teks.split())
+        for attempt in range(2):
+            if not attempt_click(driver, combobox):
+                continue
+
+            try:
+                WebDriverWait(driver, 3).until(
+                    EC.visibility_of_element_located((By.ID, aria_id))
+                )
+            except TimeoutException:
+                if attempt == 0:
+                    combobox.send_keys(Keys.SPACE)
+                continue
+
+            opsi = WebDriverWait(driver, 5).until(
+                lambda d: next(
+                    (
+                        item
+                        for item in d.find_elements(
+                            By.XPATH, f"//div[@id='{aria_id}']//li"
+                        )
+                        if item.is_displayed()
+                        and target_normalized in " ".join(item.text.split())
+                        and item.get_attribute("aria-disabled") != "true"
+                    ),
+                    False,
+                )
+            )
+            if not attempt_click(driver, opsi):
+                continue
+
+            WebDriverWait(driver, 3).until(
+                lambda _: target_normalized in " ".join(nilai_terpilih().split())
+            )
+            print(f"✅ {nama_field} dipilih: {target_teks}")
+            return True
+
+        print(
+            f"❌ {nama_field}: menu '{aria_id}' tidak terbuka "
+            f"atau opsi '{target_teks}' tidak berhasil dipilih"
+        )
+    except Exception as e:
+        print(
+            f"❌ {nama_field}: gagal memilih '{target_teks}': "
+            f"{type(e).__name__}: {e}"
+        )
+    return False
+
+
+def click_button_by_text(driver, button_text, timeout=10, exact=False):
+    normalized = button_text.strip().lower()
+    if exact:
+        xpath = f"//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='{normalized}']"
+    else:
+        xpath = f"//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{normalized}')]"
+    try:
+        button = WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable((By.XPATH, xpath))
+        )
+        if not attempt_click(driver, button):
+            raise Exception("click action gagal")
+        print(f"✅ Tombol '{button_text}' berhasil diklik")
+        return True
+    except Exception as e:
+        print(f"❌ Gagal klik tombol '{button_text}': {e}")
+        return False
+
+
+def wait_for_modal_to_disappear(driver, timeout=10):
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.execute_script(
+                "return document.querySelectorAll('div.swal2-container.swal2-center.swal2-backdrop-show, div.ant-modal-wrap').length === 0;"
+            )
+        )
+        return True
+    except Exception:
+        return False
+
+
+def wait_for_send_ok_button(driver, timeout=12):
+    qc_popup_xpath = (
+        "//div[contains(@class,'swal2-container') and contains(@class,'swal2-backdrop-show')]"
+        "//div[contains(@class,'swal2-popup') and "
+        ".//div[contains(@class,'swal2-title') and contains(translate(normalize-space(.),"
+        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'koreksi qc')]]"
+    )
+    qc_submit_xpath = (
+        qc_popup_xpath
+        +
+        "//button[translate(normalize-space(.),"
+        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='submit']"
+    )
+    ok_xpath = "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']"
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            for button in driver.find_elements(By.XPATH, qc_submit_xpath):
+                if button.is_displayed() and button.is_enabled():
+                    if not attempt_click(driver, button):
+                        print("❌ Tombol Submit pada popup Koreksi QC gagal diklik")
+                        return False
+                    print("✅ Popup Koreksi QC terdeteksi; tombol Submit berhasil diklik")
+
+                    try:
+                        WebDriverWait(driver, timeout).until(
+                            lambda d: not any(
+                                popup.is_displayed()
+                                for popup in d.find_elements(
+                                    By.XPATH, qc_popup_xpath
+                                )
+                            )
+                            or any(
+                                button.is_displayed()
+                                for button in d.find_elements(
+                                    By.XPATH, ok_xpath
+                                )
+                            )
+                        )
+                    except TimeoutException:
+                        print("⚠️ Popup Koreksi QC belum menutup setelah Submit")
+                        return False
+                    return True
+
+            for button in driver.find_elements(By.XPATH, ok_xpath):
+                if button.is_displayed():
+                    print("✅ Popup Koreksi QC tidak muncul; tombol OK alur normal terdeteksi")
+                    return True
+        except Exception as e:
+            print(f"⚠️ Error saat memeriksa konfirmasi setelah SEND: {e}")
+        time.sleep(0.5)
+
+    print(
+        f"⚠️ Popup Koreksi QC maupun tombol OK tidak muncul setelah SEND "
+        f"({timeout}s)"
+    )
+    return False
+
+
+def click_button_containing_words(driver, words, timeout=10):
+    try:
+        buttons = WebDriverWait(driver, timeout).until(
+            EC.presence_of_all_elements_located((By.XPATH, "//button"))
+        )
+        words = [w.strip().lower() for w in words if w.strip()]
+        for btn in buttons:
+            try:
+                text = btn.text.strip().lower()
+                if text and all(word in text for word in words):
+                    driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+                    try:
+                        btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", btn)
+                    print(f"✅ Tombol dengan teks '{text}' berhasil diklik")
+                    return True
+            except Exception:
+                continue
+        return False
+    except Exception as e:
+        print(f"❌ Gagal mencari tombol berdasarkan kata: {e}")
+        return False
+
+
+def wait_for_submit_progress(driver, timeout=10):
+    start = time.time()
+    print(f"⏳ Menunggu progress submit selama {timeout}s...")
+    while time.time() - start < timeout:
+        try:
+            if driver.find_elements(By.XPATH, "//div[contains(@id,'send-gts-message')]"):
+                print("✅ Deteksi modal send-gts-message muncul")
+                return True
+            if driver.find_elements(By.XPATH, "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'send to inaswitching')]"):
+                print("✅ Deteksi tombol 'Send to INASwitching' muncul")
+                return True
+            if driver.find_elements(By.XPATH, "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='send']"):
+                print("✅ Deteksi tombol 'Send' muncul")
+                return True
+            if driver.find_elements(By.XPATH, "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']"):
+                print("✅ Deteksi tombol 'OK' muncul")
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    print("⚠️ Tidak ada progress submit terdeteksi setelah klik")
+    return False
+
+
+#========================================= AWAN RENDAH ======================================#
+def isi_jenis_dan_jumlah_awan_Rendah(driver, jenis_target, jumlah_target):
+    try:
+        combobox_jenis = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_low_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jenis Awan Rendah): {aria_id_jenis}")
+        if not pilih_opsi_ant_select(
+            driver, combobox_jenis, jenis_target, "Jenis Awan Rendah"
+        ):
+            return False
+        _jeda(0.5)
+
+        combobox_jumlah = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_low_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jumlah Awan Rendah): {aria_id_jumlah}")
+        if not pilih_opsi_ant_select(
+            driver, combobox_jumlah, jumlah_target, "Jumlah Awan Rendah"
+        ):
+            return False
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal isi Jenis/Jumlah Awan Rendah: {type(e).__name__}: {e}")
+        return False
+
+
+def pilih_arah_sebenarnya(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//div[@id='cloud_elevation_1_angle_ec']/ancestor::div[contains(@class,'row')]/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah Sebenarnya): {aria_id}")
+
+        safe_click(driver, combobox)
+        _jeda(0.5)
+
+        opsi = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@id='{aria_id}']//li[contains(normalize-space(),\"{target_teks}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi)
+        safe_click(driver, opsi)
+        print(f"✅ Arah Sebenarnya dipilih: {target_teks}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Sebenarnya: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_sebenarnya_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+
+def klik_switch_jika_type(driver, id_div_cloud_type="cloud_low_type_cl", id_label_switch="775"):
+    try:
+        selected = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, f"//div[@id='{id_div_cloud_type}']//div[contains(@class,'ant-select-selection-selected-value')]"))
+        )
+        nilai = selected.get_attribute("title").strip()
+        print(f"✅ Tipe awan rendah terpilih: {nilai}")
+
+        if nilai.startswith("2") or nilai.startswith("3") or nilai.startswith("9"):
+            print(f"🔔 Tipe awan {nilai} memerlukan klik switch.")
+            label = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, f"//label[@for='{id_label_switch}']"))
+            )
+            # [F1.5/T19] JANGAN menekan switch yang SUDAH aktif: mode Update memuat data lama dengan
+            # switch aktif; menekannya justru mematikan lapisan 2 (field jadi tidak bisa diisi).
+            if _switch_aktif(driver, id_label_switch) is True:
+                print(f"ℹ️ Switch '{id_label_switch}' sudah aktif; tidak diklik.")
+            else:
+                safe_click(driver, label)
+                print(f"✅ Switch dengan label for='{id_label_switch}' diklik.")
+                _atur_switch(driver, id_label_switch, True)   # pastikan benar-benar aktif
+            return True
+
+        print(f"ℹ️ Tipe awan {nilai} tidak memerlukan klik switch.")
+        return False
+
+    except Exception as e:
+        print(f"❌ Gagal cek & klik switch: {e}")
+        return False
+
+def isi_jenis_dan_jumlah_awan_rendah_2(driver, jenis_target, jumlah_target):
+    try:
+        row_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'row mt-5 pr-1')]"))
+        )
+        combobox_jenis = row_jenis.find_element(By.XPATH, ".//div[@role='combobox']")
+        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
+        print(f"✅ ID combobox Jenis Awan Rendah 2: {aria_id_jenis}")
+
+        safe_click(driver, combobox_jenis)
+        _jeda(0.5)
+
+        opsi_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH, f"//div[@id='{aria_id_jenis}']//li[contains(normalize-space(),\"{jenis_target}\")]"))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jenis)
+        safe_click(driver, opsi_jenis)
+        print(f"✅ Jenis Awan Rendah 2 dipilih: {jenis_target}")
+        _jeda(0.5)
+
+        combobox_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH, "//div[contains(@class,'row mt-5 pr-1')]/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
+        print(f"✅ ID combobox Jumlah Awan Rendah 2: {aria_id_jumlah}")
+
+        safe_click(driver, combobox_jumlah)
+        _jeda(0.5)
+
+        opsi_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH, f"//div[@id='{aria_id_jumlah}']//li[contains(normalize-space(),\"{jumlah_target}\")]"))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jumlah)
+        safe_click(driver, opsi_jumlah)
+        print(f"✅ Jumlah Awan Rendah 2 dipilih: {jumlah_target}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal isi Jenis/Jumlah Awan Rendah 2: {e}")
+        return False
+
+def pilih_arah_2(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//input[@id='cloud_low_peak_2']/parent::div/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah 2): {aria_id}")
+
+        safe_click(driver, combobox)
+        _jeda(0.5)
+
+        opsi = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@id='{aria_id}']//li[contains(normalize-space(),\"{target_teks}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi)
+        safe_click(driver, opsi)
+        print(f"✅ Arah Awan Rendah 2 dipilih: {target_teks}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Awan Rendah 2: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_2_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+def pilih_arah_sebenarnya_2(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//div[@id='cloud_elevation_2_angle_ec']/ancestor::div[contains(@class,'row')]/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah Sebenarnya 2): {aria_id}")
+
+        safe_click(driver, combobox)
+        _jeda(0.5)
+
+        opsi = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@id='{aria_id}']//li[contains(normalize-space(),\"{target_teks}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi)
+        safe_click(driver, opsi)
+        print(f"✅ Arah Sebenarnya 2 dipilih: {target_teks}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Sebenarnya 2: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_sebenarnya_2_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+def pilih_arah_Awan_Rendah(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//input[@id='cloud_low_peak_1']/parent::div/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah Awan Rendah): {aria_id}")
+        if not pilih_opsi_ant_select(
+            driver, combobox, target_teks, "Arah Awan Rendah"
+        ):
+            return False
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Awan Rendah: {type(e).__name__}: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_awan_rendah_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+#========================================= AWAN MENENGAH ======================================#
+def isi_jenis_dan_jumlah_awan_menengah(driver, jenis_target, jumlah_target):
+    try:
+        combobox_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_med_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jenis Awan Menengah): {aria_id_jenis}")
+
+        safe_click(driver, combobox_jenis)
+        _jeda(0.5)
+
+        opsi_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH,
+                f"//div[@id='{aria_id_jenis}']//li[contains(normalize-space(),\"{jenis_target}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jenis)
+        safe_click(driver, opsi_jenis)
+        print(f"✅ Jenis Awan Menengah dipilih: {jenis_target}")
+        _jeda(0.5)
+
+        combobox_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_med_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jumlah Awan Menengah): {aria_id_jumlah}")
+
+        safe_click(driver, combobox_jumlah)
+        _jeda(0.5)
+
+        opsi_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH,
+                f"//div[@id='{aria_id_jumlah}']//li[contains(normalize-space(),\"{jumlah_target}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jumlah)
+        safe_click(driver, opsi_jumlah)
+        print(f"✅ Jumlah Awan Menengah dipilih: {jumlah_target}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal isi Jenis/Jumlah Awan Menengah: {e}")
+        return False
+
+def pilih_arah_Awan_Menengah(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//input[@id='cloud_med_base_1']/parent::div/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah Awan Menengah): {aria_id}")
+
+        safe_click(driver, combobox)
+        _jeda(0.5)
+
+        opsi = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@id='{aria_id}']//li[contains(normalize-space(),\"{target_teks}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi)
+        safe_click(driver, opsi)
+        print(f"✅ Arah Awan Menengah dipilih: {target_teks}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Awan Menengah: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_awan_menengah_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+#===================================== AWAN TINGGI ======================================#
+def isi_jenis_dan_jumlah_awan_Tinggi(driver, jenis_target, jumlah_target):
+    try:
+        combobox_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_high_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jenis Awan Tinggi): {aria_id_jenis}")
+
+        safe_click(driver, combobox_jenis)
+        _jeda(0.5)
+
+        opsi_jenis = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH,
+                f"//div[@id='{aria_id_jenis}']//li[contains(normalize-space(),\"{jenis_target}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jenis)
+        safe_click(driver, opsi_jenis)
+        print(f"✅ Jenis Awan Tinggi dipilih: {jenis_target}")
+        _jeda(0.5)
+
+        combobox_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[@id='cloud_high_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
+            ))
+        )
+        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Jumlah Awan Tinggi): {aria_id_jumlah}")
+
+        safe_click(driver, combobox_jumlah)
+        _jeda(0.5)
+
+        opsi_jumlah = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((By.XPATH,
+                f"//div[@id='{aria_id_jumlah}']//li[contains(normalize-space(),\"{jumlah_target}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jumlah)
+        safe_click(driver, opsi_jumlah)
+        print(f"✅ Jumlah Awan Tinggi dipilih: {jumlah_target}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal isi Jenis/Jumlah Awan Tinggi: {e}")
+        return False
+
+def pilih_arah_Awan_Tinggi(driver, target_teks):
+    try:
+        combobox = WebDriverWait(driver, _T_OPSI).until(
+            EC.presence_of_element_located((
+                By.XPATH,
+                "//input[@id='cloud_high_base_1']/parent::div/following-sibling::div//div[@role='combobox']"
+            ))
+        )
+        aria_id = combobox.get_attribute("aria-controls")
+        print(f"✅ Dapat aria-controls ID (Arah Awan Tinggi): {aria_id}")
+
+        safe_click(driver, combobox)
+        _jeda(0.5)
+
+        opsi = WebDriverWait(driver, _T_OPSI).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@id='{aria_id}']//li[contains(normalize-space(),\"{target_teks}\")]"
+            ))
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", opsi)
+        safe_click(driver, opsi)
+        print(f"✅ Arah Awan Tinggi dipilih: {target_teks}")
+        _jeda(0.5)
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal pilih Arah Awan Tinggi: {e}")
+        try:
+            save_debug_snapshot(driver, f"pilih_arah_awan_tinggi_{target_teks}")
+        except Exception:
+            pass
+        return False
+
+#=================================================Pengiriman=========================================================# 
+def submit_with_retry(driver, action_name, action_func, max_attempts=3):
+    """
+    Retry logic untuk submission actions dengan exponential backoff.
+    Jika semua attempt gagal, save debug snapshot.
+    """
+    start_time = time.time()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            attempt_start = time.time()
+            print(f"🔄 [{attempt}/{max_attempts}] Mencoba {action_name}...")
+            if action_func():
+                elapsed = time.time() - attempt_start
+                print(f"✅ {action_name} berhasil pada attempt {attempt} ({elapsed:.2f}s)")
+                return True
+            else:
+                elapsed = time.time() - attempt_start
+                wait_time = 1 + (attempt - 1) * 0.5
+                if attempt < max_attempts:
+                    print(f"⏳ {action_name} gagal ({elapsed:.2f}s), menunggu {wait_time}s sebelum retry...")
+                    time.sleep(wait_time)
+        except Exception as e:
+            elapsed = time.time() - attempt_start
+            wait_time = 1 + (attempt - 1) * 0.5
+            print(f"⚠️ [{attempt}] Exception saat {action_name} ({elapsed:.2f}s): {e}")
+            if attempt < max_attempts:
+                print(f"⏳ Menunggu {wait_time}s sebelum retry...")
+                time.sleep(wait_time)
+
+    total_elapsed = time.time() - start_time
+    print(f"❌ {action_name} gagal setelah {max_attempts} percobaan (total {total_elapsed:.2f}s)")
+    try:
+        save_debug_snapshot(driver, f"failed_{action_name}")
+    except Exception:
+        pass
+    return False
+
+
+def wait_for_preview_modal(driver, timeout=10):
+    modal_xpaths = [
+        "//div[@id='modal-preview' and contains(@class,'show') and contains(@class,'modal') and @aria-modal='true']",
+        "//div[contains(@class,'swal2-container') and contains(@class,'swal2-center')]",
+        "//div[contains(@class,'ant-modal-wrap') and not(contains(@style,'display: none'))]",
+    ]
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: any(
+                el.is_displayed()
+                for xpath in modal_xpaths
+                for el in d.find_elements(By.XPATH, xpath)
+            )
+        )
+        return True
+    except Exception:
+        return False
+
+def Preview(driver):
+    try:
+        preview_xpath = "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='preview & generate sandi']"
+        try:
+            fill_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, preview_xpath))
+            )
+        except Exception:
+            fill_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn.mr-1.btn-warning.btn-sm"))
+            )
+
+        if not attempt_click(driver, fill_button):
+            raise Exception("Klik Preview gagal")
+
+        print("✅ Tombol Preview berhasil diklik")
+        time.sleep(0.5)
+        if not wait_for_preview_modal(driver, timeout=10):
+            print("⚠️ Tombol Preview diklik, tetapi preview modal tidak muncul dalam 10 detik")
+            save_debug_snapshot(driver, "preview_clicked_no_modal")
+            return False
+        return True
+    except Exception as e:
+        print(f"❌ Gagal klik tombol Preview: {e}")
+        return False
+
+
+def Preview_OK(driver):
+    ok_xpath = (By.XPATH, "//div[@id='modal-preview']//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']")
+    try:
+        ok_btn = wait_for_clickable(driver, ok_xpath, timeout=12)
+        if not ok_btn:
+            print("❌ Tombol Preview OK tidak ditemukan di modal preview berdasarkan teks")
+            return False
+
+        if not attempt_click(driver, ok_btn):
+            print("❌ Tombol Preview OK ditemukan tetapi klik gagal")
+            save_debug_snapshot(driver, "preview_ok_click_failed")
+            return False
+
+        print("✅ Tombol Preview OK berhasil diklik")
+        return True
+    except Exception as e:
+        print(f"❌ Gagal klik tombol 'ok': {e}")
+        try:
+            save_debug_snapshot(driver, "preview_ok_exception")
+        except Exception:
+            pass
+        return False
+
+
+def SEND_GTS(driver):
+    # [FIX] Tambah pre-wait modal + verifikasi in_modal untuk mencegah klik tombol yang salah
+    modal_send_xpath = "//div[contains(@id,'send-gts-message')]//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='send']"
+    modal_xpath = "//div[contains(@class,'swal2-container') or contains(@class,'ant-modal-wrap')]//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='send']"
+    send_exact_xpath = "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='send']"
+    timeout = 15
+    poll = 0.25
+    start = time.time()
+
+    # Pre-wait: tunggu modal GTS benar-benar muncul sebelum mencari tombol SEND
+    print(f"⏳ Menunggu modal GTS muncul sebelum mencari tombol SEND (maks 10s)...")
+    modal_appeared = False
+    modal_indicators = [
+        "//div[contains(@id,'send-gts-message')]",
+        "//div[contains(@class,'swal2-container') and contains(@class,'swal2-backdrop-show')]",
+        "//div[contains(@class,'ant-modal-wrap') and not(contains(@style,'display: none'))]",
+    ]
+    wait_modal_start = time.time()
+    while time.time() - wait_modal_start < 10:
+        for xpath in modal_indicators:
+            try:
+                els = driver.find_elements(By.XPATH, xpath)
+                if els and any(e.is_displayed() for e in els):
+                    print(f"✅ Modal GTS terdeteksi ({xpath.split(']')[0]}...)")
+                    modal_appeared = True
+                    break
+            except Exception:
+                pass
+        if modal_appeared:
+            time.sleep(0.5)
+            break
+        time.sleep(0.3)
+
+    if not modal_appeared:
+        print("⚠️ Modal GTS tidak terdeteksi dalam 10s, tetap mencoba cari tombol SEND...")
+
+    print(f"⏳ Mencari tombol SEND (poll {poll}s) sampai {timeout}s...")
+    try:
+        while time.time() - start < timeout:
+            try:
+                # 1) Prioritas: tombol SEND di modal send-gts-message
+                try:
+                    modal_buttons = driver.find_elements(By.XPATH, modal_send_xpath)
+                except Exception as e:
+                    print(f"⚠️ Error mencari tombol SEND di modal send-gts-message: {e}")
+                    modal_buttons = []
+                for btn in modal_buttons:
+                    try:
+                        if btn and btn.is_displayed():
+                            elapsed = time.time() - start
+                            driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+                            try:
+                                btn.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", btn)
+                            print(f"✅ Tombol SEND berhasil diklik (modal send-gts-message) setelah {elapsed:.2f}s")
+                            if wait_for_send_ok_button(driver, timeout=12):
+                                return True
+                            print("⚠️ Tombol OK belum muncul setelah klik SEND di modal; menunggu ekstra sebelum retry...")
+                            time.sleep(2)
+                            continue
+                    except Exception:
+                        continue
+
+                # 2) Cari tombol SEND hanya di dalam modal dengan verifikasi JS
+                try:
+                    modal_only_candidates = driver.find_elements(By.XPATH, modal_xpath)
+                except Exception:
+                    modal_only_candidates = []
+
+                for btn in modal_only_candidates:
+                    try:
+                        if btn and btn.is_displayed():
+                            text = btn.text.strip().lower()
+                            if text != 'send':
+                                continue
+                            in_modal = driver.execute_script(
+                                """
+                                var el = arguments[0];
+                                while (el) {
+                                    var cls = (el.className || '').toString();
+                                    if (cls.includes('swal2-container') ||
+                                        cls.includes('ant-modal-wrap') ||
+                                        (el.id && el.id.includes('send-gts-message'))) {
+                                        return true;
+                                    }
+                                    el = el.parentElement;
+                                }
+                                return false;
+                                """, btn
+                            )
+                            if not in_modal:
+                                print(f"⚠️ Tombol '{text}' ditemukan tapi bukan di modal, dilewati")
+                                continue
+                            elapsed = time.time() - start
+                            driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+                            try:
+                                btn.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", btn)
+                            print(f"✅ Tombol SEND berhasil diklik (modal verified) setelah {elapsed:.2f}s")
+                            if wait_for_send_ok_button(driver, timeout=12):
+                                return True
+                            print("⚠️ Tombol OK belum muncul setelah klik SEND modal verified; retry...")
+                            time.sleep(2)
+                    except Exception:
+                        continue
+
+                # 3) Fallback: cari by text dengan verifikasi in_modal
+                candidates = []
+                try:
+                    candidates.extend(driver.find_elements(By.XPATH, send_exact_xpath))
+                except Exception:
+                    pass
+
+                for btn in candidates:
+                    try:
+                        if btn and btn.is_displayed():
+                            text = btn.text.strip().lower()
+                            if text != 'send':
+                                continue
+                            in_modal = driver.execute_script(
+                                """
+                                var el = arguments[0];
+                                while (el) {
+                                    var cls = (el.className || '').toString();
+                                    if (cls.includes('swal2-container') ||
+                                        cls.includes('ant-modal-wrap') ||
+                                        (el.id && el.id.includes('send-gts-message'))) {
+                                        return true;
+                                    }
+                                    el = el.parentElement;
+                                }
+                                return false;
+                                """, btn
+                            )
+                            if not in_modal:
+                                print(f"⚠️ Tombol 'send' di luar modal, dilewati untuk menghindari klik salah")
+                                continue
+                            elapsed = time.time() - start
+                            driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+                            try:
+                                btn.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", btn)
+                            print(f"✅ Tombol SEND berhasil diklik (by text, in modal) setelah {elapsed:.2f}s")
+                            if wait_for_send_ok_button(driver, timeout=12):
+                                return True
+                            print("⚠️ Tombol OK belum muncul setelah klik SEND; retry...")
+                            time.sleep(2)
+                    except Exception:
+                        continue
+
+            except Exception as e:
+                print(f"⚠️ Exception selama polling SEND_GTS loop: {e}")
+            time.sleep(poll)
+    except Exception as e:
+        print(f"⚠️ Exception saat polling SEND_GTS: {e}")
+
+    print("❌ Tombol SEND tidak ditemukan berdasarkan teks maupun modal XPath")
+    try:
+        save_debug_snapshot(driver, "failed_send_gts")
+    except Exception:
+        pass
+    return False
+
+
+def SEND_INASWITCH(driver):
+    try:
+        buttons = WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.XPATH, "//button"))
+        )
+        for btn in buttons:
+            text = btn.text.strip().lower()
+            if "send to inaswitching" in text:
+                driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+                try:
+                    btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", btn)
+                print("✅ Tombol 'Send to INASwitching' berhasil diklik")
+                return True
+        print("❌ Tombol 'Send to INASwitching' tidak ditemukan berdasarkan teks")
+        return False
+    except Exception as e:
+        print(f"❌ Gagal klik tombol 'Send to INASwitching': {e}")
+        return False
+
+def SEND_SEND_SUBMIT(driver):
+    # [F1.5/T21] jika data jam ini sudah ada di web, label tombol menjadi "Send & Update"
+    if _ada_tombol(driver, "send & update") and not _ada_tombol(driver, "send & submit"):
+        if click_button_by_text(driver, "send & update", timeout=8, exact=False):
+            time.sleep(1)
+            if wait_for_submit_progress(driver, timeout=8):
+                print("✅ Tombol 'Send & Update' berhasil diklik dan progress terdeteksi")
+                return True
+            print("⚠️ Tombol 'Send & Update' diklik tetapi progress tidak terdeteksi")
+            return False
+        print("❌ Tombol 'Send & Update' ditemukan tetapi gagal diklik")
+        return False
+    if click_button_by_text(driver, "send & submit", timeout=8, exact=False):
+        time.sleep(1)
+        if wait_for_submit_progress(driver, timeout=8):
+            print("✅ Tombol 'Send & Submit' berhasil diklik dan progress terdeteksi")
+            return True
+        print("⚠️ Tombol 'Send & Submit' diklik tetapi progress tidak terdeteksi")
+        return False
+    if click_button_containing_words(driver, ["send", "submit"], timeout=8):
+        time.sleep(1)
+        if wait_for_submit_progress(driver, timeout=8):
+            print("✅ Tombol 'Send & Submit' berhasil diklik (fallback) dan progress terdeteksi")
+            return True
+        print("⚠️ Tombol 'Send & Submit' diklik (fallback) tetapi progress tidak terdeteksi")
+        return False
+    print("❌ Tombol 'Send & Submit' tidak ditemukan")
+    return False
+
+
+def SEND_INASWITCH_SUBMIT(driver):
+    if click_button_by_text(driver, "send to inaswitching", timeout=8, exact=False):
+        time.sleep(1)
+        if wait_for_submit_progress(driver, timeout=8):
+            print("✅ Tombol 'Send to INASwitching' berhasil diklik dan progress terdeteksi")
+            return True
+        print("⚠️ Tombol 'Send to INASwitching' diklik tetapi progress tidak terdeteksi")
+        return False
+    if click_button_containing_words(driver, ["send", "inaswitching"], timeout=8):
+        time.sleep(1)
+        if wait_for_submit_progress(driver, timeout=8):
+            print("✅ Tombol 'Send to INASwitching' berhasil diklik (fallback) dan progress terdeteksi")
+            return True
+        print("⚠️ Tombol 'Send to INASwitching' diklik (fallback) tetapi progress tidak terdeteksi")
+        return False
+    print("❌ Tombol 'Send to INASwitching' tidak ditemukan")
+    return False
+
+
+def SEND_GTS_OK(driver):
+    try:
+        ok_btn = wait_for_clickable(driver, (
+            By.XPATH,
+            "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']"
+        ), timeout=10)
+        if ok_btn:
+            driver.execute_script("arguments[0].scrollIntoView(true);", ok_btn)
+            try:
+                ok_btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", ok_btn)
+            print("✅ Tombol SEND GTS OK berhasil diklik")
+            return True
+        print("❌ Tombol GTS OK tidak ditemukan berdasarkan teks")
+        return False
+    except Exception as e:
+        print(f"❌ Gagal klik tombol 'ok': {e}")
+        return False
+
+
+#=================================================Main Browser=======================================================#
+def login(driver):
+    print("\n" + "="*60)
+    print("🌐 MEMULAI PROSES LOGIN")
+    print("="*60)
+
+    print("🌐 Membuka halaman login...")
+    driver.get("https://bmkgsatu.bmkg.go.id/login")
+    time.sleep(2)
+
+    try:
+        print("⏳ Menunggu email field...")
+        email_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "login-email"))
+        )
+        print("✅ Email field ditemukan")
+        driver.execute_script("arguments[0].scrollIntoView(true);", email_input)
+        time.sleep(0.2)
+        email_input.clear()
+        time.sleep(0.2)
+        email_input.send_keys(STATION_ID)
+        print(f"✅ Email ({STATION_ID}) diisi")
+        time.sleep(0.2)
+    except Exception as e:
+        print(f"❌ Error saat mengisi email: {e}")
+        raise
+
+    try:
+        print("⏳ Menunggu password field...")
+        password_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "login-password"))
+        )
+        print("✅ Password field ditemukan")
+        driver.execute_script("arguments[0].scrollIntoView(true);", password_input)
+        time.sleep(0.2)
+        password_input.clear()
+        time.sleep(0.2)
+        password_input.send_keys(PASSWORD)
+        print("✅ Password dimasukkan")
+        time.sleep(0.2)
+    except Exception as e:
+        print(f"❌ Error saat mengisi password: {e}")
+        raise
+
+    try:
+        print("⏳ Mencari tombol login atau menekan ENTER...")
+        password_input.send_keys(Keys.RETURN)
+        print("✅ ENTER ditekan")
+        time.sleep(2)
+    except Exception as e:
+        print(f"⚠️ ENTER tidak berhasil: {e}")
+        try:
+            print("⏳ Mencari tombol submit...")
+            submit_button = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+            )
+            driver.execute_script("arguments[0].click();", submit_button)
+            print("✅ Tombol login diklik via JavaScript")
+            time.sleep(2)
+        except Exception as e2:
+            print(f"❌ Gagal klik tombol login: {e2}")
+            raise
+
+    WebDriverWait(driver, 20).until(EC.url_contains("/dashboard"))
+    print("✅ Login berhasil")
+
+    print("🌐 Membuka halaman sinoptik...")
+    driver.get("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik")
+    time.sleep(2)
+
+
+def has_opencv():
+    try:
+        import cv2  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _klik_popup_oke_selenium_sekali(drv):
+    # [F1.1] Satu kali coba klik tombol konfirmasi popup (swal2 / modal) lewat Selenium.
+    try:
+        kandidat = list(drv.find_elements(By.CSS_SELECTOR, "button.swal2-confirm"))
+        kandidat += drv.find_elements(
+            By.XPATH,
+            "//*[contains(@class,'swal2-container') or contains(@class,'modal') "
+            "or contains(@class,'ant-modal-wrap') or @role='dialog']"
+            "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok' "
+            "or translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='oke']")
+        for b in kandidat:
+            if b.is_displayed():
+                safe_click(drv, b)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def klik_tombol_oke_popup(image_path=None, max_wait=None, drv=None):
+    # [F1.1] Urutan: (1) Selenium (tidak bergantung resolusi/skala layar), (2) gambar via pyautogui (cara V6),
+    # (3) opsional: tekan Enter (features.popup_press_enter; dialog Chrome fokusnya sudah di tombol OK)
+    if max_wait is None:
+        max_wait = CFG["runtime"].get("popup_wait_seconds", 3)
+    drv = drv if drv is not None else driver
+    if image_path is None:
+        image_path = OK_IMAGE_PATH          # dari config.yaml (paths.ok_image)
+    pakai_gambar = os.path.exists(image_path)
+    print("🔍 Mendeteksi tombol Oke pada popup...")
+    if not pakai_gambar:
+        print(f"ℹ️ Gambar tombol OK tidak ditemukan ({image_path}); hanya memakai Selenium.")
+    use_confidence = has_opencv() if pakai_gambar else False
+    if pakai_gambar and not use_confidence:
+        print("⚠️ OpenCV tidak ditemukan. Mencoba tanpa confidence parameter.")
+    for i in range(max_wait):
+        if drv is not None and _klik_popup_oke_selenium_sekali(drv):
+            print("✅ Tombol OK popup berhasil diklik lewat Selenium")
+            return True
+        if pakai_gambar:
+            lokasi = None
+            try:
+                if use_confidence:
+                    lokasi = pyautogui.locateOnScreen(image_path, confidence=0.8)
+                else:
+                    lokasi = pyautogui.locateOnScreen(image_path)
+            except Exception as e:
+                # pyautogui/pyscreeze versi baru MELEMPAR ImageNotFoundException bila gambar belum
+                # terlihat di layar (versi lama mengembalikan None) -> perlakukan sebagai "belum ada".
+                if "ImageNotFound" not in type(e).__name__:
+                    print(f"⚠️ pyautogui: {type(e).__name__}: {e}")
+                lokasi = None
+            if lokasi:
+                center = pyautogui.center(lokasi)
+                pyautogui.moveTo(center.x, center.y, duration=0.3)
+                pyautogui.click()
+                print(f"✅ Tombol OK berhasil diklik pada {center}")
+                return True
+        print(f"⏳ Menunggu tombol OK muncul... ({i+1}/{max_wait})")
+        time.sleep(1)
+    if CFG["features"].get("popup_press_enter", False):
+        try:
+            pyautogui.press("enter")
+            print("⌨️ Enter ditekan untuk menutup dialog Chrome (features.popup_press_enter=true)")
+            return True
+        except Exception as e:
+            print(f"⚠️ Gagal menekan Enter: {e}")
+    print("ℹ️ Tombol OK popup tidak ditemukan (popup Chrome 'Change your password' bukan bagian halaman web; "
+          "biasanya tidak muncul lagi setelah opsi anti-popup). Proses dilanjutkan.")
+    return False
+
+
+def memilih_stasiun(driver):
+    print("🏢 Memilih stasiun...")
+    stasiun_dropdown = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//label[contains(text(), 'Stasiun')]/following-sibling::div//div[contains(@class,'ant-select-selection__rendered')]"))
+    )
+    safe_click(driver, stasiun_dropdown)
+    _jeda(0.3)
+    pilih_opsi_unsur(driver, STASIUN_YANG_DIPILIH)
+    print("✅ Stasiun dipilih")
+
+
+def memilih_observer(driver):
+    print("🏢 Memilih nama observer...")
+    for attempt in range(1, 4):
+        try:
+            observer_dropdown = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH,
+                    "//label[contains(text(), 'Nama Observer')]/following-sibling::div//div[contains(@class,'ant-select-selection__rendered')]"
+                ))
+            )
+            safe_click(driver, observer_dropdown)
+            _jeda(1.5)  # tambah delay agar opsi dropdown sempat muncul
+
+            if pilih_opsi_unsur(driver, nama_observer):
+                print("✅ Observer dipilih")
+                return True  # [FIX] hanya print sukses kalau benar-benar berhasil
+
+            print(f"⚠️ Attempt {attempt}/3: Opsi observer tidak ditemukan, retry...")
+            _jeda(1)
+
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt}/3: Exception saat pilih observer: {e}")
+            save_debug_snapshot(driver, f"observer_attempt_{attempt}_failed")
+            _jeda(1)
+
+    print("❌ Gagal memilih observer setelah 3 percobaan")
+    save_debug_snapshot(driver, "observer_gagal_total")
+    return False  # [FIX] return False agar caller tahu gagal
+
+
+def memilih_tanggal(driver, utc_date=None):
+    """utc_date 'YYYY-MM-DD' = tanggal slot (F1.5). None = perilaku V6 (tanggal UTC saat ini)."""
+    if utc_date is None:
+        local_now = datetime.now()
+        utc_target_time = local_now - timedelta(hours=7)
+        utc_date = utc_target_time.strftime("%Y-%m-%d")
+    print(f"Memilih tanggal: {utc_date}...")
+    datepicker_button = driver.find_element(By.ID, "input-datepicker")
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.invisibility_of_element_located((By.XPATH, "//div[contains(@class, 'position-absolute') and contains(@class, 'bg-light')]"))
+        )
+        print("Overlay disappeared, proceeding to click datepicker...")
+    except Exception as e:
+        print(f"Overlay still present or not found: {e}")
+        try:
+            overlay = driver.find_element(By.XPATH, "//div[contains(@class, 'position-absolute') and contains(@class, 'bg-light')]")
+            driver.execute_script("arguments[0].style.display = 'none';", overlay)
+            print("Overlay dismissed via JavaScript.")
+        except Exception as e:
+            print(f"Could not dismiss overlay: {e}")
+
+    try:
+        driver.execute_script("arguments[0].click();", datepicker_button)
+        print("Datepicker button clicked via JavaScript.")
+    except Exception as e:
+        print(f"Failed to click datepicker button via JavaScript: {e}")
+        _jeda(1)
+        datepicker_button.click()
+
+    xpath_date = f"//div[@role='button' and @data-date='{utc_date}']"
+    wait = WebDriverWait(driver, 10)
+    try:
+        wait.until(EC.element_to_be_clickable((By.XPATH, xpath_date))).click()
+        print(f"✅ Tanggal '{utc_date}' berhasil dipilih.")
+        _jeda(0.5)
+        return True
+    except Exception as e:
+        print(f"⚠️ Gagal memilih tanggal {utc_date}: {e}. Memastikan datepicker ditutup...")
+        driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
+        return False
+
+
+def isi_per_jam(driver, row):
+    try:
+        print(f"\n⏰ Memilih jam {row['jam_input']}...")
+        jam_wrap = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//label[contains(text(), 'Jam')]/following-sibling::div//div[contains(@class,'ant-select-selection__rendered')]"))
+        )
+        safe_click(driver, jam_wrap)
+        _jeda(1)
+
+        jam_raw = str(row['jam_input'])
+        if ":" in jam_raw:
+            jam_str = jam_raw.strip()[:2] + ":00"
+        else:
+            jam_str = str(int(float(jam_raw))).zfill(2) + ":00"
+
+        if not pilih_opsi_unsur(driver, jam_str):
+            print(f"❌ Opsi jam {jam_str} tidak bisa dipilih")
+            return False
+        print(f"✅ Jam {jam_str} dipilih")
+        return True
+    except Exception as e:
+        print(f"❌ Gagal pilih jam: {e}")
+        return False
+
+
+def Fill_AWS_Digi(driver):
+    try:
+        fill_button = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.swal2-confirm.btn.btn-primary"))
+        )
+        fill_button.click()
+        print("✅ Tombol Fill pada popup berhasil diklik")
+        return True
+    except Exception:
+        print("ℹ️ Tidak ada popup AWS Digi atau tombol Fill tidak muncul")
+        return False
+
+
+#=============================== TAMBAHAN V7 (F1.x) ==============================#
+PERUBAHAN_OTOMATIS = {}   # [F1.4] perubahan data otomatis (mis. ww 10->05) untuk dicatat di log
+HUJAN_OVERRIDE_LOG = {}   # [F1.8] hasil override hujan untuk dicatat di log
+
+
+def _fmt_angka(v):
+    """Angka -> teks untuk diketik ke web (3.0 -> '3', 3.5 -> '3.5')."""
+    f = float(v)
+    return str(int(f)) if f == int(f) else ("%g" % f)
+
+
+def _ada_tombol(driver, teks):
+    """True jika ada tombol tampak yang teksnya memuat `teks` (tidak peka huruf besar/kecil)."""
+    low = teks.strip().lower()
+    xp = ("//button[contains(translate(normalize-space(.),"
+          "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'" + low + "')]")
+    try:
+        return any(b.is_displayed() for b in driver.find_elements(By.XPATH, xp))
+    except Exception:
+        return False
+
+
+def tanggal_di_web(driver):
+    """Tanggal yang tampil di datepicker (dd/mm/yyyy) -> 'YYYY-MM-DD'; None bila tidak terbaca."""
+    try:
+        el = driver.find_element(By.ID, "input-datepicker")
+        teks = (el.get_attribute("value") or el.text or "").strip()
+        m = re.search(r"(\d{2})/(\d{2})/(\d{4})", teks)
+        if m:
+            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    except Exception:
+        pass
+    return None
+
+
+def baca_sandi(driver):
+    """Isi kolom sandi (hasil Preview & Generate Sandi)."""
+    try:
+        el = driver.find_element(By.ID, "textarea-sandi")
+        return (el.get_attribute("value") or el.text or "").strip()
+    except Exception:
+        return ""
+
+
+def isi_hujan_override(driver, mm):
+    """
+    [F1.8] Timpa 'Hujan takaran terakhir' (rainfall_last_mm) dengan angka pengguna.
+    Nilai asli dari Fill AWS Digi dicatat. Kolom ini hanya terbuka tiap 3 jam UTC;
+    bila nonaktif, override tidak diterapkan (dicatat) dan pengiriman tetap lanjut.
+    Return: True = diterapkan atau tidak berlaku; False = kolom aktif tetapi gagal diisi.
+    """
+    global HUJAN_OVERRIDE_LOG
+    nilai = _fmt_angka(mm)
+    HUJAN_OVERRIDE_LOG = {"override": nilai, "applied": False}
+    try:
+        el = wait_for_presence(driver, (By.ID, "rainfall_last_mm"), timeout=5)
+        if el is None:
+            HUJAN_OVERRIDE_LOG["reason"] = "kolom hujan tidak ditemukan"
+            print("⚠️ Override hujan: kolom rainfall_last_mm tidak ditemukan; nilai AWS dipakai")
+            return True
+        if not el.is_enabled():
+            HUJAN_OVERRIDE_LOG["reason"] = "kolom hujan nonaktif (bukan jam kelipatan 3 UTC)"
+            print("⚠️ Override hujan: kolom hujan NONAKTIF pada jam ini; override tidak diterapkan")
+            return True
+        lama = (el.get_attribute("value") or "").strip()
+        HUJAN_OVERRIDE_LOG["aws"] = lama
+        ok = isi_input_text(driver, "rainfall_last_mm", nilai)
+        baru = (driver.find_element(By.ID, "rainfall_last_mm").get_attribute("value") or "").strip()
+        try:
+            sama = float(baru.replace(",", ".")) == float(nilai)
+        except ValueError:
+            sama = False
+        HUJAN_OVERRIDE_LOG["nilai_akhir"] = baru
+        if ok and sama:
+            HUJAN_OVERRIDE_LOG["applied"] = True
+            print(f"✅ Override hujan diterapkan: {lama or '(kosong)'} (AWS) → {nilai} mm")
+            return True
+        HUJAN_OVERRIDE_LOG["reason"] = f"nilai akhir '{baru}' tidak sama dengan {nilai}"
+        print(f"❌ Override hujan gagal: nilai akhir '{baru}' ≠ '{nilai}'")
+        return not CFG["features"].get("rain_override_strict", False)
+    except Exception as e:
+        HUJAN_OVERRIDE_LOG["reason"] = f"error: {e}"
+        print(f"❌ Override hujan error: {e}")
+        return not CFG["features"].get("rain_override_strict", False)
+
+
+def buat_driver():
+    """[F1.6] Buka Chrome (dipanggil di main setelah launcher)."""
+    return webdriver.Chrome(service=Service(), options=chrome_options)
+
+
+def parse_args():
+    ap = argparse.ArgumentParser(description="SYNOP otomatis V7 (BMKGSoft v2)")
+    ap.add_argument("--observer", help="nama observer persis seperti di web (tanpa dialog)")
+    ap.add_argument("--no-gui", action="store_true", help="tanya observer lewat terminal")
+    ap.add_argument("--dry-run", action="store_true", help="isi form sampai Preview, tidak mengirim")
+    ap.add_argument("--check-only", action="store_true", help="validasi Excel saja lalu keluar")
+    ap.add_argument("--process-past", action="store_true",
+                    help="baris yang waktu eksekusinya sudah lewat TETAP diproses sekarang (untuk uji / susul kirim)")
+    ap.add_argument("--jam", help="hanya proses jam UTC tertentu, contoh: 07:00 atau 07:00,08:00")
+    return ap.parse_args()
+
+
+def daftar_observer_aktif():
+    """Observer aktif dari core/options.json (dibatasi observers.allowed di config.yaml bila diisi)."""
+    try:
+        with open(resolve_path(CFG, "options"), encoding="utf-8") as f:
+            obs = json.load(f).get("observer", [])
+    except Exception:
+        obs = []
+    aktif = [o["name"] for o in obs if o.get("active")]
+    boleh = CFG.get("observers", {}).get("allowed") or []
+    if boleh:
+        aktif = [n for n in aktif if n in boleh] or list(boleh)
+    return aktif
+
+
+def pilih_observer_gui(daftar, dry_run_awal=False):
+    """
+    [F1.6/F1.7] Dialog kecil: pilih observer + centang dry-run.
+    Return: (nama, dry_run) | "BATAL" | None (tkinter/display tidak tersedia).
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+        root = tk.Tk()
+    except Exception:
+        return None
+    hasil = {"v": "BATAL"}
+    root.title("SYNOP Otomatis")
+    root.resizable(False, False)
+    frm = ttk.Frame(root, padding=16)
+    frm.grid()
+    ttk.Label(frm, text="Nama observer:").grid(column=0, row=0, sticky="w")
+    var_obs = tk.StringVar(value=daftar[0] if daftar else "")
+    cb = ttk.Combobox(frm, textvariable=var_obs, values=daftar, width=38,
+                      state="readonly" if daftar else "normal")
+    cb.grid(column=0, row=1, pady=(2, 10))
+    var_dry = tk.BooleanVar(value=dry_run_awal)
+    ttk.Checkbutton(frm, text="Mode uji (DRY-RUN): isi form sampai Preview, tidak mengirim",
+                    variable=var_dry).grid(column=0, row=2, sticky="w")
+
+    def mulai():
+        if not var_obs.get().strip():
+            return
+        hasil["v"] = (var_obs.get().strip(), bool(var_dry.get()))
+        root.destroy()
+
+    def batal():
+        root.destroy()
+
+    btn = ttk.Frame(frm)
+    btn.grid(column=0, row=3, pady=(12, 0), sticky="e")
+    ttk.Button(btn, text="Batal", command=batal).grid(column=0, row=0, padx=4)
+    ttk.Button(btn, text="Mulai", command=mulai).grid(column=1, row=0)
+    root.protocol("WM_DELETE_WINDOW", batal)
+    root.mainloop()
+    return hasil["v"]
+
+
+def _jeda(detik):
+    """[speed] time.sleep yang diskalakan SPEED_SCALE (config.yaml: speed.scale)."""
+    time.sleep(max(0.05, float(detik) * SPEED_SCALE))
+
+
+def _tunggu_nilai_terpilih(driver, id_div, nilai, timeout=2.0):
+    """[speed] Tunggu sampai dropdown menampilkan nilai terpilih (pengganti sleep tetap)."""
+    kunci = " ".join(str(nilai).split()).lower()
+    akhir = time.time() + timeout
+    while time.time() < akhir:
+        try:
+            teks = driver.execute_script(
+                "var c=document.getElementById(arguments[0]); if(!c) return '';"
+                "var v=c.querySelector('.ant-select-selection-selected-value');"
+                "return v ? (v.getAttribute('title') || v.textContent || '') : '';", id_div) or ""
+            teks = " ".join(str(teks).split()).lower()
+            if teks and (kunci in teks or teks.split(" ")[0] == kunci.split(" ")[0]):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.05)
+    return False
+
+
+def _switch_aktif(driver, id_switch):
+    """True/False = status switch lapisan (checkbox id numerik); None bila tidak terbaca."""
+    try:
+        return driver.execute_script(
+            "var e=document.getElementById(arguments[0]); return e ? !!e.checked : null;", str(id_switch))
+    except Exception:
+        return None
+
+
+def _atur_switch(driver, id_switch, aktif):
+    """
+    [F1.5/T19] Pastikan switch lapisan berada pada status `aktif`. Hanya diklik bila statusnya
+    berbeda (mode Update memuat data lama dengan switch sudah aktif; menekannya akan mematikannya).
+    Return True bila status akhir sesuai.
+    """
+    sekarang = _switch_aktif(driver, id_switch)
+    if sekarang is not None and bool(sekarang) == bool(aktif):
+        return True
+    for _ in range(2):
+        try:
+            label = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, f"//label[@for='{id_switch}']")))
+            safe_click(driver, label)
+        except Exception as e:
+            print(f"⚠️ Gagal klik switch '{id_switch}': {e}")
+            return False
+        akhir = time.time() + 1.5
+        while time.time() < akhir:
+            st = _switch_aktif(driver, id_switch)
+            if st is not None and bool(st) == bool(aktif):
+                return True
+            time.sleep(0.05)
+    return False
+
+
+# ---------------------------------------------------------------------------
+#  [F3.10] LAPISAN TAMBAHAN: awan rendah ke-3, menengah ke-2, tinggi ke-2
+#  Dicari lewat POSISI di kartu (seksi -> kolom -> baris), bukan XPath global/id tetap.
+# ---------------------------------------------------------------------------
+_JS_SELECT_POSISI = r"""
+const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+const sec = arguments[0], col = arguments[1], row = arguments[2];
+const h = Array.from(document.querySelectorAll('h5')).find(x => norm(x.innerText) === sec);
+if (!h) return null;
+const body = h.closest('.card-body'); if (!body) return null;
+const cols = body.querySelector('.collapse > .row'); if (!cols) return null;
+const c = cols.children[col]; if (!c) return null;
+const r = c.children[row]; if (!r) return null;
+return r.querySelector('.ant-select');
+"""
+_JS_TOGGLE_IDS = r"""
+const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+const h = Array.from(document.querySelectorAll('h5')).find(x => norm(x.innerText) === arguments[0]);
+if (!h) return [];
+const body = h.closest('.card-body'); if (!body) return [];
+return Array.from(body.querySelectorAll("input.custom-control-input[name='check-button']")).map(e => e.id);
+"""
+_JS_MENU_TERBUKA = r"""
+const e = document.getElementById(arguments[0]);
+return !!e && e.offsetParent !== null && e.querySelectorAll('li').length > 0;
+"""
+_JS_CARI_LI = r"""
+const n = s => (s || '').replace(/\s+/g, ' ').trim();
+const e = document.getElementById(arguments[0]); if (!e) return null;
+const li = Array.from(e.querySelectorAll('li')).find(
+  x => n(x.innerText) === arguments[1] && x.getAttribute('aria-disabled') !== 'true');
+return li || null;
+"""
+
+
+def _sama_teks(a, b):
+    a, b = " ".join(str(a).split()), " ".join(str(b).split())
+    return bool(a) and bool(b) and (a == b or a.startswith(b) or b.startswith(a))
+
+
+def _id_toggle(driver, section, ordinal, fallback_id):
+    """Id switch lapisan: urutan ke-`ordinal` di kartu `section`; bila gagal, id terakhir terlihat."""
+    try:
+        ids = driver.execute_script(_JS_TOGGLE_IDS, section) or []
+        if len(ids) >= ordinal and ids[ordinal - 1]:
+            return str(ids[ordinal - 1])
+    except Exception:
+        pass
+    return str(fallback_id)
+
+
+def pilih_dropdown_posisi(driver, section, col, row, text, timeout=4):
+    """
+    Pilih opsi dropdown pada posisi (seksi, kolom, baris) di kartu awan berdasar TEKS PERSIS opsi.
+    Cara kerja sama dengan collect_rules_matrix.py (terbukti di web asli).
+    """
+    try:
+        sel = driver.execute_script(_JS_SELECT_POSISI, section, col, row)
+        if sel is None:
+            print(f"❌ Dropdown posisi ({section}, kolom {col}, baris {row}) tidak ditemukan")
+            return False
+        combo = sel.find_element(By.CSS_SELECTOR, "[role='combobox']")
+        cid = combo.get_attribute("aria-controls")
+        target = " ".join(str(text).split())
+        for _ in range(2):
+            attempt_click(driver, combo)
+            try:
+                WebDriverWait(driver, timeout).until(lambda d: d.execute_script(_JS_MENU_TERBUKA, cid))
+            except TimeoutException:
+                continue
+            li = driver.execute_script(_JS_CARI_LI, cid, target)
+            if li is None:
+                print(f"❌ Opsi '{target}' tidak ada / nonaktif di dropdown ({section}, kolom {col}, baris {row})")
+                try:
+                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                except Exception:
+                    pass
+                return False
+            attempt_click(driver, li)
+            akhir = time.time() + 2.5
+            while time.time() < akhir:
+                try:
+                    vs = sel.find_elements(By.CSS_SELECTOR, ".ant-select-selection-selected-value")
+                    if vs:
+                        v = vs[0].get_attribute("title") or vs[0].text
+                        if _sama_teks(v, target):
+                            return True
+                except Exception:
+                    pass
+                time.sleep(0.05)
+        return False
+    except Exception as e:
+        print(f"❌ pilih_dropdown_posisi gagal ({section}, kolom {col}, baris {row}): {e}")
+        return False
+
+
+def _isi_satu_lapisan_tambahan(driver, item):
+    nama = f"{item['section']} lapisan {item['n']}"
+    tid = _id_toggle(driver, item["section"], item["toggle_ordinal"], item["fallback_toggle_id"])
+    if not _atur_switch(driver, tid, True):
+        GAGAL_OPSIONAL.append(f"{nama}: switch '{tid}' gagal diaktifkan")
+        print(f"⚠️ {nama}: switch '{tid}' gagal diaktifkan")
+        return False
+    try:   # tunggu kolom lapisan aktif (input tinggi dasar enabled)
+        WebDriverWait(driver, 3).until(lambda d: d.find_element(By.ID, item["base_id"]).is_enabled())
+    except Exception:
+        GAGAL_OPSIONAL.append(f"{nama}: kolom tidak aktif setelah switch dinyalakan")
+        print(f"⚠️ {nama}: kolom tidak aktif setelah switch dinyalakan")
+        return False
+    ok = True
+    for label, baris, teks in (("Jenis", 2, item.get("jenis")), ("Jumlah", 3, item.get("jumlah")),
+                               ("Arah", item["arah_row"], item.get("arah"))):
+        if not teks:
+            continue
+        if pilih_dropdown_posisi(driver, item["section"], item["col"], baris, teks):
+            print(f"✅ {nama}: {label} = {teks}")
+        else:
+            GAGAL_OPSIONAL.append(f"{nama}: {label} '{teks}' gagal dipilih")
+            ok = False
+    if item.get("base") is not None:
+        if isi_input_text(driver, item["base_id"], _fmt_angka(item["base"])):
+            print(f"✅ {nama}: tinggi dasar = {_fmt_angka(item['base'])}")
+        else:
+            GAGAL_OPSIONAL.append(f"{nama}: tinggi dasar ({item['base_id']}) gagal diisi")
+            ok = False
+    return ok
+
+
+def _matikan_lapisan_tambahan(driver, off):
+    """Kolom lapisan ada di Excel tetapi kosong: matikan switch bila masih aktif (sisa data lama)."""
+    nama = f"{off['section']} lapisan {off['n']}"
+    tid = _id_toggle(driver, off["section"], off["toggle_ordinal"], off["fallback_toggle_id"])
+    if _switch_aktif(driver, tid) is True:
+        print(f"ℹ️ {nama} aktif (data lama) tetapi Excel kosong -> dimatikan")
+        if not _atur_switch(driver, tid, False):
+            GAGAL_OPSIONAL.append(f"{nama}: switch '{tid}' gagal dimatikan")
+
+
+def isi_lapisan_tambahan(driver, plan):
+    """[F3.10] Isi lapisan tambahan sesuai plan['extra'] dan matikan yang sisa di plan['extra_off']."""
+    if not plan or not CFG["features"].get("extra_layers", True):
+        return
+    for item in plan.get("extra") or []:
+        try:
+            _isi_satu_lapisan_tambahan(driver, item)
+        except Exception as e:
+            GAGAL_OPSIONAL.append(f"{item.get('section')} lapisan {item.get('n')}: error {e}")
+            print(f"⚠️ Lapisan tambahan {item.get('section')} {item.get('n')} error: {e}")
+    for off in plan.get("extra_off") or []:
+        try:
+            _matikan_lapisan_tambahan(driver, off)
+        except Exception as e:
+            print(f"⚠️ Gagal mematikan lapisan {off.get('section')} {off.get('n')}: {e}")
+
+
+def isi_data(driver, row, plan=None):
+    # plan = keputusan dari core.validator (F1.9); None = perilaku V6 (tanpa plan)
+    try:
+        print("📝 Mengisi data parameter...")
+
+        # ── WAJIB (abort jika gagal) ──────────────────────────────────────────
+        if not pilih_dropdown_ant_select(driver, "present_weather_ww", str(row['ww']).zfill(2)):
+            return False
+        if not pilih_dropdown_ant_select(driver, "past_weather_w1", str(row['w1'])):
+            return False
+        if not pilih_dropdown_ant_select(driver, "past_weather_w2", str(row['w2'])):
+            return False
+        if not isi_input_text(driver, "visibility_vv", str(row['visibility'])):
+            return False
+        cloud_cover_oktas_m = str(row['cloud_cover_oktas_m']).strip()
+        if not pilih_dropdown_ant_select(driver, "cloud_cover_oktas_m", cloud_cover_oktas_m):
+            return False
+
+        # [F1.8] override curah hujan (hanya bila diminta di Excel & lolos validasi)
+        if plan and plan.get("rain_override"):
+            if not isi_hujan_override(driver, plan["rain_override"]["mm"]):
+                return False
+
+        # [F1.9] total tutupan 0 / 9 / "/" : web mengisi CL/CM/CH otomatis & menonaktifkan detail awan
+        skip_clouds = bool(plan and plan.get("skip_clouds"))
+        if skip_clouds or cloud_cover_oktas_m in {"/ - Cloud", "/ -"}:
+            print(
+                f"ℹ️ cloud_cover_oktas_m = '{cloud_cover_oktas_m}', "
+                "melewati pengisian awan dan langsung mengisi land_cond"
+            )
+            # [F1.9] total 9 (langit tertutup): vertical visibility wajib, diisi manual dari Excel
+            if plan and plan.get("total") == "9":
+                vv = plan.get("vertical_visibility")
+                if vv is None:
+                    print("❌ Tutupan total 9 tetapi vertical_visibility kosong di Excel")
+                    return False
+                if not isi_input_text(driver, "cloud_vertical_vis", _fmt_angka(vv)):
+                    print("❌ cloud_vertical_vis gagal diisi")
+                    return False
+            if not pilih_dropdown_ant_select(driver, "land_cond", str(row['land_cond'])):
+                return False
+            print("✅ Data berhasil diisi")
+            return True
+
+        # ================ AWAN RENDAH ========================================#
+        cloud_low_type = str(row['cloud_low_type_cl']).strip()
+        cloud_low_type_code = cloud_low_type.split("-", 1)[0].strip()
+        if not pilih_dropdown_ant_select(driver, "cloud_low_type_cl", cloud_low_type):
+            return False  # WAJIB
+
+        if cloud_low_type_code in ("0", "/"):   # [F1.9] "/" juga dinonaktifkan web
+            print(f"⚠️ Awan rendah tidak diisi karena cloud_low_type_cl = '{cloud_low_type}'")
+        else:
+            required_low_fields = (
+                "cloud_low_cover_oktas",
+                "awan_rendah_jenis",
+                "awan_rendah_jumlah",
+                "cloud_arah_awan_rendah",
+            )
+            missing_low_fields = [
+                field
+                for field in required_low_fields
+                if pd.isna(row[field]) or not str(row[field]).strip()
+            ]
+            if missing_low_fields:
+                print(
+                    "❌ Data awan rendah wajib kosong: "
+                    + ", ".join(missing_low_fields)
+                )
+                return False
+
+            if not pilih_dropdown_ant_select(driver, "cloud_low_cover_oktas", str(row['cloud_low_cover_oktas'])):
+                print("❌ cloud_low_cover_oktas gagal dipilih")
+                return False
+
+            if not isi_jenis_dan_jumlah_awan_Rendah(driver, str(row['awan_rendah_jenis']), str(row['awan_rendah_jumlah'])):
+                print("❌ Jenis/Jumlah Awan Rendah gagal diisi")
+                return False
+
+            jenis_awan_rendah = str(row['awan_rendah_jenis']).strip()
+            kode_jenis_awan_rendah = jenis_awan_rendah.split("-", 1)[0].strip()
+            # [F1.9/R23] aktif jika Jenis 8/9 DAN CL bukan 1 (CL=1: puncak nonaktif di web)
+            peak_dan_arah_sebenarnya_aktif = (kode_jenis_awan_rendah in {"8", "9"}
+                                              and cloud_low_type_code != "1")
+
+            if pd.notna(row['cloud_low_base_1']):
+                if not isi_input_text(driver, "cloud_low_base_1", str(int(float(row['cloud_low_base_1'])))):
+                    GAGAL_OPSIONAL.append("cloud_low_base_1 gagal diisi (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                    print("⚠️ cloud_low_base_1 gagal diisi (field tidak aktif), dilewati")
+            else:
+                print("⚠️ cloud_low_base_1 kosong di Excel, dilewati")
+
+            if peak_dan_arah_sebenarnya_aktif:
+                if pd.notna(row['cloud_low_peak_1']):
+                    peak_1_ok = isi_input_text(driver, "cloud_low_peak_1", str(int(float(row['cloud_low_peak_1']))))
+                    if not peak_1_ok:
+                        GAGAL_OPSIONAL.append("cloud_low_peak_1 gagal diisi (field tidak aktif untuk jenis awan ini), dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ cloud_low_peak_1 gagal diisi (field tidak aktif untuk jenis awan ini), dilewati")
+                else:
+                    peak_1_ok = False
+                    print("⚠️ cloud_low_peak_1 kosong di Excel, dilewati")
+
+                # Elevasi hanya dicoba jika peak berhasil
+                if peak_1_ok and pd.notna(row['cloud_elevation_1_angle_ec']):
+                    if not pilih_dropdown_ant_select(driver, "cloud_elevation_1_angle_ec", str(row['cloud_elevation_1_angle_ec'])):
+                        GAGAL_OPSIONAL.append("cloud_elevation_1_angle_ec gagal dipilih (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ cloud_elevation_1_angle_ec gagal dipilih (field tidak aktif), dilewati")
+                elif not peak_1_ok and pd.notna(row['cloud_elevation_1_angle_ec']):
+                    print("⚠️ cloud_elevation_1_angle_ec dilewati karena cloud_low_peak_1 tidak aktif")
+
+                # Arah sebenarnya tetap dicoba terlepas dari peak
+                if pd.notna(row['cloud_arah_sebenarnya_1']):
+                    if not pilih_arah_sebenarnya(driver, str(row['cloud_arah_sebenarnya_1'])):
+                        GAGAL_OPSIONAL.append("cloud_arah_sebenarnya_1 gagal dipilih (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ cloud_arah_sebenarnya_1 gagal dipilih (field tidak aktif), dilewati")
+            else:
+                print(
+                    f"ℹ️ cloud_low_peak_1 dan cloud_arah_sebenarnya_1 dilewati karena "
+                    f"jenis awan rendah '{jenis_awan_rendah}' bukan 8/9 atau CL=1"
+                )
+
+            if pd.notna(row['cloud_arah_awan_rendah']):
+                if not pilih_arah_Awan_Rendah(driver, str(row['cloud_arah_awan_rendah'])):
+                    print("❌ cloud_arah_awan_rendah gagal dipilih")
+                    return False
+
+            # [TOLERAN] Awan rendah kedua
+            if pd.notna(row['awan_rendah_2_jenis']):
+                if not klik_switch_jika_type(driver):
+                    GAGAL_OPSIONAL.append("klik_switch_jika_type gagal, dilewati")   # [F1.5] dicatat ke log
+                    print("⚠️ klik_switch_jika_type gagal, dilewati")
+
+                if pd.notna(row['cloud_low_base_2']):
+                    cloud_low_base_2 = str(int(float(row['cloud_low_base_2'])))
+                else:
+                    cloud_low_base_2 = ""
+
+                if not isi_jenis_dan_jumlah_awan_rendah_2(driver, str(row['awan_rendah_2_jenis']), str(row['awan_rendah_2_jumlah'])):
+                    GAGAL_OPSIONAL.append("Jenis/Jumlah Awan Rendah 2 gagal diisi, dilewati")   # [F1.5] dicatat ke log
+                    print("⚠️ Jenis/Jumlah Awan Rendah 2 gagal diisi, dilewati")
+
+                if cloud_low_base_2:
+                    if not isi_input_text(driver, "cloud_low_base_2", cloud_low_base_2):
+                        GAGAL_OPSIONAL.append("cloud_low_base_2 gagal diisi (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ cloud_low_base_2 gagal diisi (field tidak aktif), dilewati")
+
+                if cloud_low_type_code != "1":
+                    if pd.notna(row['cloud_low_peak_2']):
+                        cloud_low_peak_2 = str(int(float(row['cloud_low_peak_2'])))
+                    else:
+                        cloud_low_peak_2 = ""
+
+                    if cloud_low_peak_2:
+                        peak_2_ok = isi_input_text(driver, "cloud_low_peak_2", cloud_low_peak_2)
+                        if not peak_2_ok:
+                            GAGAL_OPSIONAL.append("cloud_low_peak_2 gagal diisi (field tidak aktif untuk jenis awan ini), dilewati")   # [F1.5] dicatat ke log
+                            print("⚠️ cloud_low_peak_2 gagal diisi (field tidak aktif untuk jenis awan ini), dilewati")
+                    else:
+                        peak_2_ok = False
+                        print("⚠️ cloud_low_peak_2 kosong di Excel, dilewati")
+
+                    # Elevasi hanya dicoba jika peak berhasil
+                    if peak_2_ok and pd.notna(row['cloud_elevation_2_angle_ec']):
+                        if not pilih_dropdown_ant_select(driver, "cloud_elevation_2_angle_ec", str(row['cloud_elevation_2_angle_ec'])):
+                            GAGAL_OPSIONAL.append("cloud_elevation_2_angle_ec gagal dipilih (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                            print("⚠️ cloud_elevation_2_angle_ec gagal dipilih (field tidak aktif), dilewati")
+                    elif not peak_2_ok and pd.notna(row['cloud_elevation_2_angle_ec']):
+                        print("⚠️ cloud_elevation_2_angle_ec dilewati karena cloud_low_peak_2 tidak aktif")
+
+                    # Arah sebenarnya 2 tetap dicoba
+                    if pd.notna(row['cloud_arah_sebenarnya_2']):
+                        if not pilih_arah_sebenarnya_2(driver, str(row['cloud_arah_sebenarnya_2'])):
+                            GAGAL_OPSIONAL.append("cloud_arah_sebenarnya_2 gagal dipilih (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                            print("⚠️ cloud_arah_sebenarnya_2 gagal dipilih (field tidak aktif), dilewati")
+
+                if pd.notna(row['cloud_arah_2']):
+                    if not pilih_arah_2(driver, str(row['cloud_arah_2'])):
+                        GAGAL_OPSIONAL.append("cloud_arah_2 gagal dipilih, dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ cloud_arah_2 gagal dipilih, dilewati")
+            else:
+                # [F1.5] Excel tanpa lapisan 2: matikan switch bila aktif (sisa data lama pada mode Update)
+                if _switch_aktif(driver, "775") is True:
+                    print("ℹ️ Switch lapisan 2 awan rendah aktif (data lama) tetapi Excel kosong -> dimatikan")
+                    _atur_switch(driver, "775", False)
+                print("ℹ️ Awan rendah kedua dilewati karena awan_rendah_2_jenis kosong (NaN)")
+
+        # ================ AWAN MENENGAH ======================================#
+        cloud_med_type = str(row['cloud_med_type_cm'])
+        cloud_med_type_code = cloud_med_type.split("-", 1)[0].strip()   # [F1.9]
+        if not pilih_dropdown_ant_select(driver, "cloud_med_type_cm", cloud_med_type):
+            return False  # WAJIB
+
+        if cloud_med_type == "0 -" or cloud_med_type_code in ("0", "/"):
+            print("⚠️ Awan menengah tidak diisi karena cloud_med_type_cm = '0 -'")
+        else:
+            # [TOLERAN] detail awan menengah
+            if not pilih_dropdown_ant_select(driver, "cloud_med_cover_oktas", str(row['cloud_med_cover_oktas'])):
+                GAGAL_OPSIONAL.append("cloud_med_cover_oktas gagal dipilih, dilewati")   # [F1.5] dicatat ke log
+                print("⚠️ cloud_med_cover_oktas gagal dipilih, dilewati")
+
+            if not isi_jenis_dan_jumlah_awan_menengah(driver, str(row['awan_menengah_jenis_1']), str(row['awan_menengah_jumlah_1'])):
+                GAGAL_OPSIONAL.append("Jenis/Jumlah Awan Menengah gagal diisi, dilewati")   # [F1.5] dicatat ke log
+                print("⚠️ Jenis/Jumlah Awan Menengah gagal diisi, dilewati")
+
+            if pd.notna(row['cloud_med_base_1']):
+                if not isi_input_text(driver, "cloud_med_base_1", str(int(float(row['cloud_med_base_1'])))):
+                    GAGAL_OPSIONAL.append("cloud_med_base_1 gagal diisi (field tidak aktif), dilewati")   # [F1.5] dicatat ke log
+                    print("⚠️ cloud_med_base_1 gagal diisi (field tidak aktif), dilewati")
+            else:
+                print("⚠️ cloud_med_base_1 kosong di Excel, dilewati")
+
+            if pd.notna(row['cloud_arah_menengah_1']):
+                if not pilih_arah_Awan_Menengah(driver, str(row['cloud_arah_menengah_1'])):
+                    GAGAL_OPSIONAL.append("cloud_arah_menengah_1 gagal dipilih, dilewati")   # [F1.5] dicatat ke log
+                    print("⚠️ cloud_arah_menengah_1 gagal dipilih, dilewati")
+
+        # ================ AWAN TINGGI ========================================#
+        cloud_high_type = str(row['cloud_high_type_ch'])
+        cloud_high_type_code = cloud_high_type.split("-", 1)[0].strip()   # [F1.9]
+        if not pilih_dropdown_ant_select(driver, "cloud_high_type_ch", cloud_high_type):
+            return False  # WAJIB
+
+        if cloud_high_type == "0 -" or cloud_high_type_code in ("0", "/"):
+            print("⚠️ Awan tinggi tidak diisi karena cloud_high_type_ch = '0 -'")
+        else:
+            cover_val = str(row.get('cloud_high_cover_oktas', '')).strip()
+            if cover_val in ("", "-", "nan", "NaN"):
+                print("⚠️ cloud_high_cover_oktas kosong atau '-', melewati pengisian awan tinggi")
+            else:
+                if not pilih_dropdown_ant_select(driver, "cloud_high_cover_oktas", cover_val):
+                    GAGAL_OPSIONAL.append(f"Gagal pilih cloud_high_cover_oktas='{cover_val}', melewati detail awan tinggi")   # [F1.5] dicatat ke log
+                    print(f"⚠️ Gagal pilih cloud_high_cover_oktas='{cover_val}', melewati detail awan tinggi")
+                else:
+                    if not isi_jenis_dan_jumlah_awan_Tinggi(driver, str(row['awan_tinggi_jenis']), str(row['awan_tinggi_jumlah'])):
+                        GAGAL_OPSIONAL.append("Gagal isi jenis/jumlah awan tinggi, dilewati")   # [F1.5] dicatat ke log
+                        print("⚠️ Gagal isi jenis/jumlah awan tinggi, dilewati")
+
+                    if pd.notna(row.get('cloud_high_base_1')) and str(row.get('cloud_high_base_1')).strip() not in ("", "-", "nan", "NaN"):
+                        if not isi_input_text(driver, "cloud_high_base_1", str(int(float(row['cloud_high_base_1'])))):
+                            GAGAL_OPSIONAL.append("Gagal isi cloud_high_base_1, dilewati")   # [F1.5] dicatat ke log
+                            print("⚠️ Gagal isi cloud_high_base_1, dilewati")
+                    else:
+                        print("⚠️ cloud_high_base_1 kosong, dilewati")
+
+                    arah_tinggi = row.get('cloud_arah_tinggi')
+                    if pd.notna(arah_tinggi) and str(arah_tinggi).strip() not in ("", "-", "nan", "NaN"):
+                        if not pilih_arah_Awan_Tinggi(driver, str(arah_tinggi)):
+                            GAGAL_OPSIONAL.append("Gagal pilih arah awan tinggi, dilewati")   # [F1.5] dicatat ke log
+                            print("⚠️ Gagal pilih arah awan tinggi, dilewati")
+
+        # [F3.10] lapisan tambahan: awan rendah ke-3, menengah ke-2, tinggi ke-2 (posisi + switch)
+        isi_lapisan_tambahan(driver, plan)
+
+        # ================ KEADAAN TANAH ======================================#
+        if not pilih_dropdown_ant_select(driver, "land_cond", str(row['land_cond'])):
+            return False  # WAJIB
+
+        print("✅ Data berhasil diisi")
+        return True
+
+    except Exception as e:
+        print(f"❌ Gagal mengisi data: {e}")
+        return False
+
+# Sinyal khusus untuk trigger recovery (bukan error biasa)
+SESSION_RECOVERY_NEEDED = "SESSION_RECOVERY_NEEDED"
+MAX_ROW_RECOVERY = 2  # maksimal berapa kali recovery per baris
+
+
+def recover_session(current_driver, max_attempts=3, tanggal_utc=None):
+    """
+    Tutup browser saat ini, buka baru, login ulang, pilih stasiun & tanggal.
+    Return: (new_driver, success_bool)
+    """
+    print("\n" + "="*60)
+    print("🔄 MEMULAI PEMULIHAN SESI BROWSER")
+    print("="*60)
+
+    # Tutup browser lama
+    try:
+        current_driver.quit()
+        print("✅ Browser lama berhasil ditutup")
+    except Exception as e:
+        print(f"⚠️ Gagal tutup browser lama (mungkin sudah crash): {e}")
+
+    time.sleep(3)
+
+    for attempt in range(1, max_attempts + 1):
+        print(f"\n🔄 Recovery attempt {attempt}/{max_attempts}...")
+        new_driver = None
+        try:
+            # Buka browser baru
+            chrome_options_new = Options()
+            chrome_options_new.add_argument("--start-maximized")
+            _terapkan_opsi_anti_popup(chrome_options_new)   # [F1.1]
+            service_new = Service()
+            new_driver = webdriver.Chrome(service=service_new, options=chrome_options_new)
+            print("✅ Browser baru berhasil dibuka")
+
+            # Login, popup, stasiun, tanggal
+            login(new_driver)
+            klik_tombol_oke_popup(drv=new_driver)
+            memilih_stasiun(new_driver)
+            memilih_tanggal(new_driver, tanggal_utc)
+
+            print("✅ Sesi berhasil dipulihkan — siap melanjutkan pengisian")
+            return new_driver, True
+
+        except Exception as e:
+            print(f"❌ Recovery attempt {attempt} gagal: {e}")
+            try:
+                if new_driver:
+                    save_debug_snapshot(new_driver, f"recovery_attempt_{attempt}_failed")
+                    new_driver.quit()
+            except Exception:
+                pass
+
+            if attempt < max_attempts:
+                wait_time = 5 * attempt  # 5s, 10s, 15s
+                print(f"⏳ Menunggu {wait_time}s sebelum retry recovery...")
+                time.sleep(wait_time)
+
+    print("❌ Semua attempt recovery gagal, baris akan dilewati")
+    return None, False
+
+def cek_ww_field_error(driver):
+    """
+    Cek apakah field present_weather_ww dalam kondisi error/merah di form.
+    Ant Design menambahkan class 'has-error' pada wrapper field yang tidak valid.
+    """
+    try:
+        error_els = driver.find_elements(
+            By.XPATH,
+            "//div[@id='present_weather_ww']/ancestor::div[contains(@class,'has-error')]"
+        )
+        return bool(error_els)
+    except Exception:
+        return False
+
+
+def fallback_ww_mist_ke_haze(driver, row):
+    """
+    Fallback otomatis: jika ww=10 (Mist) dan Preview gagal karena RH < 95%,
+    ganti ww ke 05 (Haze) lalu klik Preview ulang.
+
+    Return:
+        True  → fallback berhasil, Preview OK sudah diklik
+        False → fallback tidak berlaku atau tetap gagal
+    """
+    ww_val = str(row.get('ww', '')).zfill(2)
+
+    # Hanya berlaku jika ww=10
+    if ww_val != "10":
+        print(f"ℹ️ ww={ww_val}, bukan Mist (10) — fallback tidak berlaku")
+        return False
+
+    # Cek konfirmasi: apakah field ww memang merah di form?
+    ww_error = cek_ww_field_error(driver)
+    print(f"🔍 Status error field ww di form: {'MERAH ❌' if ww_error else 'tidak terdeteksi'}")
+
+    print("\n⚠️ FALLBACK WW MIST→HAZE:")
+    print("   ww=10 (Mist) kemungkinan ditolak karena RH < 95%")
+    print("   Mengganti ww 10 → 05 (Haze) secara otomatis...")
+
+    # Ganti ww ke 05
+    if not pilih_dropdown_ant_select(driver, "present_weather_ww", "05"):
+        print("❌ Gagal mengganti ww ke 05, fallback dibatalkan")
+        save_debug_snapshot(driver, "fallback_ww_ganti_gagal")
+        return False
+
+    print("✅ ww berhasil diganti ke 05 (Haze)")
+    time.sleep(0.5)
+
+    # Klik Preview ulang
+    print("🔄 Mengklik Preview ulang setelah ganti ww...")
+    if not submit_with_retry(driver, "Preview_fallback_ww", lambda: Preview(driver), max_attempts=3):
+        print("❌ Preview masih gagal setelah ganti ww ke 05")
+        save_debug_snapshot(driver, "fallback_ww_preview_gagal")
+        return False
+
+    time.sleep(1)
+
+    # Klik Preview OK
+    if not submit_with_retry(driver, "Preview_OK_fallback_ww", lambda: Preview_OK(driver), max_attempts=3):
+        print("❌ Preview OK masih gagal setelah ganti ww ke 05")
+        save_debug_snapshot(driver, "fallback_ww_preview_ok_gagal")
+        return False
+
+    print("✅ Fallback ww 10→05 berhasil, Preview OK sudah diklik")
+    PERUBAHAN_OTOMATIS["ww"] = "10->05 (Mist->Haze, RH<95%)"   # [F1.4] dicatat di log
+    return True
+
+def main():
+    global driver, STATION_ID, PASSWORD, nama_observer, DRY_RUN  # driver global: bisa diganti setelah recovery
+
+    args = parse_args()
+    if args.dry_run:
+        DRY_RUN = True
+    filter_jam = {j.strip() for j in args.jam.split(",") if j.strip()} if args.jam else None
+
+    validator = Validator.from_config(CFG, ROOT)
+    db = SendLog(resolve_path(CFG, "db"))
+
+    # [F1.3] validasi seluruh Excel saat start (laporan; baris ERROR dilewati saat waktunya)
+    df_cek = baca_data_terbaru(silent=True)
+    if df_cek is None:
+        print(f"❌ Excel tidak bisa dibaca: {EXCEL_PATH}")
+        return
+    file_issues, hasil_cek = validator.validate_dataframe(df_cek)
+    print("\n" + "=" * 70 + "\n🔎 VALIDASI EXCEL\n" + "=" * 70)
+    print(format_report(file_issues, hasil_cek, show_info=False))
+    for rr0 in hasil_cek:
+        if rr0.slot[0]:
+            db.register(rr0.slot[0], rr0.slot[1], waktu_eksekusi=rr0.waktu_eksekusi, plan=rr0.plan)
+    if args.check_only:
+        return
+
+    # [F1.1] kredensial dari .env
+    STATION_ID, PASSWORD = get_credentials()
+
+    # [F1.6] launcher observer (+ opsi dry-run)
+    if args.observer:
+        nama_observer = args.observer.strip()
+    else:
+        pilihan = None if args.no_gui else pilih_observer_gui(daftar_observer_aktif(), DRY_RUN)
+        if pilihan == "BATAL":
+            print("Dibatalkan.")
+            return
+        if pilihan is None:
+            nama_observer = input("Masukkan nama observer: ").strip()
+        else:
+            nama_observer, DRY_RUN = pilihan
+    print(f"👤 Observer: {nama_observer} | mode: {'DRY-RUN (tidak mengirim)' if DRY_RUN else 'KIRIM'}")
+
+    driver = buat_driver()
+    login(driver)
+    klik_tombol_oke_popup(drv=driver)
+    memilih_stasiun(driver)
+    tanggal_aktif = None   # [F1.5] tanggal UTC yang sedang dipilih di web; dipilih per slot
+
+    df_sebelumnya = None
+    last_check_time = time.time()
+    observer_selected = False
+
+    while True:
+        df_awal = baca_data_terbaru(silent=True)
+        if df_awal is None:
+            print("🔄 Menunggu 30 detik sebelum mencoba lagi...")
+            time.sleep(30)
+            continue
+
+        df_sebelumnya = df_awal.copy()
+
+        for index in range(len(df_awal)):
+            print(f"\n🔄 Membaca ulang data sebelum memproses baris {index+1}")
+            df = baca_data_terbaru(silent=True)
+            if df is None or index >= len(df):
+                print(f"⚠️ Data tidak valid untuk baris {index+1}, melewati...")
+                continue
+
+            if not df.iloc[index].equals(df_sebelumnya.iloc[index]):
+                print(f"\n⚠️ PERHATIAN: Data baris {index+1} berubah!")
+                for col in df.columns:
+                    if str(df.iloc[index][col]) != str(df_sebelumnya.iloc[index][col]):
+                        print(f"📌 {col}: {df_sebelumnya.iloc[index][col]} → {df.iloc[index][col]}")
+                df_sebelumnya = df.copy()
+
+            row = df.iloc[index]
+            waktu_eksekusi = row['waktu_eksekusi'].to_pydatetime()
+            sekarang = datetime.now()
+
+            # [F1.4/F1.5] slot & status log: sudah terkirim -> jangan kirim ulang
+            rr0 = validator.validate_row(row, index + 2)
+            slot0 = rr0.slot
+            keputusan = db.should_send(*slot0) if slot0[0] else {"send": True, "reason": "", "needs_web_check": False}
+            if filter_jam and slot0[1] not in filter_jam:   # --jam: abaikan jam lain tanpa mencatat
+                continue
+            if slot0[0] and not keputusan["send"]:
+                print(f"⏩ Melewati baris {index+1} ({slot0[1]} UTC): {keputusan['reason']}")
+                continue
+
+            if waktu_eksekusi < sekarang:
+                terlambat_menit = (sekarang - waktu_eksekusi).total_seconds() / 60.0
+                batas_retry = CFG["runtime"].get("retry_past_minutes", 0)
+                if args.process_past:
+                    print(f"⏪ Baris {index+1} ({slot0[1]} UTC) sudah lewat {terlambat_menit:.0f} menit; diproses sekarang (--process-past)")
+                elif slot0[0] and keputusan.get("needs_web_check") and 0 < batas_retry and terlambat_menit <= batas_retry:
+                    print(f"🔁 Baris {index+1} ({slot0[1]} UTC) dicoba ulang ({terlambat_menit:.0f} menit setelah jadwal): {keputusan['reason']}")
+                else:
+                    print(f"⏩ Melewati baris {index+1} karena waktu eksekusi {waktu_eksekusi} sudah lewat")
+                    if slot0[0] and (db.get(*slot0) or {}).get("status") == "pending":
+                        db.mark_skipped(*slot0, "waktu eksekusi sudah lewat")
+                    continue
+
+            waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
+            print(f"\n⏳ Menunggu sampai {waktu_eksekusi} untuk eksekusi baris {index+1}...")
+
+            # Countdown + monitoring perubahan Excel
+            while waktu_tunggu > 0:
+                sekarang = datetime.now()
+                waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
+
+                if time.time() - last_check_time >= 2:
+                    df_baru = baca_data_terbaru(silent=True)
+                    if df_baru is not None and index < len(df_baru):
+                        if not df_baru.iloc[index].equals(df.iloc[index]):
+                            print(f"\n⚠️ PERHATIAN: Data baris {index+1} berubah selama countdown!")
+                            for col in df.columns:
+                                if str(df_baru.iloc[index][col]) != str(df.iloc[index][col]):
+                                    print(f"📌 {col}: {df.iloc[index][col]} → {df_baru.iloc[index][col]}")
+                            row = df_baru.iloc[index]
+                            waktu_eksekusi = row['waktu_eksekusi'].to_pydatetime()
+                            df = df_baru
+                            df_sebelumnya = df.copy()
+                            sekarang = datetime.now()
+                            waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
+                    last_check_time = time.time()
+
+                mins, secs = divmod(max(0, waktu_tunggu), 60)
+                print(f"\r⏳ Akan dieksekusi dalam: {int(mins):02d}:{int(secs):02d}", end="", flush=True)
+                time.sleep(1)
+
+            print("\n🚀 Eksekusi dimulai...")
+
+            # [F1.3/F1.5] validasi ulang data TERBARU (Excel bisa berubah saat countdown)
+            rr = validator.validate_row(row, index + 2)
+            slot = rr.slot
+            for isu in rr.issues:
+                if isu.level != "INFO":
+                    print(f"   {isu}")
+            if rr.errors:
+                alasan = "validasi ERROR: " + "; ".join(i.message for i in rr.errors[:2])
+                print(f"⛔ Baris {index+1} DILEWATI — {alasan}")
+                if slot[0]:
+                    db.mark_skipped(*slot, alasan)
+                continue
+            if slot[0]:
+                db.register(slot[0], slot[1], waktu_eksekusi=waktu_eksekusi, plan=rr.plan)
+                if not db.should_send(*slot)["send"]:
+                    print(f"⏩ Melewati baris {index+1}: sudah terkirim")
+                    continue
+                db.start_attempt(*slot, observer=nama_observer)
+            PERUBAHAN_OTOMATIS.clear()
+            HUJAN_OVERRIDE_LOG.clear()
+            GAGAL_OPSIONAL.clear()
+
+            # ── LOOP RECOVERY PER BARIS ───────────────────────────────────────
+            row_recovery_count = 0
+            row_processed = False
+
+            while row_recovery_count <= MAX_ROW_RECOVERY and not row_processed:
+
+                if row_recovery_count > 0:
+                    print(f"\n🔁 Mengulang baris {index+1} setelah recovery "
+                          f"(attempt {row_recovery_count}/{MAX_ROW_RECOVERY})...")
+
+                try:
+                    print(f"\n🚀 Memproses baris {index+1} pada {datetime.now()}")
+                    print(f"🔎 observer_selected: {observer_selected}")
+
+                    # [F1.5] pilih tanggal UTC sesuai slot (bukan tanggal saat script dimulai)
+                    if slot[0] and tanggal_aktif != slot[0]:
+                        if memilih_tanggal(driver, slot[0]) is False:
+                            raise Exception(f"Gagal memilih tanggal {slot[0]} di web")
+                        tanggal_aktif = slot[0]
+                    if slot[0]:
+                        terpilih = tanggal_di_web(driver)
+                        if terpilih is not None and terpilih != slot[0]:
+                            tanggal_aktif = None
+                            raise Exception(f"Tanggal di web ({terpilih}) tidak sama dengan slot ({slot[0]})")
+
+                    if not isi_per_jam(driver, row):
+                        raise Exception("Gagal pilih jam")
+
+                    _jeda(2)
+                    Fill_AWS_Digi(driver)
+                    _jeda(1)
+
+                    if not observer_selected:
+                        # Tambah wait eksplisit: tunggu dropdown observer benar-benar siap
+                        print("⏳ Menunggu form dan dropdown observer siap...")
+                        wait_for_clickable(
+                            driver,
+                            (By.XPATH, "//label[contains(text(), 'Nama Observer')]/following-sibling::div//div[contains(@class,'ant-select-selection__rendered')]"),
+                            timeout=15
+                        )
+                        if memilih_observer(driver):
+                            observer_selected = True
+                        else:
+                            # Observer gagal tapi tidak fatal — form masih bisa diisi
+                            # observer_selected tetap False agar dicoba ulang di baris berikutnya
+                            print("⚠️ Observer gagal dipilih, melanjutkan pengisian tanpa observer...")
+
+                    # ── TITIK DETEKSI UTAMA ──────────────────────────────────
+                    # Jika form pengisian tidak muncul = web/sesi bermasalah
+                    form_appeared = wait_for_presence(
+                        driver, (By.ID, "present_weather_ww"), timeout=15
+                    )
+                    if not form_appeared:
+                        save_debug_snapshot(
+                            driver,
+                            f"form_not_appeared_row_{index+1}_recovery_{row_recovery_count}"
+                        )
+                        raise Exception(
+                            f"{SESSION_RECOVERY_NEEDED}: Form pengisian tidak muncul "
+                            f"setelah Fill_AWS_Digi pada baris {index+1}. "
+                            f"Kemungkinan web error, popup tidak muncul, atau sesi expired."
+                        )
+                    # ────────────────────────────────────────────────────────
+
+                    wait_for_clickable(
+                        driver,
+                        (By.XPATH, "//div[@id='present_weather_ww']//div[contains(@class,'ant-select-selection__rendered')]"),
+                        timeout=15
+                    )
+
+                    if not isi_data(driver, row, plan=rr.plan):
+                        raise Exception("Gagal isi data; membatalkan pengiriman untuk baris ini")
+
+                    # [F1.5] rangkum field opsional yang gagal diisi (sebelumnya hanya peringatan di layar)
+                    if GAGAL_OPSIONAL:
+                        print(f"⚠️ {len(GAGAL_OPSIONAL)} field opsional GAGAL diisi (data tidak lengkap):")
+                        for _g in GAGAL_OPSIONAL:
+                            print(f"   - {_g}")
+                        PERUBAHAN_OTOMATIS["gagal_opsional"] = list(GAGAL_OPSIONAL)
+                        if slot[0]:
+                            db.log_event(*slot, "gagal_opsional", "; ".join(GAGAL_OPSIONAL)[:400])
+                        if CFG["features"].get("fail_on_optional", False):
+                            raise Exception("Field opsional gagal diisi dan features.fail_on_optional=true")
+
+                    # [F1.5/T21] data jam ini sudah ada di web -> tombol "Update"
+                    if _ada_tombol(driver, "send & update") and not _ada_tombol(driver, "send & submit"):
+                        print("ℹ️ Data jam ini SUDAH ADA di web (mode Update)")
+                        if slot[0]:
+                            db.log_event(*slot, "mode_update", "data jam ini sudah ada di web")
+                        if not CFG["features"].get("allow_update", True):
+                            if slot[0]:
+                                db.mark_skipped(*slot, "data sudah ada di web (mode Update) dan features.allow_update=false")
+                            print("⏩ Dilewati karena features.allow_update=false")
+                            row_processed = True
+                            continue
+
+                    # 🔒 SUBMISSION CHAIN
+                    _jeda(1)
+                    if not submit_with_retry(driver, "Preview", lambda: Preview(driver), max_attempts=3):
+                        raise Exception("Gagal klik Preview setelah 3 percobaan")
+
+                    _jeda(1)
+                    print("🔄 [1/3] Mencoba Preview_OK...")
+                    preview_ok_berhasil = False
+                    ww_error_terdeteksi = False
+
+                    for attempt in range(1, 4):
+                        if attempt > 1:
+                            print(f"🔄 [{attempt}/3] Mencoba Preview_OK...")
+
+                        if Preview_OK(driver):
+                            preview_ok_berhasil = True
+                            print(f"✅ Preview_OK berhasil pada attempt {attempt}")
+                            break
+
+                        ww_val = str(row.get('ww', '')).zfill(2)
+                        if ww_val == "10" and cek_ww_field_error(driver):
+                            print(f"🔍 Terdeteksi error ww=10 (Mist) setelah attempt {attempt}")
+                            print("⚡ Langsung ke fallback tanpa menunggu retry berikutnya")
+                            ww_error_terdeteksi = True
+                            break
+
+                        if attempt < 3:
+                            wait_time = 1 + (attempt - 1) * 0.5
+                            print(f"⏳ Preview_OK gagal ({attempt}/3), menunggu {wait_time}s sebelum retry...")
+                            time.sleep(wait_time)
+                        else:
+                            print("❌ Preview_OK gagal setelah 3 percobaan")
+                            save_debug_snapshot(driver, "preview_ok_gagal_3x")
+
+                    if not preview_ok_berhasil:
+                        print("⚠️ Preview OK gagal, memeriksa apakah perlu fallback ww Mist→Haze...")
+                        fallback_berhasil = fallback_ww_mist_ke_haze(driver, row)
+                        if not fallback_berhasil:
+                            raise Exception("Gagal klik Preview OK setelah percobaan dan fallback ww")
+    
+                    # [F1.4/F1.7] simpan sandi hasil Preview; dry-run berhenti di sini
+                    sandi = baca_sandi(driver)
+                    if sandi and slot[0]:
+                        db.set_kode_synop(*slot, sandi)
+                        print("🧾 Sandi:\n" + sandi)
+                    if DRY_RUN:
+                        print("🧪 DRY-RUN: sampai Preview selesai; TIDAK mengirim.")
+                        if slot[0]:
+                            db.mark_skipped(*slot, "dry-run (tidak dikirim)")
+                        row_processed = True
+                        continue
+
+                    _jeda(1)
+                    if not submit_with_retry(driver, "Send_And_Submit", lambda: SEND_SEND_SUBMIT(driver), max_attempts=2):
+                        raise Exception("Gagal klik Send & Submit setelah 2 percobaan")
+
+                    print("ℹ️ Menggunakan alur Send & Submit")
+                    if not submit_with_retry(driver, "Send_INASWITCH_Submit", lambda: SEND_INASWITCH_SUBMIT(driver), max_attempts=2):
+                        print("⚠️ Tombol Send to INASwitching & Submit tidak ditemukan, fallback ke Send to INASwitching")
+                        if not submit_with_retry(driver, "SEND_INASWITCH", lambda: SEND_INASWITCH(driver), max_attempts=3):
+                            raise Exception("Gagal klik SEND INASWITCH setelah 3 percobaan")
+
+                    print("⏳ Menunggu popup GTS muncul (buffer)...")
+                    _jeda(3)   # SEND_GTS sendiri menunggu modal sampai 10 dtk
+                    print("📨 Menunggu popup SEND final...")
+                    if not submit_with_retry(driver, "SEND_GTS_final", lambda: SEND_GTS(driver), max_attempts=3):
+                        raise Exception("Gagal klik SEND GTS final setelah 3 percobaan")
+
+                    _jeda(1)
+                    if not submit_with_retry(driver, "SEND_GTS_OK", lambda: SEND_GTS_OK(driver), max_attempts=3):
+                        raise Exception("Gagal klik SEND GTS OK setelah 3 percobaan")
+
+                    print("✅✅✅ PENGIRIMAN BERHASIL ✅✅✅")
+                    if slot[0]:
+                        db.mark_sent(*slot, kode_synop=sandi or None,
+                                     diubah_otomatis=dict(PERUBAHAN_OTOMATIS) or None,
+                                     hujan_override=dict(HUJAN_OVERRIDE_LOG) or None)
+                    row_processed = True  # tandai sukses, keluar dari loop recovery
+
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"❌ Error saat memproses baris {index+1}: {error_msg}")
+                    if slot[0]:   # [F1.4] catat kegagalan (+ screenshot bila browser masih hidup)
+                        try:
+                            png = save_debug_snapshot(driver, f"gagal_{slot[0]}_{slot[1].replace(':', '')}")
+                        except Exception:
+                            png = None
+                        db.mark_failed(*slot, error_msg, screenshot_path=png)
+
+                    # ── Cek apakah perlu recovery sesi ──────────────────────
+                    if SESSION_RECOVERY_NEEDED in error_msg:
+                        if row_recovery_count < MAX_ROW_RECOVERY:
+                            row_recovery_count += 1
+                            print(f"\n⚠️ DETEKSI MASALAH SESI/WEB — memulai recovery "
+                                  f"({row_recovery_count}/{MAX_ROW_RECOVERY})...")
+
+                            new_driver, recovery_ok = recover_session(driver, tanggal_utc=slot[0])
+
+                            if recovery_ok:
+                                driver = new_driver          # ganti driver global
+                                observer_selected = False    # reset, sesi baru belum pilih observer
+                                tanggal_aktif = None         # [F1.5] pilih ulang tanggal slot di sesi baru
+                                print(f"✅ Recovery berhasil, mengulang baris {index+1}...")
+                                time.sleep(2)
+                                # lanjut iterasi while (mengulang baris)
+                            else:
+                                print(f"❌ Recovery gagal total, melewati baris {index+1}")
+                                row_recovery_count = MAX_ROW_RECOVERY + 1  # paksa keluar loop
+                        else:
+                            print(f"❌ Sudah mencoba recovery {MAX_ROW_RECOVERY}x, "
+                                  f"melewati baris {index+1}")
+                            row_recovery_count += 1  # keluar loop
+                    else:
+                        # Error biasa (bukan masalah sesi) — langsung skip baris
+                        print("🔄 Melanjutkan ke baris berikutnya...")
+                        row_recovery_count = MAX_ROW_RECOVERY + 1  # paksa keluar loop
+
+            time.sleep(2)
+
+        print("\n✅ Semua data dalam file telah diproses")
+        try:   # [F1.4] ringkasan log hari ini (UTC)
+            print("📒 Ringkasan log:", db.summary(datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+        except Exception:
+            pass
+        print("🔄 Memeriksa data baru dalam 10 detik...")
+        time.sleep(10)
+
+
+if __name__ == "__main__":
+    main()

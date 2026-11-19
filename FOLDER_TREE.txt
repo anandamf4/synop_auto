@@ -1,0 +1,54 @@
+﻿Folder tree: D:\alarm\synop_auto
+
+synop_auto\
+|-- .vscode\
+|   \-- settings.json
+|-- __pycache__\
+|   \-- collect_web_info.cpython-39.pyc
+|-- bot\
+|-- core\
+|   |-- __pycache__\
+|   |   |-- __init__.cpython-312.pyc
+|   |   |-- __init__.cpython-39.pyc
+|   |   |-- config.cpython-312.pyc
+|   |   |-- config.cpython-39.pyc
+|   |   |-- db.cpython-312.pyc
+|   |   |-- validator.cpython-312.pyc
+|   |   \-- validator.cpython-39.pyc
+|   |-- __init__.py
+|   |-- config.py
+|   |-- db.py
+|   |-- options.json
+|   |-- rules.json
+|   \-- validator.py
+|-- data\
+|   \-- synop.db
+|-- legacy\
+|   |-- INPUT_PARAMETER.xlsx
+|   \-- V6SATU.py
+|-- rules_20261114_205502\
+|   |-- form_akhir.html
+|   |-- form_akhir.png
+|   |-- popups.json
+|   |-- rules_matrix.json
+|   \-- rules_report.txt
+|-- rules_20261114_210737\
+|   |-- form_akhir.html
+|   |-- form_akhir.png
+|   |-- popups.json
+|   |-- rules_matrix.json
+|   \-- rules_report.txt
+|-- rules_20261115_123350\
+|-- snapshot\
+|-- tests\
+|   \-- test_validator.py
+|-- .env
+|-- .gitignore
+|-- check_excel.py
+|-- collect_rules_matrix.py
+|-- collect_web_info.py
+|-- config.yaml
+|-- FOLDER_TREE.txt
+|-- README.txt
+|-- requirements.txt
+\-- SYNOP_UPGRADE_HANDOFF.txt

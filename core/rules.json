@@ -1,0 +1,435 @@
+{
+  "_meta": {
+    "format_version": 1,
+    "dibuat": "2026-11-14",
+    "sumber": "collect_rules_matrix.py v2 (uji penuh, reset_failures=0, 0 popup) + keterangan pengguna",
+    "kondisi_awal_uji": {
+      "total": "5 oktas",
+      "CL": "6 - stratus",
+      "CM": "2 - Altostratus opacus",
+      "CH": "1 - Cirrus fibratis",
+      "ww": "05 - haze",
+      "visibility_vv": "3.5",
+      "rainfall_last_mm": "0"
+    },
+    "catatan": [
+      "Daftar 'jenis_allowed' = kode Jenis yang BOLEH dipilih di web untuk kode tipe tsb (opsi lain disabled).",
+      "Lapisan tambahan (toggle) memakai daftar Jenis yang SAMA dengan kode CL/CM/CH yang dipilih (terukur: CL=6->[7], CM=2->[4,5], CH=1->[0] pada lapisan 1 dan 2/3).",
+      "Nilai kode ditulis sebagai kode SYNOP di depan teks opsi (mis. '8' untuk '8 - cumulus (Cu)'); teks penuh ada di options.json.",
+      "ww/W1/W2 tidak mengubah field lain di form (terukur untuk 100/11/11 kode).",
+      "Koreksi 2026-11-15 (F0.5b): daftar Jenis lapisan 2/3 = daftar Jenis kode CL/CM/CH terpilih (CL=6 -> [7]; CM=2 -> [4,5]; CH=1 -> [0]). Dugaan lama 'semua Jenis' berasal dari uji tercemar."
+    ]
+  },
+  "tutupan_total": {
+    "0": {
+      "selektor_CL_CM_CH": "nonaktif",
+      "detail_awan": "nonaktif",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {
+        "cloud_low_type_cl": "0 - tidak ada awan C1",
+        "cloud_low_cover_oktas": "0",
+        "cloud_med_type_cm": "0 - No CM Cloud",
+        "cloud_med_cover_oktas": "0",
+        "cloud_high_type_ch": "0 - No CH clouds",
+        "cloud_high_cover_oktas": "0"
+      }
+    },
+    "1": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "2": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "3": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "4": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "5": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "6": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "7": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "8": {
+      "selektor_CL_CM_CH": "aktif",
+      "detail_awan": "aktif (bergantung kode CL/CM/CH)",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {}
+    },
+    "9": {
+      "selektor_CL_CM_CH": "nonaktif",
+      "detail_awan": "nonaktif",
+      "cloud_vertical_vis": "aktif",
+      "isi_otomatis_web": {
+        "cloud_low_type_cl": "/ - C1 tidak kelihatan disebabkan oleh kabut, badai debu, badai pasir atau lain-lain gejala",
+        "cloud_low_cover_oktas": "9 - Sky obscured by fog and/or other meteorological phenomena",
+        "cloud_med_type_cm": "/ - CM clouds invisible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because continuous layer of clouds",
+        "cloud_med_cover_oktas": "9 - Sky obscured by fog and/or other meteorological phenomena",
+        "cloud_high_type_ch": "/ - CH clouds not visible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because of a continuous layer of lower clouds",
+        "cloud_high_cover_oktas": "9 - Sky obscured by fog and/or other meteorological phenomena"
+      }
+    },
+    "/": {
+      "selektor_CL_CM_CH": "nonaktif",
+      "detail_awan": "nonaktif",
+      "cloud_vertical_vis": "nonaktif",
+      "isi_otomatis_web": {
+        "cloud_low_type_cl": "/ - C1 tidak kelihatan disebabkan oleh kabut, badai debu, badai pasir atau lain-lain gejala",
+        "cloud_low_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "cloud_med_type_cm": "/ - CM clouds invisible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because continuous layer of clouds",
+        "cloud_med_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "cloud_high_type_ch": "/ - CH clouds not visible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because of a continuous layer of lower clouds",
+        "cloud_high_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made"
+      }
+    }
+  },
+  "tutupan_total_aturan": {
+    "0": "web mengisi CL=CM=CH=0 dan NCx=0, menonaktifkan semua detail awan -> kolom awan Excel harus KOSONG",
+    "1-8": "selektor CL/CM/CH aktif; detail mengikuti kode tipe",
+    "9": "web mengisi CL=CM=CH='/' dan NCx=9, menonaktifkan detail awan, MENGAKTIFKAN cloud_vertical_vis -> kolom awan Excel KOSONG; vertical visibility diisi manual",
+    "/": "web mengisi CL=CM=CH='/' dan NCx='/', menonaktifkan detail awan; cloud_vertical_vis nonaktif -> kolom awan Excel KOSONG"
+  },
+  "CL": {
+    "0": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_low_type_cl": "0 - tidak ada awan C1",
+        "cloud_low_cover_oktas": "0",
+        "AWAN RENDAH|k1|b3|Jumlah": "0",
+        "AWAN RENDAH|k1|b6|Arah Gerak": "0 - Stationary or No Clouds"
+      }
+    },
+    "1": {
+      "jenis_allowed": [
+        "8"
+      ],
+      "detail_fields": "aktif"
+    },
+    "2": {
+      "jenis_allowed": [
+        "6",
+        "8"
+      ],
+      "detail_fields": "aktif"
+    },
+    "3": {
+      "jenis_allowed": [
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "detail_fields": "aktif"
+    },
+    "4": {
+      "jenis_allowed": [
+        "6"
+      ],
+      "detail_fields": "aktif"
+    },
+    "5": {
+      "jenis_allowed": [
+        "6"
+      ],
+      "detail_fields": "aktif"
+    },
+    "6": {
+      "jenis_allowed": [
+        "7"
+      ],
+      "detail_fields": "aktif"
+    },
+    "7": {
+      "jenis_allowed": [
+        "7"
+      ],
+      "detail_fields": "aktif"
+    },
+    "8": {
+      "jenis_allowed": [
+        "6",
+        "8"
+      ],
+      "detail_fields": "aktif"
+    },
+    "9": {
+      "jenis_allowed": [
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "detail_fields": "aktif"
+    },
+    "/": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_low_type_cl": "/ - C1 tidak kelihatan disebabkan oleh kabut, badai debu, badai pasir atau lain-lain gejala",
+        "cloud_low_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN RENDAH|k1|b2|Jenis": "/ - cloud not visible",
+        "AWAN RENDAH|k1|b3|Jumlah": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN RENDAH|k1|b6|Arah Gerak": "9 - All Directions or Invisible"
+      }
+    }
+  },
+  "CM": {
+    "0": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_med_type_cm": "0 - No CM Cloud",
+        "cloud_med_cover_oktas": "0",
+        "AWAN MENENGAH|k1|b3|Jumlah": "0 - 0",
+        "AWAN MENENGAH|k1|b5|Arah": "0 - Stationary or No Clouds"
+      }
+    },
+    "1": {
+      "jenis_allowed": [
+        "4"
+      ],
+      "detail_fields": "aktif"
+    },
+    "2": {
+      "jenis_allowed": [
+        "4",
+        "5"
+      ],
+      "detail_fields": "aktif"
+    },
+    "3": {
+      "jenis_allowed": [
+        "3"
+      ],
+      "detail_fields": "aktif"
+    },
+    "4": {
+      "jenis_allowed": [
+        "3"
+      ],
+      "detail_fields": "aktif"
+    },
+    "5": {
+      "jenis_allowed": [
+        "3"
+      ],
+      "detail_fields": "aktif"
+    },
+    "6": {
+      "jenis_allowed": [
+        "3"
+      ],
+      "detail_fields": "aktif"
+    },
+    "7": {
+      "jenis_allowed": [
+        "3",
+        "4",
+        "5"
+      ],
+      "detail_fields": "aktif"
+    },
+    "8": {
+      "jenis_allowed": [
+        "3"
+      ],
+      "detail_fields": "aktif"
+    },
+    "9": {
+      "jenis_allowed": [
+        "3",
+        "4"
+      ],
+      "detail_fields": "aktif"
+    },
+    "/": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_med_type_cm": "/ - CM clouds invisible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because continuous layer of clouds",
+        "cloud_med_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN MENENGAH|k1|b2|Jenis": "/ - cloud not visible",
+        "AWAN MENENGAH|k1|b3|Jumlah": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN MENENGAH|k1|b5|Arah": "9 - All Directions or Invisible"
+      }
+    }
+  },
+  "CH": {
+    "0": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_high_type_ch": "0 - No CH clouds",
+        "cloud_high_cover_oktas": "0",
+        "AWAN TINGGI|k1|b3|Jumlah": "0 - 0",
+        "AWAN TINGGI|k1|b5|Arah": "0 - Stationary or No Clouds"
+      }
+    },
+    "1": {
+      "jenis_allowed": [
+        "0"
+      ],
+      "detail_fields": "aktif"
+    },
+    "2": {
+      "jenis_allowed": [
+        "0"
+      ],
+      "detail_fields": "aktif"
+    },
+    "3": {
+      "jenis_allowed": [
+        "0"
+      ],
+      "detail_fields": "aktif"
+    },
+    "4": {
+      "jenis_allowed": [
+        "0"
+      ],
+      "detail_fields": "aktif"
+    },
+    "5": {
+      "jenis_allowed": [
+        "0",
+        "2"
+      ],
+      "detail_fields": "aktif"
+    },
+    "6": {
+      "jenis_allowed": [
+        "0",
+        "2"
+      ],
+      "detail_fields": "aktif"
+    },
+    "7": {
+      "jenis_allowed": [
+        "0",
+        "1",
+        "2"
+      ],
+      "detail_fields": "aktif"
+    },
+    "8": {
+      "jenis_allowed": [
+        "0",
+        "1",
+        "2"
+      ],
+      "detail_fields": "aktif"
+    },
+    "9": {
+      "jenis_allowed": [
+        "0",
+        "1",
+        "2"
+      ],
+      "detail_fields": "aktif"
+    },
+    "/": {
+      "jenis_allowed": [],
+      "detail_fields": "nonaktif (diisi otomatis web)",
+      "diisi_otomatis_web": {
+        "cloud_high_type_ch": "/ - CH clouds not visible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because of a continuous layer of lower clouds",
+        "cloud_high_cover_oktas": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN TINGGI|k1|b2|Jenis": "/ - cloud not visible",
+        "AWAN TINGGI|k1|b3|Jumlah": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+        "AWAN TINGGI|k1|b5|Arah": "9 - All Directions or Invisible"
+      }
+    }
+  },
+  "tipe_0_atau_slash": "Kode tipe 0 atau '/' menonaktifkan seluruh detail lapisan tsb (NCx, Jenis, Jumlah, Arah, Tinggi Dasar; untuk CL juga Tinggi Puncak/Elevasi/Arah Sebenarnya) dan web mengisinya otomatis -> kolom Excel lapisan itu harus KOSONG.",
+  "awan_rendah_puncak": {
+    "aturan": "cloud_low_peak_1, cloud_elevation_1_angle_ec, 'Arah Sebenarnya' aktif jika Jenis lapisan ∈ {8,9} DAN kode CL ≠ 1",
+    "bukti_peak_aktif_per_CL_jenis": {
+      "1": {
+        "8": "nonaktif"
+      },
+      "2": {
+        "6": "nonaktif",
+        "8": "aktif"
+      },
+      "3": {
+        "6": "nonaktif",
+        "7": "nonaktif",
+        "8": "aktif",
+        "9": "aktif"
+      },
+      "4": {
+        "6": "nonaktif"
+      },
+      "5": {
+        "6": "nonaktif"
+      },
+      "6": {
+        "7": "nonaktif"
+      },
+      "7": {
+        "7": "nonaktif"
+      },
+      "8": {
+        "6": "nonaktif",
+        "8": "aktif"
+      },
+      "9": {
+        "6": "nonaktif",
+        "7": "nonaktif",
+        "8": "aktif",
+        "9": "aktif"
+      }
+    },
+    "catatan": "CL=1 hanya mengizinkan Jenis 8 tetapi puncak tetap nonaktif. Perilaku puncak/elevasi/arah sebenarnya pada lapisan 2 belum diuji untuk Jenis 8/9 (F0.5b)."
+  },
+  "vertical_visibility": {
+    "field": "cloud_vertical_vis",
+    "diamati_web": "aktif hanya saat tutupan total = 9 (terukur dengan visibilitas 3.5 km; tidak aktif untuk 0-8 dan '/')",
+    "aturan_pengguna": "aktif jika tutupan total = 9 DAN visibilitas < 1 km; wajib diisi manual",
+    "status": "DIPUTUSKAN pengguna 2026-11-15 (K8): syarat visibilitas < 1 km ditegakkan sebagai PENOLAKAN (ERROR). Catatan: pada uji web 2026-11-14 kolom tetap aktif pada total=9 dengan visibilitas 3.5 km, jadi aturan ini adalah ketentuan stasiun, bukan pembatas dari web.",
+    "perilaku_validator": "total=9 -> vertical_visibility WAJIB (ERROR bila kosong); visibilitas >= 1 km -> ERROR"
+  },
+  "curah_hujan": {
+    "field": "rainfall_last_mm",
+    "aktif_jika": "jam pengamatan UTC kelipatan 3 (00,03,06,...,21)  [keterangan pengguna; konsisten dengan uji: aktif pada 100% kode ww/W1/W2 dan semua tutupan total pada jam yang diuji]",
+    "tidak_bergantung_pada": [
+      "ww",
+      "W1",
+      "W2",
+      "tutupan total"
+    ],
+    "default": "diisi otomatis oleh Fill AWS Digi (nilai '0' saat uji)",
+    "override": "hujan_override_* hanya berlaku pada jam kelipatan 3 UTC; selain itu abaikan + peringatan"
+  },
+  "belum_terukur": [
+    "peak_2 / elevasi_2 / arah sebenarnya_2 untuk Jenis 8/9 (uji F0.5b 2026-11-15 memakai form CL=6/CM=2/CH=1 sehingga hanya Jenis 7 yang tersedia; ulangi dengan form CL=9, CM=7, CH=9)",
+    "opsi dropdown cloud_elevation_2_angle_ec & Arah Sebenarnya lapisan 2",
+    "daftar Jenis lapisan 2 saat CL=9, CM=7, CH>=5 (diduga sama dengan daftar kode, lihat catatan lapisan tambahan)"
+  ]
+}

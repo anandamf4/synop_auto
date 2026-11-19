@@ -1,0 +1,40 @@
+# ============================================================================
+#  config.yaml  -  pengaturan sistem SYNOP otomatis (F1.1)
+#  Kredensial TIDAK ada di sini: simpan di file .env (lihat .env.example).
+#  Path boleh relatif (terhadap folder proyek ini) atau absolut.
+# ============================================================================
+station:
+  name: "Stasiun Meteorologi Sultan Thaha"   # teks yang dipilih di dropdown stasiun
+
+urls:
+  login: "https://bmkgsatu.bmkg.go.id/login"
+  sinoptik: "https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik"
+
+paths:
+  # SATU path Excel saja (sebelumnya ada dua versi path yang berbeda di script lama).
+  excel: "legacy/INPUT_PARAMETER_baru.xlsx"
+  db: "data/synop.db"
+  snapshots: "snapshots"
+  options: "core/options.json"
+  rules: "core/rules.json"
+  # Gambar tombol OK popup awal (dipakai pyautogui seperti di V6SATU). Jika file tidak ada,
+  # V7SATU mencoba mengklik popup lewat Selenium. Sesuaikan dengan lokasi ok.PNG Anda.
+  ok_image: "legacy/ok.PNG"
+
+runtime:
+  timezone_offset_hours: 7        # WIB = UTC+7 (jam di web berbasis UTC)
+  max_row_recovery: 2             # maks pemulihan sesi per baris
+  window_open_minutes: 10         # web membuka jam 10 menit sebelum jam observasi
+  late_info_minutes: 15           # eksekusi lebih lambat dari ini diberi catatan
+  retry_past_minutes: 0           # >0: slot gagal/terhenti dicoba ulang s.d. sekian menit setelah waktu eksekusi
+
+observers:
+  # Kosong = pakai daftar observer aktif dari core/options.json.
+  # Isi bila ingin membatasi pilihan di launcher, contoh: ["Nama Pengamat 1"]
+  allowed: []
+
+features:
+  medium_layer2_supported: false  # ubah ke true setelah F3.10 (awan menengah ke-2) selesai
+  dry_run: false                  # F1.7: true = isi form sampai Preview, tidak kirim
+  allow_update: true              # jam yang sudah ada di web boleh ditimpa lewat tombol "Send & Update"
+  rain_override_strict: false     # true = batalkan baris jika override hujan gagal diterapkan

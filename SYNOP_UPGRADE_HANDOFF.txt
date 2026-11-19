@@ -1,0 +1,1115 @@
+################################################################################
+#  SYNOP-UPGRADE-HANDOFF  |  FORMAT v1  |  Dibuat: 2026-11-14                  #
+#  Catatan upgrade otomatisasi pengiriman SYNOP ke web BMKG Satu (bmkgsoftv2)  #
+################################################################################
+
+TUJUAN FILE INI
+  File ini adalah "sumber kebenaran" proyek. Boleh ditempel/diunggah ke chat
+  baru; AI di chat baru wajib membaca SEMUA isinya, lalu melanjutkan dari
+  CHECKPOINT terakhir (lihat bagian 1). Jangan mengulang analisis dari nol.
+
+
+================================================================================
+0. INSTRUKSI UNTUK AI DI CHAT BARU (WAJIB DIBACA)
+================================================================================
+ a. Kenali file ini lewat judul "SYNOP-UPGRADE-HANDOFF". Baca bagian 1
+    (STATUS SAAT INI) dulu, lalu bagian 7 (RENCANA TAHAPAN) mulai dari
+    tahap pertama yang belum berstatus [x].
+ b. Minta pengguna mengunggah file terbaru yang relevan dengan tahap
+    berikutnya (script Python terbaru, INPUT_PARAMETER.xlsx, file hasil tahap
+    sebelumnya). Jangan berasumsi isi file sama dengan deskripsi di sini; jika
+    berbeda, percayai file yang diunggah dan catat perbedaannya di log.
+ c. Aturan keluaran (preferensi pengguna):
+      - Berikan FILE LENGKAP siap-ganti, bukan potongan snippet.
+      - NOL komponen hilang saat refactor: setiap fungsi/fitur lama harus tetap
+        ada atau dipetakan eksplisit ke penggantinya (buat tabel pemetaan).
+      - Pengguna menyukai desain UI yang kreatif (relevan untuk Fase 2 & 4).
+      - Bahasa: Indonesia.
+ d. Kerjakan SATU tahap (atau sub-tahap) per sesi sesuai permintaan. Jangan
+    melompat ke fase berikutnya sebelum kriteria selesai (DoD) terpenuhi dan
+    pengguna mengonfirmasi hasilnya berjalan.
+ e. PROTOKOL CHECKPOINT: di akhir setiap sesi kerja, AI harus:
+      1) Menandai sub-tahap yang selesai dengan [x] (sedang berjalan [~],
+         belum [ ], diblokir [!]).
+      2) Memperbarui bagian 1 (STATUS SAAT INI) dan menambah satu entri di
+         bagian 9 (LOG PROGRES).
+      3) Mencatat keputusan baru di bagian 8 dan file yang dihasilkan.
+      4) Menghasilkan ULANG file catatan ini secara utuh (versi baru) agar
+         pengguna tinggal mengganti file lama. Naikkan nomor revisi di
+         bagian 1.
+ f. Jangan pernah menuliskan password/kredensial ke file ini atau ke kode
+    yang ditampilkan; gunakan placeholder dan .env.
+ g. Aksi yang mengirim data ke web produksi (SEND/GTS) harus diuji dulu dalam
+    mode dry-run; ingatkan pengguna sebelum uji coba nyata.
+ h. Jika pengguna melampirkan folder hasil collect_web_info.py (web_info_*),
+    pakai isinya untuk mengisi core/options.json dan memverifikasi tabel
+    pemetaan di bagian 2.5-2.7; catat perbedaan di log.
+ i. core/options.json (format_version 1) SUDAH ada. Jika pengguna melampirkannya,
+    pakai apa adanya dan jangan dibuat ulang; perluas hanya lewat F0.5/F1.2.
+
+
+================================================================================
+1. STATUS SAAT INI (PERBARUI SETIAP SESI)
+================================================================================
+  Revisi catatan      : 13
+  Terakhir diperbarui : 2026-11-17
+  Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
+                        penyesuaian kecepatan/switch/field opsional (rev 12; pengguna
+                        melaporkan "sudah lebih cepat")
+  Tahap DIIMPLEMENTASI, menunggu dry-run di web asli:
+                        F3.10 LAPISAN TAMBAHAN: awan rendah ke-3 (switch urutan ke-2),
+                        menengah ke-2 (switch urutan ke-1), tinggi ke-2 (switch urutan
+                        ke-1). Validator (core/validator.py) + bot (V7SATU.py:
+                        isi_lapisan_tambahan, pilih_dropdown_posisi, _id_toggle) +
+                        tambah_kolom_lapisan.py. Tes offline 142 lulus (validator 45,
+                        alur 24, pengisian 30, popup 13, kecepatan 13, lapisan 17).
+  KEPUTUSAN BARU K9 (2026-11-17, pengguna): field kosong di web tetapi terisi di Excel =
+                        dilewati dan cukup WARNING (bukan error); kegagalan field opsional
+                        tetap hanya peringatan + dicatat (fail_on_optional default false).
+  Pertanyaan pengguna dijawab: lapisan rendah ke-3 BELUM ada di V7 sebelum revisi ini
+                        (T20/F3.10); kini ada. PPT pusat 16 Nov 2026 ringkasannya di 2.11.
+  Excel kolom baru (opsional; tambahkan dengan python tambah_kolom_lapisan.py):
+                        awan_rendah_3_{jenis,jumlah}, cloud_low_base_3, cloud_arah_3,
+                        awan_tinggi_2_{jenis,jumlah}, cloud_high_base_2, cloud_arah_tinggi_2
+                        (+ vertical_visibility, hujan_override_aktif, hujan_override_mm;
+                        awan menengah-2 sudah ada: awan_menengah_{jenis,jumlah}_2,
+                        cloud_med_base_2, cloud_arah_menengah_2). ATURAN: kolom lapisan ADA
+                        di Excel tetapi KOSONG -> bot mematikan switch lapisan itu bila
+                        masih aktif (sisa data lama, mode Update). Kolom TIDAK ADA di Excel
+                        -> bot tidak menyentuh switch.
+  Config: features.extra_layers (default true; mematikan F3.10 bila false). Kunci lama
+                        features.medium_layer2_supported DIABAIKAN. Opsional lain: speed.*,
+                        features.fail_on_optional, runtime.popup_wait_seconds,
+                        features.popup_press_enter.
+  Tahap berikutnya (usulan, urut): (1) pengguna dry-run baris yang memuat lapisan
+                        tambahan (python V7SATU.py --dry-run --process-past --jam HH:00) lalu
+                        kirim log; (2) F3.4 verifikasi sandi (dekode + aturan penggabungan
+                        lapisan setinggi sama WMO 306, lihat 2.11); (3) aturan QC konsistensi
+                        dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
+                        setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
+                        (7) kemungkinan otomatisasi CLIMAT.
+  Tahap berjalan      : F3.10 (uji di web asli)
+  Diblokir            : -
+  Keputusan           : K1-K9 (bagian 8)
+  Pertanyaan teknis terbuka: N3 (Telegram), N5
+  Lingkungan pengguna : Windows; Python 3.13 (Store) dipakai (juga ada 3.9/3.12);
+                        pip install -r requirements.txt di interpreter yang SAMA.
+  CLI V7SATU: --observer, --no-gui, --dry-run, --check-only, --process-past, --jam.
+  BATASAN BOT: awan rendah lapisan 2 masih memakai jalur lama (id '775' & CL 2/3/9,
+                        sudah sadar-status); lapisan rendah-2 dengan Jenis 8/9 (puncak,
+                        elevasi, arah sebenarnya lapisan 2) belum terukur; lapisan
+                        tambahan di web asli BELUM terbukti; mode Update memakai alur SEND
+                        yang sama setelah 'Send & Update' (belum diuji kirim).
+  STRUKTUR PROYEK (D:\alarm\synop_auto): V7SATU.py, config.yaml, .env, check_excel.py,
+    tambah_kolom_lapisan.py, collect_*.py, core/{config,validator,db}.py + options.json +
+    rules.json, tests/{test_validator,test_bot_flow,test_bot_fill,test_popup,test_speed,
+    test_layers}.py, bot/, legacy/V6SATU.py, data/synop.db, snapshots/.
+  File hasil sejauh ini:
+    - Seluruh isi synop_auto/ (README.txt: cara pakai & urutan uji).
+    - SYNOP_UPGRADE_HANDOFF.txt (file ini, revisi 13)
+
+
+================================================================================
+2. KONTEKS SISTEM SAAT INI (BASELINE, SEBELUM UPGRADE)
+================================================================================
+Pengguna : Hirise, pegawai (CPNS) Stasiun Meteorologi Kelas I Sultan Thaha
+           Jambi (BMKG). Nyaman di backend dan UI/UX web.
+
+Fungsi   : Script Python + Selenium yang mengisi form SYNOP di web BMKG Satu
+           secara otomatis berdasarkan file Excel. Pengamat tidak menyentuh
+           web; cukup mengedit Excel. Script menunggu waktu_eksekusi tiap
+           baris, lalu mengisi form, Preview, dan mengirim (GTS/INASwitching).
+
+URL      : https://bmkgsatu.bmkg.go.id/login
+           https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik
+           (pengguna menyebutnya "bmkgsoftv2")
+Stasiun  : "Stasiun Meteorologi Sultan Thaha"; station id 96195
+           (kredensial ada di script lama; TIDAK dicatat di sini).
+Teknologi web target: Ant Design (ant-select, role=combobox) + SweetAlert2
+           (swal2) + modal Bootstrap (#modal-preview).
+
+File lokal (path di script lama; INKONSISTEN, lihat T7):
+  - Excel  : D:\alarm\OTO_SYNOP\SYNOP\INPUT_PARAMETER.xlsx
+  - Gambar : D:\OTO_SYNOP\SYNOP\ok.PNG   (untuk klik popup via pyautogui)
+  - Snapshot debug: folder ./snapshots (screenshot + HTML saat gagal)
+
+Library : selenium, pandas, pyautogui (+ opencv opsional), openpyxl (baca xlsx)
+
+2.1 ALUR UTAMA SCRIPT LAMA (main)
+  login -> klik_tombol_oke_popup (pyautogui) -> memilih_stasiun
+  -> memilih_tanggal (tanggal UTC = waktu lokal - 7 jam; dipilih SEKALI)
+  -> loop selamanya:
+       baca Excel -> untuk tiap baris:
+         baca ulang Excel; bandingkan perubahan baris
+         lewati jika waktu_eksekusi sudah lewat
+         countdown sampai waktu_eksekusi (cek perubahan Excel tiap 2 detik)
+         loop recovery per baris (maks MAX_ROW_RECOVERY = 2):
+           isi_per_jam -> Fill_AWS_Digi -> memilih_observer (sekali)
+           -> tunggu form (#present_weather_ww; jika tidak muncul =
+              SESSION_RECOVERY_NEEDED -> recover_session)
+           -> isi_data -> Preview -> Preview_OK
+              (fallback ww 10->05 jika gagal & ww=10)
+           -> SEND_SEND_SUBMIT -> SEND_INASWITCH_SUBMIT
+              (fallback SEND_INASWITCH) -> SEND_GTS -> SEND_GTS_OK
+         error biasa: lewati baris
+       setelah semua baris: tunggu 10 detik, baca ulang Excel.
+  Observer: nama diketik lewat input() di terminal saat script dimulai.
+
+2.2 KOLOM EXCEL (Sheet1, 40 kolom, urutan sesuai file)
+  waktu_eksekusi, jam_input, visibility, ww, w1, w2, cloud_cover_oktas_m,
+  cloud_low_type_cl, cloud_low_cover_oktas, awan_rendah_jenis,
+  awan_rendah_jumlah, cloud_low_base_1, cloud_low_peak_1,
+  cloud_arah_awan_rendah, cloud_elevation_1_angle_ec,
+  cloud_arah_sebenarnya_1, awan_rendah_2_jenis, awan_rendah_2_jumlah,
+  cloud_low_base_2, cloud_low_peak_2, cloud_arah_2,
+  cloud_elevation_2_angle_ec, cloud_arah_sebenarnya_2, cloud_med_type_cm,
+  cloud_med_cover_oktas, awan_menengah_jenis_1, awan_menengah_jumlah_1,
+  cloud_med_base_1, cloud_arah_menengah_1, awan_menengah_jenis_2,
+  awan_menengah_jumlah_2, cloud_med_base_2, cloud_arah_menengah_2,
+  cloud_high_type_ch, cloud_high_cover_oktas, awan_tinggi_jenis,
+  awan_tinggi_jumlah, cloud_high_base_1, cloud_arah_tinggi, land_cond
+  Ada kolom bantu tanpa judul di sisi kanan (berisi pecahan hari yang sama
+  dengan jam_input). Sheet2 berisi daftar referensi (jenis awan rendah,
+  arah awan) tanpa fungsi validasi.
+
+  Contoh format nilai (teks HARUS persis sama dengan opsi di web):
+    ww "21 -" / "02 -" ; w1,w2 "6 -" / "2 -" ; oktas "7 okta" ;
+    cl "5 -" ; jenis "6 - stratocumulus (Sc)" ; arah "0 - Stationary or No
+    Clouds" ; cm "1 -" ; ch "1 -" ; land_cond "0 -" dst ;
+    base/peak berupa angka (mis. 450, 3000, 9000).
+  waktu_eksekusi disimpan sebagai waktu lokal (WIB). jam_input berformat jam
+  (dibaca sebagai "HH:MM:SS" lalu dipotong jadi "HH:00").
+  Baris pertama contoh (jam 00:00) hampir kosong semua kecuali land_cond.
+  Kolom awan_menengah_*_2 ada di Excel tetapi TIDAK dipakai script.
+
+2.3 ATURAN BISNIS YANG TERSEMBUNYI DI KODE (harus dipindah ke validator/form)
+  R1  cloud_cover_oktas_m = "/ - Cloud" atau "/ -"  -> lewati semua awan,
+      langsung isi land_cond.
+  R2  cloud_low_type_cl kode "0"  -> awan rendah tidak diisi.
+  R3  CL != 0 -> wajib terisi: cloud_low_cover_oktas, awan_rendah_jenis,
+      awan_rendah_jumlah, cloud_arah_awan_rendah (kalau kosong -> gagal).
+  R4  cloud_low_base_1 opsional (dilewati jika kosong).
+  R5  cloud_low_peak_1 & cloud_arah_sebenarnya_1 hanya aktif jika kode jenis
+      awan rendah (awan_rendah_jenis) = 8 atau 9. Elevasi (cloud_elevation_1_
+      angle_ec) hanya dicoba jika peak_1 berhasil diisi.
+  R6  Awan rendah ke-2 hanya jika awan_rendah_2_jenis tidak kosong. Switch
+      (label for='775') diklik bila tipe CL berawalan 2, 3, atau 9.
+      peak_2/elevasi_2/arah_sebenarnya_2 dilewati jika CL kode = "1".
+  R7  CM = "0 -" -> awan menengah dilewati.
+  R8  CH = "0 -" -> awan tinggi dilewati; cover_oktas tinggi kosong/"-" ->
+      detail awan tinggi dilewati.
+  R9  Wajib (gagal = batalkan baris): ww, w1, w2, visibility,
+      cloud_cover_oktas_m, CL, CM, CH, land_cond.
+  R10 ww = "10" (Mist) yang ditolak (RH < 95%) -> diganti otomatis ke "05"
+      (Haze) lalu Preview ulang. (DIPUTUSKAN K2: tetap otomatis + dicatat + notifikasi.)
+  R11 [BARU, terverifikasi dari snapshot] Jika CH berkode "/" (mis. "/ - CH
+      clouds not visible ..."), web MENONAKTIFKAN NCH, Jenis, Jumlah, Tinggi
+      Dasar, Arah awan tinggi lapisan 1 (terisi otomatis). Script lama tetap
+      mencoba mengisi cloud_high_cover_oktas -> gagal+menunggu (lihat T18).
+      Aturan baru: CH kode "/" => semua kolom awan tinggi diabaikan/dilewati.
+  R12 [TERJAWAB F0.5 penuh: lihat 2.8] CM atau CL berkode "/" kemungkinan
+      berperilaku sama dengan R11 untuk seksi masing-masing. (-> F0.5, N1)
+  R13 [TERVERIFIKASI; matriks lengkap di core/rules.json] Opsi dropdown Jenis (rendah/menengah/tinggi)
+      tidak semuanya dapat dipilih: sebagian berstatus disabled tergantung kode
+      CL/CM/CH yang dipilih. Contoh saat capture: CL=2 -> hanya 6 (Sc) & 8 (Cu)
+      aktif; CM=1 -> hanya 4 (As) aktif; CH=1 -> hanya 0 (Ci) aktif. Matriks
+      lengkap kode -> Jenis yang diizinkan BELUM ada. (-> F0.5, F1.3)
+  R14 [TERVERIFIKASI 2026-11-14] Toggle lapisan yang aktif membuat seluruh
+      kolom lapisan itu WAJIB (field kosong tampil merah/invalid, termasuk
+      Tinggi Dasar). Toggle tidak boleh dibiarkan aktif dengan field kosong;
+      lapisan tak terpakai => toggle off. Tinggi Puncak/Elevasi/Arah Sebenarnya
+      lapisan 2 tetap disabled saat toggle baru dinyalakan (diduga menunggu
+      Jenis = 8/9, selaras R5; verifikasi F0.5).
+  R15 [TERJAWAB F0.5 penuh: lihat 2.8, R21-R22] Ada field kondisional yang tidak ada di Excel/script:
+      rainfall_last_mm ("Hujan takaran terakhir (mm)": terlihat terisi 3.5 dan
+      aktif pada screenshot 2026-11-09, disabled pada 2026-11-14) dan
+      cloud_vertical_vis ("Jarak Penglihatan Vertikal (m)": kemungkinan aktif
+      saat tutupan total = 9). KONFIRMASI PENGGUNA 2026-11-14: Fill AWS Digi
+      MENGISI curah hujan otomatis. Kondisi kapan kolom itu aktif (ww/W1/W2)
+      masih dicari di F0.5. (N4 terjawab sebagian)
+  R16 [PERMINTAAN PENGGUNA 2026-11-14] Fitur OVERRIDE HUJAN opsional: tombol
+      aktif/nonaktif + angka curah hujan (mm). Jika aktif, setelah Fill AWS
+      Digi dan setelah ww/W1/W2 terisi, bot menimpa nilai rainfall_last_mm
+      dengan angka pengguna (nilai AWS yang digantikan dicatat di log).
+      Hanya berlaku jika kolom hujan sedang aktif di web untuk kombinasi
+      ww/W1/W2 itu; jika tidak, validator memberi peringatan. (-> F1.8)
+  R17 [TERVERIFIKASI uji F0.5 2026-11-14] Tutupan total "0" membuat web
+      OTOMATIS mengisi CL=0, CM=0, CH=0 (+ NCL/NCM/NCH=0), lalu MENONAKTIFKAN
+      selektor CL/CM/CH beserta semua field detail awan. Tutupan total >= 1
+      okta (diuji: 1) mengaktifkan kembali selektor CL/CM/CH. Konsekuensi:
+      baris Excel dengan tutupan total "0" harus mengosongkan semua kolom awan
+      (script lama hanya menangani "/", lihat R1). (-> F1.3, F2.3)
+  R18 [TERVERIFIKASI] Kode tipe 0 (CL/CM/CH) menonaktifkan NCx, Jenis, Jumlah,
+      Arah, Tinggi Dasar (dan untuk CL: Tinggi Puncak, Elevasi, Arah
+      Sebenarnya) -> menegaskan R2/R7/R8. Opsi Jenis yang boleh (R13) yang
+      sudah terukur: CL=1 -> hanya 8 (Cu); CL=2 -> 6 & 8; CM=1 -> hanya 4
+      (As); CH=1 -> hanya 0 (Ci). Kode lain menunggu F0.5 penuh.
+  R19 [TERJAWAB: lihat R24 di 2.8] Daftar Jenis pada lapisan tambahan:
+      rendah-2/3 = 6,7,8,9,/ ; menengah-2 = 3,4,5,/ ; tinggi-2 = 0,1,2,/.
+      Terukur saat form tercemar isian eksperimen sebelumnya (CL/CM/CH=0),
+      jadi belum tentu berlaku saat lapisan-1 terisi. Opsi Jumlah (11) dan
+      Arah (10) lapisan tambahan tersedia setelah toggle aktif.
+
+2.4 FIELD ID WEB YANG DIPAKAI
+  present_weather_ww, past_weather_w1, past_weather_w2, visibility_vv,
+  cloud_cover_oktas_m, cloud_low_type_cl, cloud_low_cover_oktas,
+  cloud_low_base_1, cloud_low_peak_1, cloud_elevation_1_angle_ec,
+  cloud_low_base_2, cloud_low_peak_2, cloud_elevation_2_angle_ec,
+  cloud_med_type_cm, cloud_med_cover_oktas, cloud_med_base_1,
+  cloud_high_type_ch, cloud_high_cover_oktas, cloud_high_base_1, land_cond,
+  input-datepicker, login-email, login-password.
+  Tombol/modal: "preview & generate sandi", #modal-preview (tombol ok),
+  "send & submit", "send to inaswitching", modal #send-gts-message
+  (tombol send), popup "Koreksi QC" (tombol submit), swal2 ok.
+
+
+2.5 TEMUAN DOM TERVERIFIKASI (snapshot 20261109_185851 + screenshot, BMKGSoft v2)
+  - Kartu AWAN RENDAH / MENENGAH / TINGGI: heading h5 lalu baris kolom.
+    Kolom 0 = label (CL/CM/CH, NCL/NCM/NCH, Jenis, Jumlah, Tinggi Dasar,
+    [Tinggi Puncak], Arah[ Gerak], [Sudut Elevasi], [Arah Sebenarnya]).
+    Kolom 1 = lapisan 1, kolom 2 = lapisan 2, (rendah saja) kolom 3 = lapisan 3.
+    Baris di kolom lapisan SEJAJAR posisi dengan baris label.
+  - Field BER-ID: cloud_low_type_cl, cloud_low_cover_oktas,
+    cloud_low_base_1/2/3, cloud_low_peak_1/2, cloud_elevation_1/2_angle_ec,
+    cloud_med_type_cm, cloud_med_cover_oktas, cloud_med_base_1/2,
+    cloud_high_type_ch, cloud_high_cover_oktas, cloud_high_base_1/2.
+    Dropdown TANPA id: Jenis, Jumlah, Arah (Gerak), Arah Sebenarnya tiap
+    lapisan -> harus dicari lewat posisi (seksi + kolom + label baris).
+  - TOGGLE tambah lapisan (input.custom-control-input name='check-button',
+    id numerik pada snapshot; urutan DOM 775,776,777,778):
+        775 = AWAN RENDAH   lapisan 2 (kolom 2)  <- dipakai script lama
+        776 = AWAN RENDAH   lapisan 3 (kolom 3)  <- penyebab bug K5 (lihat bawah)
+        777 = AWAN MENENGAH lapisan 2 (kolom 2)  <- dibutuhkan kasus Ac + As
+        778 = AWAN TINGGI   lapisan 2 (kolom 2)
+    Kolom lapisan 2/3 berstatus DISABLED sampai toggle-nya diaktifkan
+    (terkonfirmasi: kolom menengah-2 disabled pada snapshot).
+    BELUM terverifikasi: apakah id 775-778 sama di setiap sesi/muat ulang
+    (bukan __BVID__ acak, tapi mungkin counter) -> JANGAN hardcode id; cari
+    toggle lewat (seksi + urutan di seksi). Lihat N2.
+  - Penjelasan bug K5 (dugaan kuat dari DOM): awan menengah ke-2 butuh toggle
+    777; kemungkinan dicoba 776 (mengira urutan rendah-menengah-tinggi),
+    padahal 776 = awan rendah ke-3. Juga isi_jenis_dan_jumlah_awan_rendah_2
+    memakai XPath global 'row mt-5 pr-1' (kecocokan pertama = kolom 2 awan
+    rendah) sehingga tidak bisa dipakai ulang untuk awan menengah.
+  - Snapshot dibuat saat script gagal mengisi cloud_high_cover_oktas="1 okta":
+    CH = "/ - CH clouds not visible", NCH disabled (lihat R11 / T18).
+  - Format teks opsi BERBEDA antar field (jangan disamakan): NCL "5 oktas";
+    Jumlah rendah "1 okta or less, but not zero"; Jumlah menengah
+    "8 - 8 oktas"; NCH "/ - Cloud cover is indiscernible..."; CL "3 -
+    cumulunimbus tanpa landasan..."; CM "1 - Altostratus translucidus";
+    Arah "0 - Stationary or No Clouds"; Sudut Elevasi "1 - 45º or more"
+    (ada simbol º). Script lama mencocokkan dengan SUBSTRING (contains), jadi
+    "1 okta" bisa ambigu -> validator/options harus memakai teks penuh.
+
+2.6 PEMETAAN KOLOM EXCEL -> FIELD WEB (key = format collect_web_info.py:
+    id jika ada; jika tidak "SEKSI|k<kolom>|b<baris>|<label>")
+  Awan rendah L1 : cloud_low_type_cl, cloud_low_cover_oktas,
+      awan_rendah_jenis   -> AWAN RENDAH|k1|b2|Jenis
+      awan_rendah_jumlah  -> AWAN RENDAH|k1|b3|Jumlah
+      cloud_low_base_1, cloud_low_peak_1 (id)
+      cloud_arah_awan_rendah -> AWAN RENDAH|k1|b6|Arah Gerak
+      cloud_elevation_1_angle_ec (id)
+      cloud_arah_sebenarnya_1 -> AWAN RENDAH|k1|b8|Arah Sebenarnya
+  Awan rendah L2 (toggle ke-1 di seksi; id 775 pada snapshot):
+      awan_rendah_2_jenis  -> AWAN RENDAH|k2|b2|Jenis
+      awan_rendah_2_jumlah -> AWAN RENDAH|k2|b3|Jumlah
+      cloud_low_base_2, cloud_low_peak_2 (id)
+      cloud_arah_2 -> AWAN RENDAH|k2|b6|Arah Gerak
+      cloud_elevation_2_angle_ec (id)
+      cloud_arah_sebenarnya_2 -> AWAN RENDAH|k2|b8|Arah Sebenarnya
+  Awan rendah L3 (toggle ke-2 di seksi; 776) : TIDAK ADA di Excel/script:
+      AWAN RENDAH|k3|b2|Jenis, |k3|b3|Jumlah, cloud_low_base_3,
+      AWAN RENDAH|k3|b6|Arah Gerak
+  Awan menengah L1: cloud_med_type_cm, cloud_med_cover_oktas,
+      awan_menengah_jenis_1  -> AWAN MENENGAH|k1|b2|Jenis
+      awan_menengah_jumlah_1 -> AWAN MENENGAH|k1|b3|Jumlah
+      cloud_med_base_1 (id)
+      cloud_arah_menengah_1  -> AWAN MENENGAH|k1|b5|Arah
+  Awan menengah L2 (toggle ke-1 di seksi; 777) : ADA di Excel, BELUM di script:
+      awan_menengah_jenis_2  -> AWAN MENENGAH|k2|b2|Jenis
+      awan_menengah_jumlah_2 -> AWAN MENENGAH|k2|b3|Jumlah
+      cloud_med_base_2 (id)
+      cloud_arah_menengah_2  -> AWAN MENENGAH|k2|b5|Arah
+  Awan tinggi L1 : cloud_high_type_ch, cloud_high_cover_oktas,
+      awan_tinggi_jenis  -> AWAN TINGGI|k1|b2|Jenis
+      awan_tinggi_jumlah -> AWAN TINGGI|k1|b3|Jumlah
+      cloud_high_base_1 (id)
+      cloud_arah_tinggi  -> AWAN TINGGI|k1|b5|Arah
+  Awan tinggi L2 (toggle ke-1 di seksi; 778) : TIDAK ADA di Excel/script:
+      AWAN TINGGI|k2|b2|Jenis, |k2|b3|Jumlah, cloud_high_base_2,
+      AWAN TINGGI|k2|b5|Arah
+  Catatan: pemetaan ini dari snapshot satu kali; kolektor akan memverifikasi
+  (fields.json) dan mengisi daftar opsi lengkap.
+
+
+2.7 HASIL collect_web_info.py (dijalankan pengguna 2026-11-14 16:14 WIB;
+    form: stasiun 96195, tanggal 13/11/2026, jam 04:00 UTC)
+  - form_ready = True; 38 dropdown terbaca opsinya (termasuk stasiun, jam,
+    observer). Hasil disimpan di core/options.json.
+  - 4 toggle terverifikasi: 775/776/777/778 masing-masing mengaktifkan 4 field
+    pada lapisannya (Jenis, Jumlah, Tinggi Dasar, Arah[ Gerak]). Id sama dengan
+    snapshot 2026-11-09 -> id stabil di dua sesi (N2 terjawab). Tetap cari
+    toggle lewat (seksi, urutan) dan pakai id sebagai pengecekan silang.
+  - Belum terambil opsinya (disabled saat capture): input-cuaca-ix,
+    cloud_elevation_2_angle_ec, AWAN RENDAH|k2|b8|Arah Sebenarnya,
+    evaporation_eq_indicator_ie. Elevasi_2 & Arah Sebenarnya_2 sementara
+    diasumsikan sama dengan lapisan 1 (ditandai 'pending: F0.5').
+  - Uji kecocokan Excel -> opsi web: 64 nilai unik dari 24 baris
+    INPUT_PARAMETER.xlsx; SEMUA cocok tepat satu opsi dengan aturan substring
+    script lama. Nilai singkat ("7 okta", "5 -") aman pada data ini, tetapi
+    tetap rapuh (T1). cloud_elevation_2_angle_ec kosong di semua baris.
+    Baris jam 00:00 hampir kosong (akan gagal R9) -> N5.
+  - Observer: 20 nama, 4 bertanda "(inactive)" dan disabled. Launcher hanya
+    boleh menampilkan yang aktif (script lama memakai contains(nama), sehingga
+    ketikan sebagian nama bisa mengenai opsi nonaktif).
+  - Jam di web = UTC (label "Jam pengamatan dibuka 10 menit sebelumnya (UTC)");
+    opsi 00:00-23:00.
+  - Label tombol aksi berubah saat data jam itu sudah ada: screenshot (jam
+    04:00, 13/11) memuat data tersimpan + sandi, tombol berlabel "Send",
+    "Update", "Send & Update" (bukan "Submit"/"Send & Submit"). Script lama
+    mencari "send & submit" -> gagal pada pengiriman ulang jam yang sudah ada.
+    (Penyebab diduga: record jam itu sudah ada; belum diuji langsung.) Form
+    juga menampilkan "Referensi First Input" dan "Data Terakhir".
+  - Contoh sandi hasil Preview: baris "SNID52 WIJJ <ddhhmm>", "AAXX <ddhhY>",
+    "96195 ... 333 ...". Grup 8NhCLCMCH pada sandi = 85211 sama dengan form
+    (NCL=5, CL=2, CM=1, CH=1) -> sandi dapat didekode untuk verifikasi (F3.4).
+  - Teks opsi: Jumlah menengah/tinggi berawalan ganda ("9 - 9 - Sky
+    obscured...", "/ - / - Cloud cover...", "0 - 0"); Jumlah rendah, NCL/NCM/
+    NCH, dan tutupan total tanpa awalan ("0", "5 oktas"). Excel memakai "N okta"
+    (tunggal) -> cocok via substring. options.json menyimpan teks penuh + kode.
+
+
+2.8 HASIL F0.5 PENUH (collect_rules_matrix.py v2, 2026-11-14; kondisi awal
+    form: total=5 oktas, CL=6, CM=2, CH=1, ww=05, visibilitas 3.5 km, hujan=0)
+  Data lengkap: core/rules.json. Ringkasan terverifikasi:
+  R20 Tutupan total: 0 -> web mengisi CL=CM=CH=0, NCx=0 dan menonaktifkan semua
+      detail; 1-8 -> selektor CL/CM/CH aktif; 9 -> CL/CM/CH diisi otomatis '/',
+      NCx=9, detail nonaktif, cloud_vertical_vis AKTIF; "/" -> CL/CM/CH '/',
+      NCx '/', detail nonaktif, vertical vis nonaktif. Untuk 0, 9, "/" kolom
+      awan Excel harus KOSONG. (Script lama hanya menangani "/", lihat T26.)
+  R20b Kode tipe 0 atau "/" pada CL/CM/CH menonaktifkan seluruh detail lapisan
+      itu dan web mengisinya otomatis (0 -> NCx/Jumlah=0, Arah="0 - Stationary
+      or No Clouds"; "/" -> Jenis "/ - cloud not visible", Arah "9 - All
+      Directions or Invisible"). Menjawab N1/R12: "/" berperilaku seperti 0.
+  R13 (matriks Jenis yang BOLEH, kode SYNOP):
+      CL : 0,/ -> -  | 1 -> 8 | 2 -> 6,8 | 3 -> 6,7,8,9 | 4 -> 6 | 5 -> 6 |
+           6 -> 7 | 7 -> 7 | 8 -> 6,8 | 9 -> 6,7,8,9
+      CM : 0,/ -> -  | 1 -> 4 | 2 -> 4,5 | 3 -> 3 | 4 -> 3 | 5 -> 3 | 6 -> 3 |
+           7 -> 3,4,5 | 8 -> 3 | 9 -> 3,4
+      CH : 0,/ -> -  | 1 -> 0 | 2 -> 0 | 3 -> 0 | 4 -> 0 | 5 -> 0,2 | 6 -> 0,2 |
+           7 -> 0,1,2 | 8 -> 0,1,2 | 9 -> 0,1,2
+      Opsi tutupan lapisan (NCx) dan Jumlah tidak pernah diblok.
+  R23 Tinggi Puncak / Sudut Elevasi / Arah Sebenarnya (awan rendah lapisan 1)
+      aktif jika Jenis ∈ {8,9} DAN kode CL != 1 (terukur: CL1+Jenis8 nonaktif;
+      CL2/3/8/9 + Jenis 8/9 aktif; Jenis 6/7 selalu nonaktif).
+  R24 Lapisan tambahan (toggle) memakai daftar Jenis yang SAMA dengan kode
+      CL/CM/CH yang dipilih (CL=6 -> [7], CM=2 -> [4,5], CH=1 -> [0]). Untuk
+      kasus Ac+As pakai CM=7 (3,4,5) atau CM=9 (3,4). Perilaku peak_2/
+      elevasi_2/arah sebenarnya_2 untuk Jenis 8/9 belum terukur (F0.5b).
+  R21 Vertical visibility (cloud_vertical_vis): KETERANGAN PENGGUNA: aktif jika
+      tutupan total = 9 DAN visibilitas < 1 km, harus diisi manual. TEMUAN UJI:
+      aktif pada total=9 walau visibilitas 3.5 km (nonaktif untuk total 0-8 dan
+      "/"). DIPUTUSKAN (K8, 2026-11-15): ketentuan stasiun 'total 9 hanya dengan
+      visibilitas < 1 km' ditegakkan sebagai PENOLAKAN. Validator: total=9 ->
+      vertical_visibility WAJIB (ERROR bila kosong); visibilitas >= 1 km ->
+      ERROR (batas tepat 1.0 km juga ditolak).
+  R22 Curah hujan (rainfall_last_mm): KETERANGAN PENGGUNA: kolom terbuka tiap 3
+      jam (jam UTC 00, 03, 06, ... 21). Konsisten dengan uji: aktif untuk
+      100/100 kode ww, 11/11 W1, 11/11 W2 dan semua tutupan total (pada jam
+      yang diuji) -> TIDAK bergantung pada ww/W1/W2. Nilai default diisi Fill
+      AWS Digi (terlihat "0"). Override hujan (F1.8) hanya berlaku pada jam
+      kelipatan 3 UTC; selain itu abaikan + peringatan.
+  R25 ww, W1, W2 tidak mengubah field lain di form (diuji 100/11/11 kode).
+  Uji data nyata: INPUT_PARAMETER.xlsx (24 baris) diperiksa terhadap
+  core/rules.json -> 6 temuan: baris jam 00:00 tutupan total kosong; jam 03:00
+  dan 04:00 CL=5 Jenis=6 tetapi Tinggi Puncak terisi (seharusnya kosong/
+  nonaktif); jam 07:00, 08:00, 09:00 CH="/" tetapi Jenis awan tinggi terisi 0
+  (seharusnya kosong).
+
+
+2.9 HASIL VALIDATOR PADA EXCEL CONTOH (24 baris, 2026-11-14)
+  - ERROR 1: baris jam 00:00 hampir kosong (N5).
+  - WARNING 5: jam 03:00 & 04:00 (Jenis 6 tetapi puncak/elevasi terisi);
+    jam 07:00, 08:00, 09:00 (CH="/" tetapi detail awan tinggi terisi).
+  - Temuan baru: jam 07:00 tutupan total 7 tetapi awan menengah 8 okta
+    (R-NC1: total tidak boleh lebih kecil dari lapisan terbesar).
+  - Kolom "Arah Sebenarnya" terisi default '0 - Stationary...' di 18 baris
+    saat Jenis bukan 8/9 (disalin ke bawah): diabaikan web -> hanya INFO.
+  - Pasangan waktu: waktu_eksekusi = (jam UTC + 7 jam) - 0 s.d. 2 menit
+    (mis. jam 01:00 -> 07:58 WIB); slot (tanggal_utc, jam) kini diturunkan
+    dari waktu_eksekusi, bukan dari tanggal saat script dimulai (mengatasi T11
+    di sisi data).
+
+
+2.10 HASIL F0.5b (collect_rules_matrix.py --only layers, 2026-11-15)
+  Form saat uji: total=5, CL=6, CM=2, CH=1 (SAMA dengan uji sebelumnya; form
+  TIDAK di-set CL=9/CM=7/CH=9 seperti disarankan), reset_failures=0, 0 popup.
+  - Terkonfirmasi R24 dan KOREKSI R19: daftar Jenis lapisan tambahan = daftar
+    Jenis kode terpilih. Rendah-2 dan rendah-3 (CL=6): hanya 7, diblok 6,8,9,/.
+    Menengah-2 (CM=2): 4 dan 5, diblok 3 dan /. Tinggi-2 (CH=1): hanya 0.
+    (Dugaan lama "semua Jenis" pada R19 berasal dari uji yang tercemar.)
+  - Dengan Jenis 7 pada rendah-2: peak2, elev2, Sbnr2 nonaktif (selaras R23).
+  - Opsi lapisan tambahan: Jumlah 11 opsi dan Arah/Gerak 10 opsi aktif setelah
+    toggle dinyalakan (semua lapisan).
+  - BELUM terukur: peak2/elev2/Sbnr2 untuk Jenis 8/9, serta opsi elevasi_2 dan
+    arah sebenarnya_2 (butuh form dengan CL=9 atau 3, Jenis 8/9 tersedia).
+    Untuk mengulang: di web set CL=9 (Cb), CM=7, CH=9, JANGAN pilih Jenis
+    lapisan 2; lalu python collect_rules_matrix.py --only layers.
+    Sementara aturan lapisan 2 = sama dengan lapisan 1 (provisional, hanya INFO).
+
+
+2.11 REFERENSI: PPT PUSAT "Update Modul Pengamatan di BMKGSoft v2" (Jakarta, 16 Nov
+     2026; 44 slide; diunggah pengguna 2026-11-17)
+  Relevan untuk SYNOP otomatis:
+  - Slide 4: matriks konsistensi CL/CM/CH -> Jenis (C) RESMI IDENTIK dengan hasil ukur web
+    kita di core/rules.json (27 pasangan, dicocokkan dengan program). R13 terkonfirmasi.
+  - Slide 7: Tinggi puncak/elevasi/arah sebenarnya hanya bila CL = 2,3,8,9 dan C = 8,9.
+    Ekuivalen dengan R23 (Jenis 8/9 dan CL != 1). Contoh slide: lapisan-2 Sc: puncak nonaktif.
+  - Slide 9: smoke (ww=04) dengan N=9 (awan tidak terlihat): CL/CM/CH '/'; aturan QC13
+    diperluas: ww = 00-03, 05-16, 18-29, 40, 42, 44, 46, 48 dengan N=9 TIDAK konsisten
+    (ww=04 dikecualikan).
+  - Slide 10-12 (+37): 126 aturan QC konsistensi; entri yang tidak konsisten TIDAK DAPAT
+    DIENTRI (alur: Gross -> Consistency -> 'Tidak dapat dientri'). Kandidat untuk validator
+    (dihitung dari kolom Excel; WARNING dulu, perumusan batas tinggi perlu diverifikasi):
+      QC3/4/5/7 VV vs ww; QC10 W1<W2; QC13/14/15 ww vs N; QC35 N<8 & Ch=7;
+      QC36 N=9 & VV>=1 km (= K8, kini RESMI); QC39 N<Nh; QC44/47 Nh=8 -> Cm dan Ch harus '/';
+      QC90-93 tinggi dasar vs jenis (Cc/Cs >= 4800 m; Ac/As >= 2100 m; Ns <= 6900 m;
+      Sc/St/Cu/Cb <= 1800 m); QC102/103 Cs 8 okta <-> CH=7; QC107/108 Ns>N, Ns=8 -> N=8;
+      QC121 grup-2 harus lebih tinggi dari grup-1. Yang butuh data AWS (TT, Td, RRR, Tx/Tn,
+      RH) tidak dapat dicek dari Excel.
+  - Slide 13-14: sandi hasil sistem boleh diedit ('Edit Sandi'); tombol Send / Update /
+    Send & Update (konfirmasi T21). Dropdown Jam: jam yang BELUM masuk waktu pengamatan
+    NONAKTIF (tooltip 'Belum masuk waktu pengamatan'); dibuka 10 menit sebelumnya
+    (konfirmasi R-WKT). Catatan: pilih_opsi_unsur V6 tidak memeriksa opsi nonaktif.
+  - Slide 15-16: review QFF=QFE 2026: Stamet Sultan Thaha (27 m) tercantum 1 record
+    (17-01-2026 05:00, QFE=QFF=1007.4) -> usul pemeriksaan otomatis setelah Fill AWS Digi
+    (pada 27 m, QFF-QFE seharusnya sekitar 3 hPa).
+  - Slide 31-32, 33, 35, 40 (WMO Code 306): web menyediakan awan rendah 1-3, menengah 1-2,
+    tinggi 1-2. Lapisan dengan tinggi dasar SAMA digabung dalam satu grup 8 (C = jenis
+    dengan jumlah terbanyak, sama -> kode tertinggi; Ns = jumlah total; Cb dipisah sendiri);
+    maks. 3 grup + 1 grup Cb. Contoh slide 31: Cb 2 + Cu 3 + Sc 1 (semua 450 m) -> "Cb 450 2",
+    "Cu 450 4"; Ac 2 + As 2 pada 3000 m -> "As 3000 4". N=9 -> grup '89/hshs' (hshs = vertical
+    visibility). PENJELASAN sandi jam 08:00 pengguna: 85615 = Cu 2 + Sc 3 pada 450 m digabung
+    (C=6 Sc, Ns=5, hh=15) saat lapisan-2 terisi; 82815 = hanya Cu 2 saat lapisan-2 gagal.
+    Implikasi: verifikasi sandi (F3.4) harus menerapkan aturan penggabungan ini.
+  Tidak relevan untuk SYNOP: CLIMAT (slide 17-21; batas kirim tanggal 4 bulan berikutnya
+  pukul 03.00 UTC), FKLIM/FDIH, ePHK, migrasi data. CLIMAT bisa jadi target otomatisasi
+  berikutnya.
+
+
+================================================================================
+3. TEMUAN MASALAH (T = Temuan) DAN PEMETAAN KE TAHAP PERBAIKAN
+================================================================================
+ T1  Nilai dropdown diketik teks bebas -> salah 1 karakter = gagal/mismatch.
+     -> F0.2, F1.2, F1.3, F2.3
+ T2  Aturan antar-kolom hanya di kode; pengamat tidak tahu (Excel bisa tidak
+     konsisten dengan form web). -> F1.3, F2.3
+ T3  Tidak ada log status kirim (sent/failed/skipped): risiko kirim ganda
+     atau terlewat diam-diam jika script restart; baris lampau dilewati
+     tanpa jejak. -> F1.4, F1.5
+ T4  Kredensial tertulis di kode (keamanan). -> F1.1
+ T5  Observer diketik manual di terminal. -> F1.6, F2.2
+ T6  Klik popup via pyautogui + gambar ok.PNG: rapuh terhadap resolusi,
+     tema, posisi window. -> F3.2
+ T7  Path file inkonsisten (D:\alarm\OTO_SYNOP\... vs D:\OTO_SYNOP\...).
+     -> F1.1
+ T8  Fallback ww 10->05 mengubah data pengamatan otomatis tanpa konfirmasi.
+     -> F3.6 (+K2)
+ T9  +-8 fungsi hampir identik (pilih_arah_*, isi_jenis_dan_jumlah_*).
+     Perubahan web = edit banyak tempat. -> F3.1
+ T10 Banyak time.sleep tetap; kurang explicit wait. -> F3.3
+ T11 Tanggal web (UTC) dipilih SEKALI di awal / setelah recovery. Jika script
+     berjalan melewati pergantian hari UTC (07:00 WIB), tanggal bisa basi.
+     (HIPOTESIS dari membaca kode; verifikasi saat F0.1/F3.) -> F3.x / F2.7
+ T12 Kolom awan_menengah_*_2 ada di Excel tetapi tidak diproses script.
+     Perlu diputuskan: dipakai atau dihapus (K5). -> F2.1
+ T13 Variabel global driver, satu file +-1000 baris, tanpa modul/test.
+     -> F3.1 (refactor), F0.3
+ T14 Tidak ada verifikasi hasil: kode SYNOP dari preview tidak disimpan atau
+     dibandingkan. -> F3.4
+ T15 Tidak ada notifikasi saat gagal; pegawai harus memantau terminal.
+     -> F3.7
+ T16 Tidak ada gerbang persetujuan/dry-run sebelum SEND ke GTS. -> F1.7, F3.5
+ T17 Pembacaan Excel berulang tiap 2 detik + loop tak berujung membaca ulang
+     semua baris; data di Excel bisa dibuka/dikunci pengguna saat dibaca.
+     -> F2.7 (jadwal dari DB)
+ T18 [BARU] CH berkode "/" menonaktifkan seluruh field awan tinggi di web,
+     tetapi script tetap mencoba mengisinya (menghabiskan retry + timeout,
+     snapshot gagal). Excel contoh juga memuat nilai awan tinggi pada baris
+     dengan CH "/ -" (nilai sisa yang seharusnya diabaikan). -> R11, F1.3,
+     F3.1
+ T19 [BARU] Tombol tambah-lapisan dipilih dengan id hardcoded ('775') dan
+     XPath global; ada 4 toggle (775-778) dan hanya 775 yang dipakai.
+     Awan menengah ke-2 (777), awan rendah ke-3 (776), awan tinggi ke-2 (778)
+     tidak ditangani. -> F0.4, F3.1, F3.10
+ T20 [BARU] Web mendukung lapisan yang tidak ada di Excel: awan rendah ke-3
+     dan awan tinggi ke-2. -> F2.1 (perluas skema), F3.10
+ T21 [BARU] Label tombol berubah ("Update"/"Send & Update") saat data jam sudah
+     ada; SEND_SEND_SUBMIT hanya mengenal "send & submit" (+ fallback kata
+     send & submit). Retry/kirim ulang jam yang sudah ada bisa gagal.
+     -> F1.5, F3.1
+ T22 [BARU] Opsi Jenis bergantung pada kode CL/CM/CH (R13); matriks belum ada,
+     sehingga validator belum bisa memeriksa kombinasi kode<->Jenis.
+     -> F0.5, F1.3
+ T23 [BARU] Toggle aktif + field kosong = form invalid (R14). Script yang
+     mengklik toggle lalu gagal mengisi dapat meninggalkan form invalid dan
+     memblokir Preview. -> F3.1, F3.10
+ T24 [BARU] Field kondisional di luar Excel (R15): rainfall_last_mm,
+     cloud_vertical_vis; belum diketahui perlu diisi manual atau tidak.
+     -> N4 (terjawab di R21/R22)
+ T25 [BARU] Tidak ada cara mengoreksi curah hujan hasil Fill AWS Digi secara
+     manual lewat sistem otomatis (permintaan pengguna: override). -> R16,
+     F1.8
+ T26 [BARU] isi_data lama hanya melewati awan untuk total "/"; untuk total
+     "0" dan "9" web menonaktifkan detail awan, sehingga mengisi CL dst akan
+     gagal. Tidak ada kolom Excel untuk vertical visibility (wajib manual
+     saat total 9). -> R20, R21, F1.9, F2.1
+ T27 [BARU] Excel contoh mengandung nilai yang bertentangan dengan aturan web
+     (lihat 2.8: puncak terisi saat CL=5/Jenis 6; Jenis awan tinggi terisi
+     saat CH="/"). Script lama menelannya diam-diam (peringatan) -> validator
+     F1.3 harus menandainya sebelum pengiriman.
+ T28 [BARU] Validator lama tidak ada; pengamat tidak tahu pasangan CL/CM/CH <->
+     Jenis yang diizinkan. Sekarang ada matriks (R13) -> F1.3, F2.3.
+
+
+================================================================================
+4. ARSITEKTUR TARGET (REKOMENDASI)
+================================================================================
+  Worker bot Selenium berjalan di latar belakang; di depannya web lokal
+  (Flask/FastAPI + SQLite + HTML/Tailwind) yang bisa dibuka dari PC mana pun
+  di jaringan stasiun, bahkan dari HP. (Alternatif: aplikasi desktop
+  CustomTkinter; lihat keputusan K1.)
+
+  synop_auto/
+  +- app.py              web lokal (form input + dashboard)
+  +- worker.py           scheduler + eksekusi bot
+  +- bot/
+  |   +- browser.py      login, popup, pilih stasiun/tanggal/observer
+  |   +- fields.py       peta field -> locator/tipe/kondisi (data, bukan fungsi)
+  |   +- submit.py       preview, send, verifikasi
+  +- core/
+  |   +- validator.py    aturan antar-kolom (R1-R15)
+  |   +- options.json    master nilai dropdown yang valid
+  |   +- db.py           SQLite: observasi + log status
+  +- legacy/             script & Excel lama (cadangan, jangan dihapus)
+  +- snapshots/          screenshot/HTML debug
+  +- .env                kredensial (JANGAN di-commit)
+  +- config.yaml         path, timeout, jadwal, observer, notifikasi
+
+  Prinsip: (1) satu sumber data (DB), Excel hanya import/export;
+  (2) validasi sebelum kirim; (3) idempoten (jam yang sudah sent tidak
+  dikirim ulang); (4) bisa dilanjutkan setelah crash; (5) setiap perubahan
+  data otomatis oleh bot tercatat dan diberitahukan ke pengamat.
+
+
+================================================================================
+5. KOMPONEN SCRIPT LAMA YANG TIDAK BOLEH HILANG (CHECKLIST ZERO-LOSS)
+================================================================================
+  Setiap item harus tetap ada atau dipetakan ke pengganti pada refactor:
+  [ ] safe_click, attempt_click, wait_for_presence, wait_for_clickable
+  [ ] save_debug_snapshot (screenshot + HTML)
+  [ ] pilih_opsi_unsur, pilih_dropdown_ant_select, pilih_opsi_ant_select
+  [ ] isi_input_text
+  [ ] click_button_by_text, click_button_containing_words
+  [ ] wait_for_modal_to_disappear, wait_for_submit_progress
+  [ ] wait_for_send_ok_button (termasuk popup "Koreksi QC" -> Submit)
+  [ ] isi_jenis_dan_jumlah_awan_Rendah / _rendah_2 / _menengah / _Tinggi
+  [ ] pilih_arah_sebenarnya(_2), pilih_arah_2, pilih_arah_Awan_Rendah /
+      _Menengah / _Tinggi
+  [ ] klik_switch_jika_type (switch label for='775')
+  [ ] submit_with_retry (retry + backoff + snapshot)
+  [ ] wait_for_preview_modal, Preview, Preview_OK
+  [ ] SEND_GTS (pre-wait modal, verifikasi tombol di dalam modal),
+      SEND_INASWITCH, SEND_SEND_SUBMIT, SEND_INASWITCH_SUBMIT, SEND_GTS_OK
+  [ ] login, memilih_stasiun, memilih_observer (3 percobaan), memilih_tanggal
+      (UTC = lokal - 7 jam; hapus overlay), isi_per_jam, Fill_AWS_Digi
+  [ ] klik_tombol_oke_popup / has_opencv (diganti F3.2; catat pemetaan)
+  [ ] isi_data lengkap (R1-R9)
+  [ ] recover_session + SESSION_RECOVERY_NEEDED + MAX_ROW_RECOVERY
+  [ ] cek_ww_field_error + fallback_ww_mist_ke_haze (R10)
+  [ ] monitoring perubahan Excel saat countdown (diganti DB/jadwal; catat)
+  [ ] deteksi perubahan baris + log selisih kolom
+
+
+================================================================================
+6. RENCANA PENGERJAAN - ATURAN UMUM
+================================================================================
+  Status: [ ] belum | [~] berjalan | [x] selesai | [!] diblokir
+  Setiap sub-tahap punya: Tujuan, Cara, Output, DoD (kriteria selesai).
+  Kerjakan berurutan dalam satu fase; antar fase hanya setelah DoD fase
+  sebelumnya terpenuhi. Selama transisi, jalankan paralel: sistem lama tetap
+  mengirim, sistem baru dry-run (lihat F4.6).
+
+
+================================================================================
+7. RENCANA TAHAPAN (CHECKPOINT)
+================================================================================
+
+[x] A0  ANALISIS AWAL
+    Hasil: bagian 2 (baseline), 3 (temuan), 4 (arsitektur), 7 (rencana).
+
+--------------------------------------------------------------------------------
+FASE 0 - PERSIAPAN
+--------------------------------------------------------------------------------
+[x] F0.1  Backup & version control
+    Tujuan : bisa kembali ke kondisi awal kapan saja.
+    Cara   : salin script + Excel ke folder legacy/; git init (opsional);
+             .gitignore berisi .env, snapshots/, *.xlsx, data.db.
+             Catat versi Python, Chrome, Selenium; jalankan script lama sekali
+             dan catat apakah tanggal web ikut berganti di pergantian hari
+             UTC (verifikasi T11).
+    Output : folder legacy/, catatan versi.
+    DoD    : script lama tetap bisa jalan dari folder legacy/.
+    Status : DIKONFIRMASI pengguna 2026-11-14 (backup sudah dilakukan).
+
+[x] F0.2  Kumpulkan master nilai dropdown dari web
+    Tujuan : daftar nilai valid persis seperti di web (basis validator/form).
+    Cara   : jalankan collect_web_info.py (login otomatis, pilih stasiun/
+             tanggal/jam manual sampai form tampil, tekan ENTER). Skrip menyalin
+             semua opsi dropdown yang aktif. Dropdown yang sedang disabled
+             (mis. elevasi, NCH saat CH='/') perlu dijalankan ulang dengan
+             kondisi form berbeda; hasil digabung.
+    Output : web_info_*/options.json -> dirapikan menjadi core/options.json.
+    Status : [x] F0.2s skrip dibuat | [x] F0.2r dijalankan & hasil diunggah
+             (2026-11-14) | [x] F0.2m core/options.json dibuat (format_version 1).
+             Sisa (opsi yang disabled saat capture) dikerjakan di F0.5.
+    DoD    : semua nilai di Excel contoh ditemukan di options.json.
+             TERPENUHI: 64/64 nilai unik dari 24 baris Excel cocok tepat satu opsi.
+
+[x] F0.3  Susun struktur folder & modul kosong
+    Tujuan : kerangka sesuai bagian 4.
+    Output : struktur folder + __init__.py + requirements.txt.
+    DoD    : `python -c "import core, bot"` tanpa error.
+    Status : DIKERJAKAN pengguna 2026-11-15 (D:\alarm\synop_auto, lihat
+             STRUKTUR PROYEK di bagian 1). Folder bot/ masih kosong (tidak
+             ada __init__.py; dibuat saat F3.1 dikerjakan).
+
+[x] F0.4  Diagnostik DOM awan menengah-2 (dan lapisan tambahan lain) - K5
+    Tujuan : memahami persis toggle dan field lapisan tambahan sebelum menulis
+             kode isinya.
+    Cara   : (a) [x] analisis snapshot HTML+screenshot (hasil: bagian 2.5-2.6);
+             (b) [x] collect_web_info.py dijalankan 2026-11-14: efek 4 toggle
+             terverifikasi; id sama dengan snapshot 2026-11-09 (stabil pada 2
+             sesi), jadi tidak perlu dijalankan dua kali lagi.
+    Output : toggles.json, fields.json, report.txt, snapshot kondisi
+             "semua toggle aktif".
+    DoD    : tabel toggle->lapisan terverifikasi; N2 terjawab. TERPENUHI.
+
+[x] F0.5  Matriks aturan dari web (collect_rules_matrix.py)
+    Tujuan : menurunkan aturan validator langsung dari perilaku web, bukan
+             tebakan: N1 (CM/CL "/"), R5/R14 (kapan Tinggi Puncak/Elevasi/Arah
+             Sebenarnya aktif), R13 (Jenis yang diizinkan per kode CL/CM/CH),
+             perilaku tutupan total 0/9/"/" (mis. cloud_vertical_vis), dan
+             opsi dropdown yang tadinya disabled.
+    Cara   : skrip Selenium baca-saja pada form yang terbuka: iterasi kode CL,
+             CM, CH (0-9 dan "/"), tutupan total, dan Jenis lapisan; catat
+             field enabled/disabled serta opsi Jenis yang aktif per kombinasi;
+             kembalikan nilai awal. TIDAK pernah klik Preview/Send/Update.
+             Gunakan form dari jam yang datanya boleh diubah tampilannya
+             (tanpa menyimpan).
+    Output : rules_matrix.json -> bahan core/validator.py dan logika field
+             kondisional pada form (F2.3).
+    DoD    : N1 terjawab; tabel kode->Jenis tersedia; opsi elevasi_2 &
+             arah_sebenarnya_2 terisi; R13-R15 terverifikasi; kondisi aktif
+             rainfall_last_mm diketahui (untuk R16/F1.8).
+    Status : [x] F0.5s skrip dibuat | [x] uji --limit 2 v1 (tercemar isian
+             sebelumnya) -> v2 dengan reset_to_baseline | [x] F0.5r v2 dijalankan
+             penuh 2026-11-14 (reset_failures=0, 0 popup) | [x] F0.5m hasil
+             digabung ke core/rules.json (ringkasan di 2.8).
+    Sisa     : [~] F0.5b (OPSIONAL) sudah dijalankan 2026-11-15 pada form
+             CL=6/CM=2/CH=1 (hasil di 2.10: R24 terkonfirmasi, R19 dikoreksi);
+             untuk peak_2/elevasi_2/arah sebenarnya_2 Jenis 8/9 ulangi dengan
+             form CL=9, CM=7, CH=9. [x] N6 DIPUTUSKAN (K8): visibilitas >= 1 km
+             dengan total 9 = ERROR; uji manual tidak diperlukan.
+
+--------------------------------------------------------------------------------
+FASE 1 - PENGAMAN (dapat dipasang di script lama)
+--------------------------------------------------------------------------------
+[x] F1.1  Kredensial & konfigurasi
+    Cara   : .env (STATION_ID, PASSWORD) via python-dotenv; config.yaml
+             (path Excel/gambar, URL, timeout, MAX_ROW_RECOVERY, nama stasiun,
+             daftar observer). Satukan path (T7). Hapus password dari kode.
+    Output : .env.example, config.yaml, loader config.
+    DoD    : tidak ada password di kode; script lama jalan dengan config baru.
+    Status : [x] file dibuat (config.yaml, .env.example, core/config.py,
+             .gitignore, requirements.txt). [ ] script lama BELUM memakainya;
+             dikerjakan saat bot dimodifikasi (F1.9/F1.5). Catatan: kredensial
+             lama masih tertulis di script lama di legacy/ -> sebaiknya
+             diganti password-nya setelah bot baru dipakai.
+
+[x] F1.2  options.json final
+    Cara   : baseline SUDAH ada (core/options.json: teks opsi penuh + kode
+             hasil parse, peta Excel->web, peta toggle, jam, observer).
+             Aturan dari F0.5 ada di core/rules.json (dipisah dari options.json).
+             Sisa opsional: opsi elevasi_2 & arah sebenarnya_2 (F0.5b).
+    DoD    : tiap field punya daftar opsi + metadata.
+
+[x] F1.3  validator.py
+    Cara   : fungsi validate_row(row) -> list error/warning, mengimplementasi
+             R1-R25 + cek nilai ada di options.json + tipe angka (base/peak/
+             visibility) + rentang wajar + konsistensi tutupan total vs
+             lapisan + format jam. Laporan: "Baris jam 07:00: kolom X ...".
+    Output : core/validator.py + tes sederhana (contoh baris valid/tidak).
+    DoD    : Excel contoh lolos; baris sengaja salah terdeteksi dengan pesan
+             jelas.
+    Status : TERPENUHI. core/validator.py (Validator, load_excel,
+             format_report) + check_excel.py (CLI; --register mendaftarkan slot
+             ke log) + tests/test_validator.py (28 kasus lulus). Hasil pada
+             INPUT_PARAMETER.xlsx contoh (24 baris): OK 18, WARNING 5, ERROR 1.
+             Rule yang ditegakkan: R-WKT/R-JAM (waktu & slot UTC, jendela 10
+             menit), R9, R3/R4, R13/R24 (Jenis per kode), R14, R20/R20b, R21,
+             R22, R23, R-NC1/NC2 (tutupan total vs lapisan), R-WX (ww vs
+             visibilitas), R-OPT (nilai harus ada di opsi web), R-NUM, R-DUP.
+             Keluaran juga berisi 'plan' per baris (skip_clouds, vertical
+             visibility, puncak aktif, lapisan 2, override hujan) yang akan
+             dipakai bot di F1.9 agar bot & validator selalu sama.
+
+[x] F1.4  Log status SQLite (db.py)
+    Cara   : tabel send_log(tanggal_utc, jam, status[pending|sent|failed|
+             skipped], waktu_mulai, waktu_selesai, kode_synop, pesan_error,
+             screenshot_path, observer, percobaan). Fungsi: get_status,
+             set_status, riwayat.
+    DoD    : status tersimpan dan terbaca ulang setelah script ditutup.
+    Status : TERPENUHI. core/db.py (SendLog): register, should_send (mengembalikan
+             send + needs_web_check), start_attempt, mark_sent/failed/skipped,
+             history, summary, events (audit). Kunci slot = (tanggal_utc, jam).
+             Teruji: pending->running->failed->running->sent, 'sent' tidak
+             tertimpa register/skip, percobaan tercatat.
+
+[~] F1.5  Integrasi log & idempotensi ke script lama
+    Status : IMPLEMENTASI di V7SATU.py (validasi per baris, should_send, start_attempt/mark_sent/mark_failed/mark_skipped, tanggal web per slot dengan verifikasi, 'Send & Update', mode_update, retry_past_minutes). Teruji browser tiruan; uji web asli menunggu.
+    Cara   : sebelum memproses baris -> cek status; lewati jika sent;
+             set status di tiap tahap; baris lampau yang dilewati dicatat
+             skipped (dengan alasan).
+             Juga periksa apakah web sudah memuat data jam itu (label tombol
+             Update / baris 'Data Terakhir') sebelum mengirim (T21).
+    DoD    : restart script tidak mengirim ulang jam yang sudah sent.
+
+[~] F1.6  Launcher pilih observer
+    Status : IMPLEMENTASI di V7SATU.py (dialog Tkinter: dropdown observer aktif dari options.json + centang dry-run; --observer/--no-gui untuk otomatis). Dialog belum dicoba di layar; fallback ke input terminal bila Tkinter tak tersedia.
+    Cara   : dialog kecil (Tkinter) berisi dropdown observer dari config +
+             tombol Mulai; ganti input() terminal.
+    DoD    : tidak ada lagi pengetikan nama di terminal.
+
+[~] F1.7  Mode dry-run
+    Status : IMPLEMENTASI di V7SATU.py (--dry-run / centang launcher / features.dry_run): isi form sampai Preview, simpan sandi ke log, status skipped 'dry-run'. Teruji browser tiruan.
+    Cara   : flag di config/launcher: isi form sampai Preview (dan simpan kode
+             SYNOP), tanpa klik SEND/GTS.
+    DoD    : dry-run tidak mengirim apa pun; log mencatat kode SYNOP.
+
+[~] F1.8  Override curah hujan manual (opsional; R16, K7)
+    Status : IMPLEMENTASI di V7SATU.py (isi_hujan_override setelah tutupan total; nilai AWS lama dicatat; kolom nonaktif -> tidak diterapkan & lanjut; features.rain_override_strict). Teruji dengan elemen tiruan; perilaku di web asli (mis. input Vue) belum dibuktikan.
+    Tujuan : pengamat dapat menimpa curah hujan hasil Fill AWS Digi dengan
+             angka sendiri bila perlu.
+    Cara   : Excel: dua kolom baru hujan_override_aktif (ya/tidak) dan
+             hujan_override_mm (angka >= 0). Validator: angka valid & wajar;
+             override hanya berlaku pada jam UTC kelipatan 3 (R22; kolom hujan
+             hanya terbuka tiap 3 jam), selain itu abaikan + peringatan;
+             tidak bergantung pada ww/W1/W2. Bot: setelah Fill AWS Digi dan
+             setelah ww/W1/W2 terisi -> jika aktif dan kolom aktif: baca nilai
+             AWS saat ini (catat), kosongkan, isi angka pengguna, verifikasi
+             nilai terisi; setelah Preview periksa grup hujan pada sandi
+             (F3.4). Log: nilai AWS lama, nilai override, waktu, observer;
+             notifikasi "hujan diubah manual". Di form F2: toggle + angka mm.
+    DoD    : dengan override aktif, nilai pada form web = angka pengguna dan
+             tercatat di log beserta nilai AWS aslinya; override nonaktif =
+             perilaku lama (nilai AWS dibiarkan).
+
+[~] F1.9  Perbaikan isi_data script lama (R20-R24, T26)
+    Status : IMPLEMENTASI di V7SATU.py (total 0/9/'/' melewati awan; vertical visibility saat total 9; puncak tidak diisi bila CL=1; CL/CM/CH berkode 0 atau '/' dilewati). Teruji browser tiruan.
+    Tujuan : script lama tidak lagi gagal pada baris dengan total 0/9/"/"
+             dan memahami aturan puncak yang benar, sebelum sistem baru jadi.
+    Cara   : (1) total "0", "9", "/" -> lewati seluruh pengisian awan, langsung
+             ke land_cond; (2) total "9" -> isi cloud_vertical_vis dari kolom
+             Excel baru vertical_visibility (m); (3) puncak/elevasi/arah
+             sebenarnya lapisan 1 hanya diisi jika Jenis 8/9 dan CL != 1;
+             (4) CL/CM/CH berkode 0 atau "/" -> jangan isi detail (web
+             mengisinya otomatis); (5) kolom hujan override (F1.8) hanya pada
+             jam UTC kelipatan 3. Berikan file lengkap siap-ganti dan tabel
+             pemetaan zero-loss.
+    DoD    : baris contoh dengan total 0, 9, "/" lolos dry-run tanpa error.
+
+--------------------------------------------------------------------------------
+FASE 2 - FORM INPUT USER-FRIENDLY (menggantikan pengetikan di Excel)
+--------------------------------------------------------------------------------
+[ ] F2.1  Skema data observasi
+    Cara   : tabel observasi di SQLite sesuai 40 kolom Excel + kolom baru untuk
+             lapisan tambahan sesuai 2.6 (K5 DIPUTUSKAN: dipakai; awan menengah
+             ke-2 sudah ada di Excel, tambah awan rendah ke-3 & awan tinggi
+             ke-2 jika diperlukan); konversi waktu lokal/UTC jelas.
+    DoD    : satu baris Excel contoh dapat disimpan & dibaca utuh.
+
+[ ] F2.2  Kerangka web lokal
+    Cara   : Flask/FastAPI + halaman login ringan/pilih observer; berjalan di
+             jaringan lokal.
+    DoD    : halaman terbuka dari PC lain di jaringan stasiun.
+
+[ ] F2.3  Form dengan dropdown & field kondisional
+    Cara   : semua dropdown dari options.json; field muncul/hilang otomatis
+             sesuai R1-R8 dan R11-R15 (mis. CL=0 menyembunyikan awan rendah; jenis 8/9
+             mengaktifkan peak); validasi langsung di browser + server;
+             sertakan toggle 'Override hujan' + angka mm (F1.8).
+    DoD    : tidak mungkin menyimpan kombinasi yang melanggar aturan.
+
+[ ] F2.4  Salin dari jam sebelumnya & template cepat
+    Cara   : tombol salin; template (cerah berawan, hujan ringan, dll) yang
+             bisa diatur.
+    DoD    : mengisi 1 jam dapat dilakukan dengan <= beberapa klik.
+
+[ ] F2.5  Pratinjau & status validasi
+    Cara   : ringkasan baris + indikator warna (hijau/kuning/merah); jika
+             memungkinkan, tampilkan kode SYNOP hasil dry-run.
+    DoD    : pengamat melihat kesalahan sebelum jadwal kirim.
+
+[ ] F2.6  Import/Export Excel
+    Cara   : unggah INPUT_PARAMETER.xlsx -> validasi -> masuk DB (laporan
+             baris error); ekspor DB ke Excel;
+             buat TEMPLATE Excel baru berisi dropdown validasi dari
+             options.json (K6: Excel tetap jadi cadangan input).
+    DoD    : file Excel lama tetap bisa dipakai sebagai cadangan.
+
+[ ] F2.7  Penjadwalan dari DB
+    Cara   : worker membaca jadwal dari DB (bukan Excel); hitung waktu
+             eksekusi dari tanggal+jam; tangani pergantian hari UTC (T11).
+    DoD    : mengubah data di form sebelum waktu kirim memengaruhi
+             pengiriman; tidak ada baca-ulang Excel berkala.
+
+--------------------------------------------------------------------------------
+FASE 3 - BOT LEBIH TAHAN BANTING
+--------------------------------------------------------------------------------
+[ ] F3.1  fields.py + fungsi generik
+    Cara   : satu fungsi pilih_ant_select(field_id, nilai) dan isi_input;
+             peta field (id, tipe, kondisi aktif, wajib/opsional) sebagai
+             data; refactor semua fungsi pada bagian 5 (zero-loss);
+             tangani dua set label tombol kirim (Submit vs Update; T21).
+    DoD    : tabel pemetaan fungsi lama -> baru lengkap; hasil isi form sama
+             dengan versi lama pada data uji.
+
+[ ] F3.2  Hapus ketergantungan pyautogui/ok.PNG
+    Cara   : tangani popup awal dengan Selenium (inspeksi DOM popup).
+    DoD    : berjalan tanpa gambar dan tanpa bergantung resolusi.
+
+[ ] F3.3  Explicit wait & Chrome profile
+    Cara   : ganti time.sleep dengan WebDriverWait; profile Chrome tetap agar
+             login tidak berulang; Selenium Manager untuk driver.
+    DoD    : waktu proses per jam turun & stabil.
+
+[ ] F3.4  Verifikasi kode SYNOP
+    Cara   : baca kode dari modal preview, simpan ke send_log, bandingkan
+             dengan yang diharapkan dari data form.
+    DoD    : kode tersimpan; mismatch memicu peringatan.
+
+[ ] F3.5  Gerbang persetujuan
+    Cara   : T-5 menit tampilkan "Jam HH:00 akan dikirim, kode ...
+             [Batalkan] [Kirim sekarang]"; default sesuai config
+             (DIPUTUSKAN: default AUTO-KIRIM; jendela hanya untuk
+             membatalkan; tanpa tindakan, data tetap terkirim).
+    DoD    : pengamat bisa membatalkan sebelum SEND.
+
+[ ] F3.6  Fallback Mist->Haze eksplisit
+    Cara   : (K2 DIPUTUSKAN: OTOMATIS, tanpa menunggu konfirmasi) tetap
+             otomatis; wajib catat perubahan di log + kolom
+             "diubah_otomatis".
+    DoD    : tidak ada perubahan data tanpa jejak/pemberitahuan.
+
+[ ] F3.7  Notifikasi
+    Cara   : Telegram (+ alarm suara lokal untuk gagal total; K4 diputuskan) untuk sukses, gagal (+screenshot),
+             recovery sesi.
+    DoD    : kegagalan terkirim sebagai pesan dalam hitungan detik.
+
+[x] F3.8  DITUTUP (K3: tidak ada API/endpoint; tidak dikerjakan)
+    Cara   : amati tab Network; JANGAN dipakai sebelum ada izin dari
+             pengelola BMKG Satu (K3).
+    DoD    : keputusan tertulis (pakai/tidak) beserta alasannya.
+
+[ ] F3.9  Health check selector (pengganti API; K3)
+    Tujuan : tahu lebih awal jika web berubah sebelum jam kirim.
+    Cara   : fungsi yang memeriksa keberadaan semua field/toggle di
+             fields.py (mode baca) saat start dan berkala; peringatan lewat
+             notifikasi bila ada yang hilang/bergeser.
+    DoD    : perubahan struktur web terdeteksi dan dilaporkan sebelum SEND.
+
+[ ] F3.10 Lapisan awan tambahan (K5): menengah-2 (prioritas, kasus Ac+As),
+          lalu rendah-3 dan tinggi-2
+    Tujuan : bisa mengisi lapisan tambahan secara andal.
+    Cara   : toggle dicari lewat (seksi + urutan di seksi), BUKAN id hardcoded;
+             tunggu kolom lapisan menjadi enabled; isi Jenis/Jumlah/Tinggi
+             Dasar/Arah lewat posisi (seksi + kolom + label baris) dengan
+             fungsi generik F3.1; verifikasi di dry-run bahwa kode SYNOP
+             mencerminkan dua lapisan. Aturan R11/R12 tetap berlaku.
+    DoD    : kasus Ac+As lolos dry-run; toggle yang benar terklik (bukan
+             awan rendah ke-3).
+
+--------------------------------------------------------------------------------
+FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
+--------------------------------------------------------------------------------
+[ ] F4.1  Dashboard hari ini
+    Timeline 24 jam, status per jam (Menunggu/Siap/Terkirim/Gagal), klik untuk
+    detail + kode SYNOP + screenshot. Desain kreatif.
+[ ] F4.2  Riwayat & audit
+    Pencarian per tanggal, siapa mengubah apa, ekspor.
+[ ] F4.3  Paket .exe (PyInstaller) atau shortcut desktop
+[ ] F4.4  Autostart (Windows Task Scheduler) + pemulihan otomatis saat PC
+    restart
+[ ] F4.5  Dokumentasi & SOP pegawai (panduan singkat + troubleshooting)
+[ ] F4.6  Uji paralel 1-2 minggu
+    Sistem lama tetap kirim; sistem baru dry-run; bandingkan kode SYNOP
+    per jam; catat selisih. DoD: selisih nol/terjelaskan -> cutover.
+
+
+================================================================================
+8. KEPUTUSAN
+================================================================================
+ Sudah diputuskan (pengguna, 2026-11-14):
+  K1  Bentuk UI: Flask + pywebview (web lokal yang tampil seperti aplikasi
+      desktop). Usulan, boleh diubah sebelum Fase 2. Fase 0-1 tidak
+      bergantung pada K1.
+  K2  Fallback ww 10->05 TETAP OTOMATIS (alasan: jika pengamat tertidur dan
+      butuh konfirmasi, data tidak terkirim; itu harus dihindari). Wajib
+      dicatat di log dan diberitahukan setelah kejadian. Gerbang persetujuan
+      default = auto-kirim.
+  K3  Tidak ada API/endpoint BMKG Satu; hanya otomatisasi UI. F3.8 ditutup;
+      ditambah F3.9 (health check selector).
+  K4  Notifikasi: Telegram + alarm suara lokal untuk gagal total.
+      Isi notifikasi: gagal (+screenshot), sukses (+kode SYNOP), data diubah
+      otomatis, recovery sesi, rekap harian.
+  K5  Awan menengah ke-2 (Ac/As) DIPAKAI. Tambah F0.4 dan F3.10.
+  K6  Excel tetap ada sebagai cadangan input (import ke DB) + template Excel
+      baru berdropdown validasi.
+  K9  (2026-11-17) Field yang nonaktif di web tetapi terisi di Excel = dilewati, cukup WARNING
+      (bukan error). Kegagalan mengisi field opsional = peringatan + tercatat di log;
+      features.fail_on_optional tetap default false.
+  K8  (2026-11-15) Syarat 'total 9 hanya dengan visibilitas < 1 km' menjadi
+      PENOLAKAN (ERROR) di validator, bukan peringatan (R21).
+  K7  Fitur OVERRIDE HUJAN opsional (toggle + angka mm) ditambahkan (F1.8,
+      R16). Fill AWS Digi tetap jadi sumber default curah hujan.
+ Pertanyaan teknis terbuka:
+  N1  TERJAWAB (F0.5 penuh): kode "/" pada CL/CM/CH berperilaku seperti 0
+      (detail nonaktif + diisi otomatis web). Lihat R20b.
+  N2  TERJAWAB 2026-11-14: id toggle 775-778 sama pada dua sesi.
+  N3  Detail Telegram (token bot, grup piket) -> saat mengerjakan F3.7.
+  N4  TERJAWAB (pengguna + uji): hujan diisi otomatis Fill AWS Digi; kolom
+      hujan terbuka tiap 3 jam UTC, tidak bergantung ww/W1/W2 (R22). Vertical
+      visibility: lihat R21/N6.
+  N5  (TERBUKA) Baris jam 00:00 hampir kosong di Excel contoh: placeholder atau
+      data nyata? Menentukan perlakuan validator (R9).
+  N6  TERJAWAB (K8, 2026-11-15): syarat visibilitas < 1 km ditegakkan sebagai
+      ERROR; pada uji web kolom vertical visibility aktif walau visibilitas
+      3.5 km, jadi aturan ini adalah ketentuan stasiun.
+
+
+================================================================================
+9. LOG PROGRES (tambah entri baru di BAWAH setiap sesi)
+================================================================================
+  [2026-11-14] Rev 1 - Analisis script (+-1000 baris) & INPUT_PARAMETER.xlsx
+               selesai. Temuan T1-T17 dan rencana F0-F4 disusun. Belum ada
+               kode yang diubah. Berikutnya: F0.1 (backup) lalu F0.2 (master
+               dropdown).
+
+  [2026-11-14] Rev 2 - K1-K6 diputuskan (bagian 8). Snapshot HTML +
+               screenshot form dianalisis: peta toggle 775-778, struktur kolom
+               lapisan, field ber-id vs tanpa-id, aturan R11 (CH "/"),
+               pemetaan Excel->web (2.5-2.6), temuan T18-T20. Dibuat
+               collect_web_info.py (JS diuji pada snapshot; alur Selenium
+               belum diuji di web asli). Berikutnya: pengguna jalankan F0.1
+               lalu collect_web_info.py dan unggah folder web_info_*.
+
+  [2026-11-14] Rev 3 - Pengguna menjalankan collect_web_info.py (form_ready
+               True). F0.2 selesai: core/options.json dibuat (37 dropdown +
+               jam + observer + peta Excel->web + peta toggle); 64/64 nilai
+               Excel cocok. F0.4 selesai: 4 toggle terverifikasi, id stabil
+               (N2). Temuan baru: R13-R15, T21-T24, bagian 2.7 (tombol
+               "Update" saat data sudah ada; Jenis bergantung CL/CM/CH; toggle
+               aktif + kosong = invalid; sandi dapat didekode). Diusulkan F0.5.
+               Berikutnya: pengguna konfirmasi F0.1 (backup) -> F0.5 atau F1.1.
+
+  [2026-11-14] Rev 4 - F0.1 (backup) dikonfirmasi. N4: Fill AWS Digi memang
+               mengisi hujan otomatis; pengguna meminta fitur override hujan
+               (toggle + angka) -> K7, R16, T25, F1.8. Dibuat
+               collect_rules_matrix.py (F0.5s). Berikutnya: pengguna jalankan
+               F0.5r (--limit 2 dulu) dan unggah rules_report.txt +
+               rules_matrix.json.
+
+  [2026-11-14] Rev 5 - Pengguna menjalankan collect_rules_matrix.py --limit 2.
+               Hasil: interaksi di web asli berhasil (0 popup). Ditemukan
+               R17 (tutupan total 0 -> CL/CM/CH=0 otomatis + semua detail
+               nonaktif), R18 (kode 0 menonaktifkan dependen; Jenis per kode:
+               CL1->8, CM1->4, CH1->0). Hasil CL/layers/hujan tercemar isian
+               eksperimen sebelumnya -> skrip diperbaiki ke v2 (reset form
+               antar eksperimen). Berikutnya: pengguna jalankan v2 (cek cepat
+               lalu penuh) dan unggah rules_report.txt + rules_matrix.json.
+
+  [2026-11-14] Rev 6 - Pengguna menjalankan collect_rules_matrix.py v2 penuh
+               (reset_failures=0, 0 popup) dan menjelaskan: hujan terbuka tiap
+               3 jam UTC; vertical visibility aktif saat total=9 dan visibilitas
+               < 1 km (manual). F0.5 selesai: core/rules.json dibuat (R20-R25,
+               matriks Jenis per CL/CM/CH, aturan puncak). Temuan: uji pada
+               web memberi vertical vis aktif di total=9 dengan visibilitas 3.5
+               km (selisih -> N6). Excel contoh: 6 pelanggaran aturan (T27).
+               Berikutnya: Fase 1 (F1.1, F1.3, F1.4/F1.5, F1.9, F1.8); F0.5b
+               opsional.
+
+  [2026-11-14] Rev 7 - FASE 1 dimulai. Dibuat paket synop_auto/: config.yaml,
+               .env.example, core/config.py (F1.1), core/validator.py +
+               check_excel.py (F1.3), core/db.py (F1.4), README.txt, tes (28
+               kasus lulus). Uji pada Excel contoh: OK 18 / WARNING 5 / ERROR 1;
+               ditemukan juga total 7 < awan menengah 8 okta (R-NC1). Berikutnya:
+               F1.9 -> F1.5 -> F1.8 -> F1.6 -> F1.7 (modifikasi bot).
+
+  [2026-11-15] Rev 8 - Pengguna menguji paket Fase 1: 28 tes lulus, struktur
+               folder dibuat (F0.3), Excel baru 24/24 OK, synop.db berisi 24
+               slot pending, script lama tidak berubah (legacy/V6SATU.py).
+               Keputusan K8: visibilitas >= 1 km dengan total 9 = ERROR
+               (validator, 30 tes lulus, rules.json diperbarui). F0.5b
+               dijalankan pada form CL=6/CM=2/CH=1: R24 terkonfirmasi, R19
+               dikoreksi; peak_2 Jenis 8/9 masih belum terukur. Berikutnya:
+               modifikasi bot (F1.9/F1.5/F1.8) setelah V6SATU.py diunggah.
+
+  [2026-11-15] Rev 9 - V6SATU.py diunggah; dibuat V7SATU.py lewat patch otomatis
+               (33 penggantian, zero-loss: 48/48 fungsi V6 ada). Implementasi
+               F1.5-F1.9. Tes baru: test_bot_flow.py (21) & test_bot_fill.py
+               (22), validator 30 -> total 73 lulus (browser tiruan). Config
+               baru: ok_image, retry_past_minutes, allow_update,
+               rain_override_strict. README diperbarui (urutan uji bertahap).
+               Berikutnya: pengguna menjalankan --check-only, --dry-run, lalu
+               kirim 1 slot; laporkan hasil/log.
+
+  [2026-11-16] Rev 10 - Uji dry-run pengguna: login OK, crash di klik popup OK
+               (pyautogui baru melempar ImageNotFoundException; T29). Perbaikan:
+               klik popup Selenium-dulu + exception ditangani + snapshot debug;
+               flag baru --process-past dan --jam; test_popup.py (7) dan 3 tes
+               alur baru; total 83 tes lulus. OK.png (74x49) diterima. Berikutnya:
+               pengguna ulangi dry-run: --dry-run --process-past --jam 07:00.
+
+  [2026-11-16] Rev 11 - Uji dry-run #2: popup OK tetap tidak terklik. Screenshot
+               pengguna: dialog bawaan Chrome (Password Manager, data breach),
+               bukan elemen halaman (T30). V7SATU.py: opsi Chrome anti-popup
+               (prefs + disable-features) di browser awal & recovery; popup_wait_
+               seconds; popup_press_enter opt-in. Hanya V7SATU.py, tests/
+               test_popup.py, dan catatan ini yang berubah (config.yaml/config.py
+               TIDAK berubah). 89 tes lulus (30+24+22+13). Berikutnya: ulangi
+               dry-run: python V7SATU.py --dry-run --process-past --jam 07:00.
+
+  [2026-11-17] Rev 12 - Dry-run #3 BERHASIL (popup tidak muncul, form terisi
+               sampai Preview, sandi tersimpan, mode Update terdeteksi). Dari
+               log: lapisan 2 awan rendah gagal (switch 775 diklik saat sudah
+               aktif pada mode Update; T31), kegagalan opsional hanya
+               peringatan (T32), eksekusi lambat (T33). V7SATU.py diperbarui:
+               switch sadar-status, pencatatan field opsional gagal, speed.scale
+               & tunggu-nilai-terpilih, timeout opsional 3 dtk, tanpa snapshot
+               opsional, popup 3 dtk. test_speed.py baru; 107 tes lulus. Hanya
+               V7SATU.py, test_bot_fill.py, test_popup.py, test_speed.py dan
+               catatan ini yang berubah.
+
+  [2026-11-17] Rev 13 - Pengguna: eksekusi sudah lebih cepat; kegagalan field opsional cukup
+               warning (K9); mengunggah PPT pusat (2.11); mengingatkan lapisan awan rendah
+               ke-3 (benar: belum ada). F3.10 diimplementasi: validator (rendah-3, menengah-2,
+               tinggi-2 -> plan.extra / plan.extra_off), bot (isi_lapisan_tambahan,
+               pilih_dropdown_posisi, _id_toggle urutan di seksi), tambah_kolom_lapisan.py.
+               Matriks Jenis di PPT identik dengan rules.json. Tes 142 lulus. Berikutnya:
+               dry-run lapisan tambahan di web asli.
+
+
+################################################################################
+#  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #
+################################################################################

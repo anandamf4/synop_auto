@@ -1,0 +1,2145 @@
+{
+  "_meta": {
+    "format_version": 1,
+    "dibuat": "2026-11-14",
+    "sumber": "collect_web_info.py dijalankan 2026-11-14 (BMKGSoft v2, stasiun 96195) + snapshot 2026-11-09",
+    "catatan": [
+      "key field = id jika ada; jika tidak 'SEKSI|k<kolom>|b<baris>|<label>'.",
+      "'value' = teks opsi PERSIS seperti di web (jangan diubah); 'code' = kode SYNOP di depan teks.",
+      "'disabled_at_capture' = opsi yang nonaktif pada kondisi form saat dicatat; BERGANTUNG pada nilai CL/CM/CH saat itu, bukan aturan global (lihat F0.5).",
+      "'options': null + 'pending' = dropdown disabled saat pengambilan; opsi diasumsikan sama dengan 'assume_same_as' sampai terverifikasi F0.5.",
+      "Format teks opsi berbeda antar field (mis. Jumlah rendah '5 oktas' vs Jumlah menengah/tinggi '5 - 5 oktas'; ada awalan ganda '9 - 9 - ...' dan '/ - / - ...').",
+      "Jam di web berbasis UTC (label: 'Jam pengamatan dibuka 10 menit sebelumnya (UTC)')."
+    ]
+  },
+  "jam": [
+    "00:00",
+    "01:00",
+    "02:00",
+    "03:00",
+    "04:00",
+    "05:00",
+    "06:00",
+    "07:00",
+    "08:00",
+    "09:00",
+    "10:00",
+    "11:00",
+    "12:00",
+    "13:00",
+    "14:00",
+    "15:00",
+    "16:00",
+    "17:00",
+    "18:00",
+    "19:00",
+    "20:00",
+    "21:00",
+    "22:00",
+    "23:00"
+  ],
+  "observer": [
+    {
+      "name": "Ainun Ratna Juwita",
+      "active": true
+    },
+    {
+      "name": "Ananda Maulana Fahrezi",
+      "active": true
+    },
+    {
+      "name": "Arie Irawan",
+      "active": true
+    },
+    {
+      "name": "Asfihani Rusdianawati",
+      "active": false
+    },
+    {
+      "name": "Bahar Abdullah",
+      "active": false
+    },
+    {
+      "name": "Benedy Fajar",
+      "active": true
+    },
+    {
+      "name": "Dinda Aulia",
+      "active": true
+    },
+    {
+      "name": "Eko Berlin Sitorus",
+      "active": true
+    },
+    {
+      "name": "Harry Taufik Kurniawan",
+      "active": true
+    },
+    {
+      "name": "Jaya Martuah Sinaga",
+      "active": true
+    },
+    {
+      "name": "Juli Putra Bangun",
+      "active": false
+    },
+    {
+      "name": "Laras Fatimatuzzahro",
+      "active": true
+    },
+    {
+      "name": "Luckita Theresia",
+      "active": true
+    },
+    {
+      "name": "M. Fajri",
+      "active": true
+    },
+    {
+      "name": "M. Rafli Kurniawan Ifoji",
+      "active": true
+    },
+    {
+      "name": "M. Randy Herdyansyah HB",
+      "active": true
+    },
+    {
+      "name": "Mustar Puad",
+      "active": true
+    },
+    {
+      "name": "Niken Putri Ramadhani",
+      "active": true
+    },
+    {
+      "name": "Supriono",
+      "active": true
+    },
+    {
+      "name": "Tubagus Darussalam",
+      "active": false
+    }
+  ],
+  "toggles": {
+    "catatan": "id numerik sama pada snapshot 2026-11-09 dan 2026-11-14; tetap cari berdasarkan (seksi, urutan) dan gunakan id sebagai pengecekan silang.",
+    "AWAN RENDAH": [
+      {
+        "ordinal": 1,
+        "layer": 2,
+        "id_terakhir_terlihat": "775",
+        "mengaktifkan": [
+          "AWAN RENDAH|k2|b2|Jenis",
+          "AWAN RENDAH|k2|b3|Jumlah",
+          "cloud_low_base_2",
+          "AWAN RENDAH|k2|b6|Arah Gerak"
+        ],
+        "bersyarat_jenis_8_9": [
+          "cloud_low_peak_2",
+          "cloud_elevation_2_angle_ec",
+          "AWAN RENDAH|k2|b8|Arah Sebenarnya"
+        ]
+      },
+      {
+        "ordinal": 2,
+        "layer": 3,
+        "id_terakhir_terlihat": "776",
+        "mengaktifkan": [
+          "AWAN RENDAH|k3|b2|Jenis",
+          "AWAN RENDAH|k3|b3|Jumlah",
+          "cloud_low_base_3",
+          "AWAN RENDAH|k3|b6|Arah Gerak"
+        ]
+      }
+    ],
+    "AWAN MENENGAH": [
+      {
+        "ordinal": 1,
+        "layer": 2,
+        "id_terakhir_terlihat": "777",
+        "mengaktifkan": [
+          "AWAN MENENGAH|k2|b2|Jenis",
+          "AWAN MENENGAH|k2|b3|Jumlah",
+          "cloud_med_base_2",
+          "AWAN MENENGAH|k2|b5|Arah"
+        ]
+      }
+    ],
+    "AWAN TINGGI": [
+      {
+        "ordinal": 1,
+        "layer": 2,
+        "id_terakhir_terlihat": "778",
+        "mengaktifkan": [
+          "AWAN TINGGI|k2|b2|Jenis",
+          "AWAN TINGGI|k2|b3|Jumlah",
+          "cloud_high_base_2",
+          "AWAN TINGGI|k2|b5|Arah"
+        ]
+      }
+    ]
+  },
+  "excel_ke_web": {
+    "waktu_eksekusi": null,
+    "jam_input": "input-jam (daftar 'jam')",
+    "visibility": "visibility_vv (input angka, km)",
+    "ww": "present_weather_ww",
+    "w1": "past_weather_w1",
+    "w2": "past_weather_w2",
+    "cloud_cover_oktas_m": "cloud_cover_oktas_m",
+    "cloud_low_type_cl": "cloud_low_type_cl",
+    "cloud_low_cover_oktas": "cloud_low_cover_oktas",
+    "awan_rendah_jenis": "AWAN RENDAH|k1|b2|Jenis",
+    "awan_rendah_jumlah": "AWAN RENDAH|k1|b3|Jumlah",
+    "cloud_low_base_1": "cloud_low_base_1 (input)",
+    "cloud_low_peak_1": "cloud_low_peak_1 (input)",
+    "cloud_arah_awan_rendah": "AWAN RENDAH|k1|b6|Arah Gerak",
+    "cloud_elevation_1_angle_ec": "cloud_elevation_1_angle_ec",
+    "cloud_arah_sebenarnya_1": "AWAN RENDAH|k1|b8|Arah Sebenarnya",
+    "awan_rendah_2_jenis": "AWAN RENDAH|k2|b2|Jenis",
+    "awan_rendah_2_jumlah": "AWAN RENDAH|k2|b3|Jumlah",
+    "cloud_low_base_2": "cloud_low_base_2 (input)",
+    "cloud_low_peak_2": "cloud_low_peak_2 (input)",
+    "cloud_arah_2": "AWAN RENDAH|k2|b6|Arah Gerak",
+    "cloud_elevation_2_angle_ec": "cloud_elevation_2_angle_ec",
+    "cloud_arah_sebenarnya_2": "AWAN RENDAH|k2|b8|Arah Sebenarnya",
+    "cloud_med_type_cm": "cloud_med_type_cm",
+    "cloud_med_cover_oktas": "cloud_med_cover_oktas",
+    "awan_menengah_jenis_1": "AWAN MENENGAH|k1|b2|Jenis",
+    "awan_menengah_jumlah_1": "AWAN MENENGAH|k1|b3|Jumlah",
+    "cloud_med_base_1": "cloud_med_base_1 (input)",
+    "cloud_arah_menengah_1": "AWAN MENENGAH|k1|b5|Arah",
+    "awan_menengah_jenis_2": "AWAN MENENGAH|k2|b2|Jenis",
+    "awan_menengah_jumlah_2": "AWAN MENENGAH|k2|b3|Jumlah",
+    "cloud_med_base_2": "cloud_med_base_2 (input)",
+    "cloud_arah_menengah_2": "AWAN MENENGAH|k2|b5|Arah",
+    "cloud_high_type_ch": "cloud_high_type_ch",
+    "cloud_high_cover_oktas": "cloud_high_cover_oktas",
+    "awan_tinggi_jenis": "AWAN TINGGI|k1|b2|Jenis",
+    "awan_tinggi_jumlah": "AWAN TINGGI|k1|b3|Jumlah",
+    "cloud_high_base_1": "cloud_high_base_1 (input)",
+    "cloud_arah_tinggi": "AWAN TINGGI|k1|b5|Arah",
+    "land_cond": "land_cond"
+  },
+  "input_angka": {
+    "visibility_vv": "Jarak penglihatan mendatar (km)",
+    "cloud_low_base_1": "AWAN RENDAH k1 Tinggi Dasar (m)",
+    "cloud_low_peak_1": "AWAN RENDAH k1 Tinggi Puncak (m)",
+    "cloud_low_base_2": "AWAN RENDAH k2 Tinggi Dasar (m)",
+    "cloud_low_peak_2": "AWAN RENDAH k2 Tinggi Puncak (m)",
+    "cloud_low_base_3": "AWAN RENDAH k3 Tinggi Dasar (m)",
+    "cloud_med_base_1": "AWAN MENENGAH k1 Tinggi Dasar (m)",
+    "cloud_med_base_2": "AWAN MENENGAH k2 Tinggi Dasar (m)",
+    "cloud_high_base_1": "AWAN TINGGI k1 Tinggi Dasar (m)",
+    "cloud_high_base_2": "AWAN TINGGI k2 Tinggi Dasar (m)"
+  },
+  "fields": {
+    "wind_indicator_iw": {
+      "label": "Pengenal Data Angin (iw)",
+      "section": "ANGIN",
+      "col": null,
+      "options": [
+        {
+          "value": "3 - wind speed estimated, kt",
+          "code": "3"
+        },
+        {
+          "value": "4 - wind speed from anemometer, kt",
+          "code": "4"
+        }
+      ]
+    },
+    "present_weather_ww": {
+      "label": "Cuaca Saat Pengamatan (ww)",
+      "section": "CUACA",
+      "col": null,
+      "options": [
+        {
+          "value": "00 - clear sky",
+          "code": "00"
+        },
+        {
+          "value": "01 - cloud dissolving",
+          "code": "01"
+        },
+        {
+          "value": "02 - state of sky unchanged",
+          "code": "02"
+        },
+        {
+          "value": "03 - clouds developing",
+          "code": "03"
+        },
+        {
+          "value": "04 - visibility reduced by smoke",
+          "code": "04"
+        },
+        {
+          "value": "05 - haze",
+          "code": "05"
+        },
+        {
+          "value": "06 - widespread dust in suspension not raised by wind",
+          "code": "06"
+        },
+        {
+          "value": "07 - dust or sand raised by wind",
+          "code": "07"
+        },
+        {
+          "value": "08 - well developed dust or sand whirl",
+          "code": "08"
+        },
+        {
+          "value": "09 - dust or sand storm within sight but not station",
+          "code": "09"
+        },
+        {
+          "value": "10 - mist",
+          "code": "10"
+        },
+        {
+          "value": "11 - patches of shallow fog",
+          "code": "11"
+        },
+        {
+          "value": "12 - continuous shallow fog",
+          "code": "12"
+        },
+        {
+          "value": "13 - lightning visible, no thunder heard",
+          "code": "13"
+        },
+        {
+          "value": "14 - precipitation within sign but not hitting ground",
+          "code": "14"
+        },
+        {
+          "value": "15 - distanct precipitation but not failing at station",
+          "code": "15"
+        },
+        {
+          "value": "16 - nearby precipitation but failing at station",
+          "code": "16"
+        },
+        {
+          "value": "17 - thunderstorm but no precipitation failing at station",
+          "code": "17"
+        },
+        {
+          "value": "18 - squalls within sight but no precipitation failing at station",
+          "code": "18"
+        },
+        {
+          "value": "19 - funnel clouds within sight",
+          "code": "19"
+        },
+        {
+          "value": "20 - recent drizlle",
+          "code": "20"
+        },
+        {
+          "value": "21 - recent rain",
+          "code": "21"
+        },
+        {
+          "value": "22 - recent snow",
+          "code": "22"
+        },
+        {
+          "value": "23 - recent rain and snow",
+          "code": "23"
+        },
+        {
+          "value": "24 - recent freezing rain",
+          "code": "24"
+        },
+        {
+          "value": "25 - recent rain showers",
+          "code": "25"
+        },
+        {
+          "value": "26 - recent snow showers",
+          "code": "26"
+        },
+        {
+          "value": "27 - recent hail showers",
+          "code": "27"
+        },
+        {
+          "value": "28 - recent fog",
+          "code": "28"
+        },
+        {
+          "value": "29 - recent thuderstorm",
+          "code": "29"
+        },
+        {
+          "value": "30 - Slight to moderate duststorm, decreasing in intensity",
+          "code": "30"
+        },
+        {
+          "value": "31 - Slight to moderate duststorm, no change",
+          "code": "31"
+        },
+        {
+          "value": "32 - Slight to moderate duststorm, increasing in intensity",
+          "code": "32"
+        },
+        {
+          "value": "33 - severe duststorm, decreasing in intensity",
+          "code": "33"
+        },
+        {
+          "value": "34 - Severe duststorm, no change",
+          "code": "34"
+        },
+        {
+          "value": "35 - Severe duststorm, increasing in intensity",
+          "code": "35"
+        },
+        {
+          "value": "36 - Slight to moderate drifting snow, below eye level",
+          "code": "36"
+        },
+        {
+          "value": "37 - Heavy drifting snow, below eye level",
+          "code": "37"
+        },
+        {
+          "value": "38 - Slight to moderate drifting snow, above eye level",
+          "code": "38"
+        },
+        {
+          "value": "39 - Heavy drifting snow, above eye level",
+          "code": "39"
+        },
+        {
+          "value": "40 - Fog at a distance",
+          "code": "40"
+        },
+        {
+          "value": "41 - Patches of Fog",
+          "code": "41"
+        },
+        {
+          "value": "42 - Fog, sky visible, thinning",
+          "code": "42"
+        },
+        {
+          "value": "43 - Fog, sky not visible, thinning",
+          "code": "43"
+        },
+        {
+          "value": "44 - Fog, sky visible, no change",
+          "code": "44"
+        },
+        {
+          "value": "45 - Fog, sky not visible, no change",
+          "code": "45"
+        },
+        {
+          "value": "46 - Fog, sky visible, becoming thicker",
+          "code": "46"
+        },
+        {
+          "value": "47 - Fog, sky not visible, becoming thicker",
+          "code": "47"
+        },
+        {
+          "value": "48 - Fog, depositing rime, sky visible",
+          "code": "48"
+        },
+        {
+          "value": "49 - Fog, depositing rime, sky not visible",
+          "code": "49"
+        },
+        {
+          "value": "50 - Intermittent light drizzle",
+          "code": "50"
+        },
+        {
+          "value": "51 - Continuous light drizzle",
+          "code": "51"
+        },
+        {
+          "value": "52 - Intermittent moderate drizzle",
+          "code": "52"
+        },
+        {
+          "value": "53 - Continuous moderate drizzle",
+          "code": "53"
+        },
+        {
+          "value": "54 - Intermittent heavy drizzle",
+          "code": "54"
+        },
+        {
+          "value": "55 - Continuous heavy drizzle",
+          "code": "55"
+        },
+        {
+          "value": "56 - Light freezing drizzle",
+          "code": "56"
+        },
+        {
+          "value": "57 - Moderate to heavy freezing drizzle",
+          "code": "57"
+        },
+        {
+          "value": "58 - Light drizzle and rain",
+          "code": "58"
+        },
+        {
+          "value": "59 - Moderate to heavy drizzle and rain",
+          "code": "59"
+        },
+        {
+          "value": "60 - Intermittent light rain",
+          "code": "60"
+        },
+        {
+          "value": "61 - Continuous light rain",
+          "code": "61"
+        },
+        {
+          "value": "62 - Intermittent moderate rain",
+          "code": "62"
+        },
+        {
+          "value": "63 - Continuous moderate rain",
+          "code": "63"
+        },
+        {
+          "value": "64 - Intermittent heavy rain",
+          "code": "64"
+        },
+        {
+          "value": "65 - Continuous heavy rain",
+          "code": "65"
+        },
+        {
+          "value": "66 - Light freezing rain",
+          "code": "66"
+        },
+        {
+          "value": "67 - Moderate to heavy freezing rain",
+          "code": "67"
+        },
+        {
+          "value": "68 - Light rain and snow",
+          "code": "68"
+        },
+        {
+          "value": "69 - Moderate to heavy rain and snow",
+          "code": "69"
+        },
+        {
+          "value": "70 - Intermittent light snow",
+          "code": "70"
+        },
+        {
+          "value": "71 - Continuous light snow",
+          "code": "71"
+        },
+        {
+          "value": "72 - Intermittent moderate snow",
+          "code": "72"
+        },
+        {
+          "value": "73 - Continuous moderate snow",
+          "code": "73"
+        },
+        {
+          "value": "74 - Intermittent heavy snow",
+          "code": "74"
+        },
+        {
+          "value": "75 - Continuous heavy snow",
+          "code": "75"
+        },
+        {
+          "value": "76 - Diamond dust",
+          "code": "76"
+        },
+        {
+          "value": "77 - Snow grain",
+          "code": "77"
+        },
+        {
+          "value": "78 - Snow crystal",
+          "code": "78"
+        },
+        {
+          "value": "79 - Ice pellet",
+          "code": "79"
+        },
+        {
+          "value": "80 - Light rain shower",
+          "code": "80"
+        },
+        {
+          "value": "81 - Moderate to heavy rain shower",
+          "code": "81"
+        },
+        {
+          "value": "82 - Violent rain shower",
+          "code": "82"
+        },
+        {
+          "value": "83 - Light rain and snow shower",
+          "code": "83"
+        },
+        {
+          "value": "84 - Moderate to heavy rain and snow shower",
+          "code": "84"
+        },
+        {
+          "value": "85 - Light snow shower",
+          "code": "85"
+        },
+        {
+          "value": "86 - Moderate to heavy snow shower",
+          "code": "86"
+        },
+        {
+          "value": "87 - Light snow/ice pellet shower",
+          "code": "87"
+        },
+        {
+          "value": "88 - Moderate to heavy snow/ice pellet shower",
+          "code": "88"
+        },
+        {
+          "value": "89 - light hail shower",
+          "code": "89"
+        },
+        {
+          "value": "90 - Moderate to heavy hail shower",
+          "code": "90"
+        },
+        {
+          "value": "91 - Thunderstorm in past hour, currently only light rain",
+          "code": "91"
+        },
+        {
+          "value": "92 - Thunderstorm in past hour, currently only moderate to heavy rain",
+          "code": "92"
+        },
+        {
+          "value": "93 - Thunderstorm in past hour, currently only light snow or rain/snow mist",
+          "code": "93"
+        },
+        {
+          "value": "94 - Thunderstorm in past hour, currently only moderate to heavy",
+          "code": "94"
+        },
+        {
+          "value": "95 - Light to moderate thunderstorm",
+          "code": "95"
+        },
+        {
+          "value": "96 - Light to moderate thunderstorm with hail",
+          "code": "96"
+        },
+        {
+          "value": "97 - Heavy thunderstor",
+          "code": "97"
+        },
+        {
+          "value": "98 - Thunderstorm combined with duststorm or sandstorm at time of observation",
+          "code": "98"
+        },
+        {
+          "value": "99 - Thunderstorm, heavy, with hail at time of observation",
+          "code": "99"
+        }
+      ]
+    },
+    "past_weather_w1": {
+      "label": "Cuaca yang lalu (W1)",
+      "section": "CUACA",
+      "col": null,
+      "options": [
+        {
+          "value": "0 - Cloudy -",
+          "code": "0"
+        },
+        {
+          "value": "1 - Cloudy",
+          "code": "1"
+        },
+        {
+          "value": "2 - Cloudy +",
+          "code": "2"
+        },
+        {
+          "value": "3 - Sandstorm, duststorm or blowing snow",
+          "code": "3"
+        },
+        {
+          "value": "4 - fog, or thick haze.",
+          "code": "4"
+        },
+        {
+          "value": "5 - Drizzle",
+          "code": "5"
+        },
+        {
+          "value": "6 - Rain",
+          "code": "6"
+        },
+        {
+          "value": "7 - Snow or mixed rain and snow",
+          "code": "7"
+        },
+        {
+          "value": "8 - Showers",
+          "code": "8"
+        },
+        {
+          "value": "9 - Thunderstorms",
+          "code": "9"
+        },
+        {
+          "value": "/ - Unknown",
+          "code": "/"
+        }
+      ]
+    },
+    "past_weather_w2": {
+      "label": "Cuaca yang lalu (W2)",
+      "section": "CUACA",
+      "col": null,
+      "options": [
+        {
+          "value": "0 - Cloudy -",
+          "code": "0"
+        },
+        {
+          "value": "1 - Cloudy",
+          "code": "1"
+        },
+        {
+          "value": "2 - Cloudy +",
+          "code": "2"
+        },
+        {
+          "value": "3 - Sandstorm, duststorm or blowing snow",
+          "code": "3"
+        },
+        {
+          "value": "4 - fog, or thick haze.",
+          "code": "4"
+        },
+        {
+          "value": "5 - Drizzle",
+          "code": "5"
+        },
+        {
+          "value": "6 - Rain",
+          "code": "6"
+        },
+        {
+          "value": "7 - Snow or mixed rain and snow",
+          "code": "7"
+        },
+        {
+          "value": "8 - Showers",
+          "code": "8"
+        },
+        {
+          "value": "9 - Thunderstorms",
+          "code": "9"
+        },
+        {
+          "value": "/ - Unknown",
+          "code": "/"
+        }
+      ]
+    },
+    "cloud_cover_oktas_m": {
+      "label": "Bagian Langit Tertutup Awan (oktas)",
+      "section": null,
+      "col": null,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "cloud_low_type_cl": {
+      "label": "CL",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - tidak ada awan C1",
+          "code": "0"
+        },
+        {
+          "value": "1 - cumulus humilis atau fracto cumulus atao kedua-duanya",
+          "code": "1"
+        },
+        {
+          "value": "2 - cumulus mediocris atau congestus, disertai atau tidak disertai fracto cumulus atau humilis atau strato cumulus, dengan tinggi dasar sama",
+          "code": "2"
+        },
+        {
+          "value": "3 - cumulunimbus tanpa landasan, disertai atau tidak disertai cumulus, strato cumulus atau stratus",
+          "code": "3"
+        },
+        {
+          "value": "4 - stratocumulus yang terjadi dari bentangan cumulus",
+          "code": "4"
+        },
+        {
+          "value": "5 - stratocumulus yang tidak terjadi dari bentangan cumulus",
+          "code": "5"
+        },
+        {
+          "value": "6 - stratus",
+          "code": "6"
+        },
+        {
+          "value": "7 - fraktostratus atau fraktocumulus yang menyertai cuaca buruk, biasanya dibawah As atau Ns",
+          "code": "7"
+        },
+        {
+          "value": "8 - cumulus dan stratocumulus yang tidak terjadi dari bentangan cumulus, dengan tinggi dasar berlainan",
+          "code": "8"
+        },
+        {
+          "value": "9 - cumulunimbus, biasanya berlandasan disertai atau tidak disertai cumulus stratocumulus, stratus, cumulunimbus yang tidak berlandasan",
+          "code": "9"
+        },
+        {
+          "value": "/ - C1 tidak kelihatan disebabkan oleh kabut, badai debu, badai pasir atau lain-lain gejala",
+          "code": "/"
+        }
+      ]
+    },
+    "cloud_low_cover_oktas": {
+      "label": "NCL",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN RENDAH|k1|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "6 - stratocumulus (Sc)",
+          "code": "6"
+        },
+        {
+          "value": "7 - stratus (St)",
+          "code": "7"
+        },
+        {
+          "value": "8 - cumulus (Cu)",
+          "code": "8"
+        },
+        {
+          "value": "9 - cumulonimbus (Cb)",
+          "code": "9"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "7 - stratus (St)",
+        "9 - cumulonimbus (Cb)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN RENDAH|k1|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN RENDAH|k1|b6|Arah Gerak": {
+      "label": "Arah Gerak",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "cloud_elevation_1_angle_ec": {
+      "label": "Sudut Elevasi",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - top of cloud not visible",
+          "code": "0"
+        },
+        {
+          "value": "1 - 45º or more",
+          "code": "1"
+        },
+        {
+          "value": "2 - About 30º",
+          "code": "2"
+        },
+        {
+          "value": "3 - About 20º",
+          "code": "3"
+        },
+        {
+          "value": "4 - About 15º",
+          "code": "4"
+        },
+        {
+          "value": "5 - About 12º",
+          "code": "5"
+        },
+        {
+          "value": "6 - About 9º",
+          "code": "6"
+        },
+        {
+          "value": "7 - About 7º",
+          "code": "7"
+        },
+        {
+          "value": "8 - About 6º",
+          "code": "8"
+        },
+        {
+          "value": "9 - Less than 5º",
+          "code": "9"
+        }
+      ]
+    },
+    "AWAN RENDAH|k1|b8|Arah Sebenarnya": {
+      "label": "Arah Sebenarnya",
+      "section": "AWAN RENDAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "cloud_med_type_cm": {
+      "label": "CM",
+      "section": "AWAN MENENGAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - No CM Cloud",
+          "code": "0"
+        },
+        {
+          "value": "1 - Altostratus translucidus",
+          "code": "1"
+        },
+        {
+          "value": "2 - Altostratus opacus or Nimbostratus",
+          "code": "2"
+        },
+        {
+          "value": "3 - Altocumulus translucidus at a single level",
+          "code": "3"
+        },
+        {
+          "value": "4 - Patches (often lenticular) of Altocumulus translucidious, continually changing and occurring at one or more levels",
+          "code": "4"
+        },
+        {
+          "value": "5 - Altocumulus translucidius in bands, or one or more layers of Altocumulus translucidius or opacus, progressively invading the sky; these Altocumulus clouds generally thicken as a whole",
+          "code": "5"
+        },
+        {
+          "value": "6 - Altocumulus cumulogenitus (or cumulu-nimbogenitus)",
+          "code": "6"
+        },
+        {
+          "value": "7 - Altocumulus translucidius or opacus in two or more layers, or Altocumulus opacus in a single layer, not progressively invading the sky, or Altocumulus with Altostratus or Nimbostratus",
+          "code": "7"
+        },
+        {
+          "value": "8 - Altocumulus castellanus or floccus",
+          "code": "8"
+        },
+        {
+          "value": "9 - Altocumulus of a chaotic sky, generally at several levels",
+          "code": "9"
+        },
+        {
+          "value": "/ - CM clouds invisible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because continuous layer of clouds",
+          "code": "/"
+        }
+      ]
+    },
+    "cloud_med_cover_oktas": {
+      "label": "NCM",
+      "section": "AWAN MENENGAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN MENENGAH|k1|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN MENENGAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "3 - altocumulus (Ac)",
+          "code": "3"
+        },
+        {
+          "value": "4 - altostratus (As)",
+          "code": "4"
+        },
+        {
+          "value": "5 - nimbostratus (Ns)",
+          "code": "5"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "3 - altocumulus (Ac)",
+        "5 - nimbostratus (Ns)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN MENENGAH|k1|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN MENENGAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - 0",
+          "code": "0"
+        },
+        {
+          "value": "1 - 1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 - 2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 - 3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 - 4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 - 5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 - 6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 - 7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 - 8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - 9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN MENENGAH|k1|b5|Arah": {
+      "label": "Arah",
+      "section": "AWAN MENENGAH",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "cloud_high_type_ch": {
+      "label": "CH",
+      "section": "AWAN TINGGI",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - No CH clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - Cirrus fibratis, sometimes uncinus, not progressively invading the sky",
+          "code": "1"
+        },
+        {
+          "value": "2 - Cirrus spissatus, in patches or entangled sheaves, which usually do not increase and sometimes seem to be the remains of the upper part of Cumulonimbus, or Cirrus castellanus or floccus",
+          "code": "2"
+        },
+        {
+          "value": "3 - Cirrus spissatus cumulonimbogenitus",
+          "code": "3"
+        },
+        {
+          "value": "4 - Cirrus uncinus or fibratus, or both, progressively invading the sky; they generally thicken as a whole",
+          "code": "4"
+        },
+        {
+          "value": "5 - Cirrus (often in bands) and Cirrostratus, or Cirrostratus alone, progressively invading the sky; they generally thicken as a whole, but the continuous veil does not reach 45 degrees above the horizon",
+          "code": "5"
+        },
+        {
+          "value": "6 - Cirrus (often in bands) and Cirrostratus, or Cirrostratus alone, progressively invading the sky; they generally thicken as a whole, but the continuous veil extends more than 45 degrees above the horizon, withhout the sky being totally covered",
+          "code": "6"
+        },
+        {
+          "value": "7 - Cirrostratus covering the whole sky",
+          "code": "7"
+        },
+        {
+          "value": "8 - Cirrostratus not progressively invading the sky and not entirely covering it",
+          "code": "8"
+        },
+        {
+          "value": "9 - Cirrocumulus alone, or Cirrocumulus predominant among the CH clouds",
+          "code": "9"
+        },
+        {
+          "value": "/ - CH clouds not visible owing to darkness, fog, blowing dust or sand, or other similar phenomena, or because of a continuous layer of lower clouds",
+          "code": "/"
+        }
+      ]
+    },
+    "cloud_high_cover_oktas": {
+      "label": "NCH",
+      "section": "AWAN TINGGI",
+      "col": 1,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN TINGGI|k1|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN TINGGI",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - cirrus (Ci)",
+          "code": "0"
+        },
+        {
+          "value": "1 - cirrocumulus (Cc)",
+          "code": "1"
+        },
+        {
+          "value": "2 - cirrostratus (Cs)",
+          "code": "2"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "1 - cirrocumulus (Cc)",
+        "2 - cirrostratus (Cs)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN TINGGI|k1|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN TINGGI",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - 0",
+          "code": "0"
+        },
+        {
+          "value": "1 - 1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 - 2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 - 3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 - 4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 - 5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 - 6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 - 7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 - 8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - 9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN TINGGI|k1|b5|Arah": {
+      "label": "Arah",
+      "section": "AWAN TINGGI",
+      "col": 1,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "land_cond": {
+      "label": "Penguapan (mm)",
+      "section": null,
+      "col": null,
+      "options": [
+        {
+          "value": "0 - Kering",
+          "code": "0"
+        },
+        {
+          "value": "1 - Lembab",
+          "code": "1"
+        },
+        {
+          "value": "2 - Basah",
+          "code": "2"
+        },
+        {
+          "value": "3 - Tergenang",
+          "code": "3"
+        }
+      ]
+    },
+    "AWAN RENDAH|k2|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN RENDAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "6 - stratocumulus (Sc)",
+          "code": "6"
+        },
+        {
+          "value": "7 - stratus (St)",
+          "code": "7"
+        },
+        {
+          "value": "8 - cumulus (Cu)",
+          "code": "8"
+        },
+        {
+          "value": "9 - cumulonimbus (Cb)",
+          "code": "9"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "7 - stratus (St)",
+        "9 - cumulonimbus (Cb)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN RENDAH|k2|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN RENDAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN RENDAH|k2|b6|Arah Gerak": {
+      "label": "Arah Gerak",
+      "section": "AWAN RENDAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "AWAN RENDAH|k3|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN RENDAH",
+      "col": 3,
+      "options": [
+        {
+          "value": "6 - stratocumulus (Sc)",
+          "code": "6"
+        },
+        {
+          "value": "7 - stratus (St)",
+          "code": "7"
+        },
+        {
+          "value": "8 - cumulus (Cu)",
+          "code": "8"
+        },
+        {
+          "value": "9 - cumulonimbus (Cb)",
+          "code": "9"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "7 - stratus (St)",
+        "9 - cumulonimbus (Cb)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN RENDAH|k3|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN RENDAH",
+      "col": 3,
+      "options": [
+        {
+          "value": "0",
+          "code": "0"
+        },
+        {
+          "value": "1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN RENDAH|k3|b6|Arah Gerak": {
+      "label": "Arah Gerak",
+      "section": "AWAN RENDAH",
+      "col": 3,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "AWAN MENENGAH|k2|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN MENENGAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "3 - altocumulus (Ac)",
+          "code": "3"
+        },
+        {
+          "value": "4 - altostratus (As)",
+          "code": "4"
+        },
+        {
+          "value": "5 - nimbostratus (Ns)",
+          "code": "5"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "3 - altocumulus (Ac)",
+        "5 - nimbostratus (Ns)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN MENENGAH|k2|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN MENENGAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - 0",
+          "code": "0"
+        },
+        {
+          "value": "1 - 1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 - 2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 - 3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 - 4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 - 5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 - 6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 - 7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 - 8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - 9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN MENENGAH|k2|b5|Arah": {
+      "label": "Arah",
+      "section": "AWAN MENENGAH",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "AWAN TINGGI|k2|b2|Jenis": {
+      "label": "Jenis",
+      "section": "AWAN TINGGI",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - cirrus (Ci)",
+          "code": "0"
+        },
+        {
+          "value": "1 - cirrocumulus (Cc)",
+          "code": "1"
+        },
+        {
+          "value": "2 - cirrostratus (Cs)",
+          "code": "2"
+        },
+        {
+          "value": "/ - cloud not visible",
+          "code": "/"
+        }
+      ],
+      "disabled_at_capture": [
+        "1 - cirrocumulus (Cc)",
+        "2 - cirrostratus (Cs)",
+        "/ - cloud not visible"
+      ]
+    },
+    "AWAN TINGGI|k2|b3|Jumlah": {
+      "label": "Jumlah",
+      "section": "AWAN TINGGI",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - 0",
+          "code": "0"
+        },
+        {
+          "value": "1 - 1 okta or less, but not zero",
+          "code": "1"
+        },
+        {
+          "value": "2 - 2 oktas",
+          "code": "2"
+        },
+        {
+          "value": "3 - 3 oktas",
+          "code": "3"
+        },
+        {
+          "value": "4 - 4 oktas",
+          "code": "4"
+        },
+        {
+          "value": "5 - 5 oktas",
+          "code": "5"
+        },
+        {
+          "value": "6 - 6 oktas",
+          "code": "6"
+        },
+        {
+          "value": "7 - 7 oktas or more, but not eight",
+          "code": "7"
+        },
+        {
+          "value": "8 - 8 oktas",
+          "code": "8"
+        },
+        {
+          "value": "9 - 9 - Sky obscured by fog and/or other meteorological phenomena",
+          "code": "9"
+        },
+        {
+          "value": "/ - / - Cloud cover is indiscernible for reasons other than fog or other meteorological phenomena, or observation is not made",
+          "code": "/"
+        }
+      ]
+    },
+    "AWAN TINGGI|k2|b5|Arah": {
+      "label": "Arah",
+      "section": "AWAN TINGGI",
+      "col": 2,
+      "options": [
+        {
+          "value": "0 - Stationary or No Clouds",
+          "code": "0"
+        },
+        {
+          "value": "1 - NE",
+          "code": "1"
+        },
+        {
+          "value": "2 - E",
+          "code": "2"
+        },
+        {
+          "value": "3 - SE",
+          "code": "3"
+        },
+        {
+          "value": "4 - S",
+          "code": "4"
+        },
+        {
+          "value": "5 - SW",
+          "code": "5"
+        },
+        {
+          "value": "6 - W",
+          "code": "6"
+        },
+        {
+          "value": "7 - NW",
+          "code": "7"
+        },
+        {
+          "value": "8 - N",
+          "code": "8"
+        },
+        {
+          "value": "9 - All Directions or Invisible",
+          "code": "9"
+        }
+      ]
+    },
+    "cloud_elevation_2_angle_ec": {
+      "label": "Sudut Elevasi",
+      "section": "AWAN RENDAH",
+      "col": 2,
+      "options": null,
+      "pending": "F0.5",
+      "assume_same_as": "cloud_elevation_1_angle_ec"
+    },
+    "AWAN RENDAH|k2|b8|Arah Sebenarnya": {
+      "label": "Arah Sebenarnya",
+      "section": "AWAN RENDAH",
+      "col": 2,
+      "options": null,
+      "pending": "F0.5",
+      "assume_same_as": "AWAN RENDAH|k1|b8|Arah Sebenarnya"
+    }
+  }
+}
