@@ -34,7 +34,13 @@ observers:
   allowed: []
 
 features:
-  medium_layer2_supported: false  # ubah ke true setelah F3.10 (awan menengah ke-2) selesai
+  extra_layers: true              # F3.10: isi lapisan tambahan (rendah-3, menengah-2, tinggi-2); false = dilewati
+  verify_sandi: true              # F3.4: bandingkan sandi hasil Preview dengan data Excel (peringatan + log)
+  sandi_block_on_mismatch: false  # true = batalkan KIRIM bila verifikasi sandi menemukan ERROR (data utama beda)
+  qff_qfe_check: true             # periksa QFF-QFE setelah Fill AWS Digi (stasiun 27 m: sekitar 3.2 hPa)
+  qff_qfe_expected_diff: 3.2
+  qff_qfe_tolerance: 1.0
+  send_despite_detail_fail: false # rev 14: true = tetap kirim walau Jenis/Jumlah/Arah wajib gagal diisi (TIDAK disarankan)
   dry_run: false                  # F1.7: true = isi form sampai Preview, tidak kirim
   allow_update: true              # jam yang sudah ada di web boleh ditimpa lewat tombol "Send & Update"
   rain_override_strict: false     # true = batalkan baris jika override hujan gagal diterapkan

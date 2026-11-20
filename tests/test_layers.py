@@ -153,58 +153,36 @@ check("error JS -> id terakhir terlihat", M2._id_toggle(DrvIds([], boom=True), "
 print("== pilih_dropdown_posisi dengan DOM tiruan ==")
 
 
-class Li:
-    def __init__(self, text):
-        self.text = text
-
-
 class Sel:
     def __init__(self):
-        self.selected = None
         self.combo = El(**{"aria-controls": "menu-1"})
 
     def find_element(self, by, value):
         return self.combo
 
-    def find_elements(self, by, value):
-        return [El(title=self.selected)] if self.selected else []
-
 
 class DrvDom:
-    def __init__(self, sel, options, missing=False):
-        self.sel, self.options, self.missing, self.open = sel, options, missing, False
+    def __init__(self, sel, missing=False):
+        self.sel, self.missing = sel, missing
 
     def execute_script(self, js, *a):
         if "querySelector('.ant-select')" in js:
             return None if self.missing else self.sel
-        if "offsetParent" in js:
-            return self.open
-        if "querySelectorAll('li')" in js:
-            return Li(a[1]) if a[1] in self.options else None
         return None
 
 
-def fake_click(drv, el):
-    if el is drv.sel.combo:
-        drv.open = True
-    elif isinstance(el, Li):
-        drv.sel.selected = el.text
-    return True
-
-
-M2.attempt_click = fake_click
+rec = []
+M2.pilih_opsi_ant_select = lambda drv, combo, teks, nama: (rec.append((combo, teks, nama)) or teks != "ADA-TAPI-GAGAL")
 sel = Sel()
-d = DrvDom(sel, ["3 - altocumulus (Ac)", "4 - altostratus (As)"])
-check("memilih opsi yang ada -> True & nilai terpilih",
-      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 2, 2, "3 - altocumulus (Ac)", timeout=1) is True
-      and sel.selected == "3 - altocumulus (Ac)", sel.selected)
-sel = Sel()
-d = DrvDom(sel, ["4 - altostratus (As)"])
-check("opsi tidak ada / nonaktif -> False tanpa crash",
-      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 2, 2, "3 - altocumulus (Ac)", timeout=1) is False and sel.selected is None)
-d = DrvDom(Sel(), [], missing=True)
+d = DrvDom(sel)
+check("[rev 15] memakai pilih_opsi_ant_select pada combobox posisi -> True",
+      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 2, 2, "3 - altocumulus (Ac)") is True
+      and rec == [(sel.combo, "3 - altocumulus (Ac)", "AWAN MENENGAH kolom 2 baris 2")], rec)
+check("pilih_opsi_ant_select gagal -> False tanpa crash",
+      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 2, 2, "ADA-TAPI-GAGAL") is False)
+d = DrvDom(Sel(), missing=True)
 check("posisi tidak ditemukan -> False tanpa crash",
-      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 9, 9, "x", timeout=1) is False)
+      M2.pilih_dropdown_posisi(d, "AWAN MENENGAH", 9, 9, "x") is False)
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

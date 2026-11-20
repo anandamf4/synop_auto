@@ -51,12 +51,13 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 13
-  Terakhir diperbarui : 2026-11-17
+  Revisi catatan      : 17
+  Terakhir diperbarui : 2026-11-20
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
+                        F3.10 LAPISAN TAMBAHAN (rev 15; pengguna: "sudah berhasil" di web asli),
                         penyesuaian kecepatan/switch/field opsional (rev 12; pengguna
                         melaporkan "sudah lebih cepat")
-  Tahap DIIMPLEMENTASI, menunggu dry-run di web asli:
+  Tahap DIIMPLEMENTASI, menunggu dry-run di web asli (rev 14: validator F3.10 BARU benar-benar terpasang):
                         F3.10 LAPISAN TAMBAHAN: awan rendah ke-3 (switch urutan ke-2),
                         menengah ke-2 (switch urutan ke-1), tinggi ke-2 (switch urutan
                         ke-1). Validator (core/validator.py) + bot (V7SATU.py:
@@ -81,14 +82,85 @@ TUJUAN FILE INI
                         features.medium_layer2_supported DIABAIKAN. Opsional lain: speed.*,
                         features.fail_on_optional, runtime.popup_wait_seconds,
                         features.popup_press_enter.
-  Tahap berikutnya (usulan, urut): (1) pengguna dry-run baris yang memuat lapisan
+  [rev 16] Roadmap diperbarui: (1) SELESAI; (2) F3.4 DIIMPLEMENTASI; (4) QFF/QFE masuk F3.4. SISA: dry-run 24 jam penuh
+                        untuk mengumpulkan sandi -> kalibrasi; lalu (3) aturan QC ke validator, (5) F3.7 notifikasi, (6) F2, (7) CLIMAT.
+  Tahap berikutnya (usulan lama, urut): (1) pengguna dry-run baris yang memuat lapisan
                         tambahan (python V7SATU.py --dry-run --process-past --jam HH:00) lalu
                         kirim log; (2) F3.4 verifikasi sandi (dekode + aturan penggabungan
                         lapisan setinggi sama WMO 306, lihat 2.11); (3) aturan QC konsistensi
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
-  Tahap berjalan      : F3.10 (uji di web asli)
+  REV 17 (2026-11-20) - KALIBRASI F3.4 DENGAN 22 SANDI NYATA (run pengguna: 19 dari 22 WARNING S-GRUP):
+    * Penyebab WARNING: verifikator mengharapkan SEMUA grup awan; web hanya melaporkan grup terpilih (WMO 306):
+      grup-1 = lapisan terendah (berapa pun), grup-2 = lapisan berikutnya > 2 okta, grup-3 = berikutnya > 4 okta,
+      Cb dilaporkan tersendiri. Contoh: Ci 1-3 okta @9000 m (82080, 81080, 83180, 83080) TIDAK ada di sandi web.
+    * Perbaikan: core/synop_check.py memilih grup wajib dengan aturan itu; grup tidak wajib = 'opsional'
+      (ada di sandi -> INFO, tidak ada -> tidak masalah). Hasil: 20/20 sandi nyata di log cocok (0 WARNING).
+    * KETERBATASAN DATA: pada semua sandi nyata kandidat grup-3 selalu <= 3 okta, jadi data belum membedakan
+      "grup-3 butuh > 4 okta" dari "web tidak pernah melaporkan grup-3". Butuh sandi dgn lapisan ke-3 > 4 okta
+      (mis. awan tinggi >= 5 okta di atas 2 lapisan lain) untuk membuktikannya; bila web ternyata melaporkan grup tsb,
+      hasilnya hanya INFO (tidak error), bila tidak melaporkan padahal wajib -> WARNING S-GRUP -> laporkan.
+    * tests/test_sandi.py: 32 lulus.
+  REV 16 (2026-11-20) - F3.4 VERIFIKASI SANDI SYNOP (+ roadmap no.4 QFF/QFE):
+    * Modul baru core/synop_check.py: parse_sandi, hitung_harapan, verifikasi, format_hasil; CLI offline
+      `python core/synop_check.py --db data/synop.db --excel INPUT_PARAMETER.xlsx` memeriksa ulang semua sandi di DB.
+    * Dasar: SANDI NYATA 14 Nov 2026 08:00 UTC dari synop.db (lolos tanpa temuan terhadap baris Excel 08:00):
+        SNID52 WIJJ 140800 / AAXX 14084 / 96195 41450 83305 10270 20257 30074 40105 72162 8421/ /
+        333 56009 57801 85615 88460 80860=
+      Terurai penuh: 41450 = iR4 iX1 h4(450 m) VV50(5 km); 83305 = N8 dd33 ff05; 7wwW1W2 = 21,6,2;
+      8NhCLCMCH = 4,2,1,/ ; 56DLDMDH = arah gerak awan; 57CDaEc = genus Cu, arah sebenarnya 0, elevasi 1;
+      85615 = Cu2+Sc3 @450 digabung (C=6, Ns=5, hh=15); 88460 = As8 @3000; 80860 = PUNCAK Cu 3000 m
+      (Ns=0 menandai grup puncak, hh=60).
+    * Yang dibandingkan dengan Excel: N, VV, ww, W1, W2, CL, CM, CH (ERROR bila beda); Nh, h, grup awan 8NsChshs
+      (penggabungan WMO 306: setinggi sama digabung, C = jenis terbanyak/ sama->kode tertinggi, Cb terpisah),
+      puncak 80Chh, grup 57, arah 56 (WARNING). N=0: CL/CM/CH harus 0. N=9 atau '/': detail awan tidak dibandingkan.
+      ww yang diubah fallback Mist->Haze tidak dianggap salah (abaikan=('ww',)).
+    * Kewajaran data AWS (tidak ada di Excel): suhu -10..45, Td <= T, QFE 980..1040, dd 00-36/99, dan
+      QFF-QFE ~ 3.2 hPa +-1.0 (stasiun 27 m) -> WARNING S-QFF bila QFF=QFE (roadmap no.4).
+    * Integrasi V7SATU.py: setelah baca_sandi -> cetak hasil, log_event 'verifikasi_sandi', ringkasan masuk
+      kolom diubah_otomatis bila ada temuan. Verifikator error TIDAK menggagalkan kirim. Config baru:
+      features.verify_sandi (true), features.sandi_block_on_mismatch (false; true = batalkan KIRIM bila ada ERROR),
+      qff_qfe_check / qff_qfe_expected_diff (3.2) / qff_qfe_tolerance (1.0).
+    * BELUM terbukti (hanya 1 sandi nyata): grup puncak/57 untuk lapisan-2, pemilihan grup bila >3 grup non-Cb
+      (dilewati, INFO), isi grup 89 untuk N=9, rumus h/VV pada nilai batas. Kumpulkan lebih banyak sandi dari
+      dry-run (python core/synop_check.py ...) lalu laporkan semua WARNING S-* untuk dikalibrasi.
+    * Tes: tests/test_sandi.py 26 lulus; total 7 rangkaian tes 168 lulus.
+  REV 15 (2026-11-20) - LAPISAN TAMBAHAN GAGAL + URUTAN + KECEPATAN (berdasarkan snapshot HTML asli):
+    * Hasil dry-run rev 14: Jenis/Jumlah awan rendah lapisan 1 BERHASIL. Rendah-3, menengah-2, tinggi-2 gagal:
+      9 field is-invalid tersisa (3 lapisan x Jenis/Jumlah/Arah) -> Preview diklik tetapi modal tidak muncul.
+    * Struktur DOM asli (terbukti dari HTML): kartu > #collapse-row-2 > .row > 4x .col-3 (0=label, 1=L1, 2=L2,
+      3=L3); tiap kolom = baris bertumpuk. Indeks baris: Jenis=2, Jumlah=3, Tinggi dasar=4; Arah rendah=6,
+      Arah menengah/tinggi=5. Switch: rendah 775 (L2) & 776 (L3), menengah 777, tinggi 778 (name=check-button).
+      Posisi di plan['extra'] SUDAH benar; yang salah adalah mekanisme buka menu.
+    * Penyebab: pilih_dropdown_posisi menunggu menu lewat _JS_MENU_TERBUKA (offsetParent) yang tidak pernah
+      benar di web asli -> timeout 2x4 dtk per field TANPA pesan (9 field = ~72 dtk, ini sumber utama lambat).
+    * Perbaikan: pilih_dropdown_posisi kini memakai pilih_opsi_ant_select (jalur sama dengan Jenis lapisan 1,
+      terbukti jalan) + mencetak alasan gagal. pilih_opsi_ant_select kini memprioritaskan teks PERSIS >
+      diawali > mengandung.
+    * URUTAN isi (sesuai permintaan): rendah 1 -> 2 -> 3, menengah 1 -> 2, tinggi 1 -> 2, lalu tanah.
+      isi_lapisan_tambahan(driver, plan, layer) dipanggil tepat setelah tiap jenis awan (bukan di akhir).
+    * Lapisan tambahan yang gagal kini dianggap kegagalan WAJIB di akhir isi_data (form merah = Preview pasti
+      gagal), sehingga tidak membuang ~35 dtk mencoba Preview 3x.
+    * Pengukur waktu: tiap bagian mencetak "⏱️ <bagian>: N dtk" untuk melacak langkah yang lambat.
+    * Tes: test_layers 17, test_bot_fill 31 (urutan baru), test_continue 11, validator 45, flow 24, popup 13.
+  REV 14 (2026-11-20) - PERBAIKAN GAGAL ISI "Jenis Awan Rendah" + LANJUT SETELAH GAGAL:
+    * Penyebab 1 (TERBUKTI dari repo): core/validator.py di folder pengguna masih versi rev 12 -> plan['extra']
+      tidak ada, pesan "awan menengah ke-2 belum didukung" muncul, lapisan tambahan tidak diisi, test_validator
+      KeyError 'extra', test_bot_fill 1 gagal. Kini validator F3.10 lengkap (45 tes lulus).
+    * Penyebab 2 (DUGAAN KUAT, belum terbukti di web asli): ElementNotInteractableException berasal dari
+      combobox Jenis yang tidak terlihat/belum aktif; kode lama memanggil combobox.send_keys(SPACE) setelah
+      menu gagal terbuka, dan XPath lama mengambil kecocokan PERTAMA (bisa elemen tersembunyi). Perbaikan:
+      pencarian combobox berlapis (posisi seksi/kolom/baris -> relatif ke id -> XPath lama yang terlihat),
+      tunggu combobox terlihat & aktif, 3 cara klik, tanpa send_keys pada elemen, dan cetakan DIAG bila gagal.
+    * Perilaku baru: Jenis & Jumlah awan rendah dicoba TERPISAH; kegagalan field wajib (Jenis, Jumlah, NCL,
+      Arah awan rendah) dicatat di GAGAL_WAJIB dan pengisian DILANJUTKAN (tinggi dasar, puncak, elevasi, arah
+      sebenarnya, lapisan 2/3, menengah, tinggi, tanah). Baris baru dibatalkan di AKHIR isi_data dengan daftar
+      lengkap yang gagal. Opsi features.send_despite_detail_fail (default false) tetap mengirim.
+    * Jenis/Jumlah awan menengah & tinggi memakai pencarian berlapis yang sama (kegagalan = GAGAL_OPSIONAL).
+    * Excel: 19 baris ERROR R3 karena cloud_arah_tinggi KOSONG saat CH=1 (data, bukan bug). Isi kolom itu.
+    * tests/validator.py adalah salinan lama core/validator.py yang nyasar: hapus.
+  Tahap berjalan      : F3.10 (uji di web asli; dry-run ulang setelah rev 14)
   Diblokir            : -
   Keputusan           : K1-K9 (bagian 8)
   Pertanyaan teknis terbuka: N3 (Telegram), N5
@@ -894,7 +966,7 @@ FASE 3 - BOT LEBIH TAHAN BANTING
              login tidak berulang; Selenium Manager untuk driver.
     DoD    : waktu proses per jam turun & stabil.
 
-[ ] F3.4  Verifikasi kode SYNOP
+[~] F3.4  Verifikasi kode SYNOP  (rev 16: diimplementasi core/synop_check.py; menunggu kalibrasi dgn lebih banyak sandi nyata)
     Cara   : baca kode dari modal preview, simpan ke send_log, bandingkan
              dengan yang diharapkan dari data form.
     DoD    : kode tersimpan; mismatch memicu peringatan.
@@ -1109,6 +1181,26 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                Matriks Jenis di PPT identik dengan rules.json. Tes 142 lulus. Berikutnya:
                dry-run lapisan tambahan di web asli.
 
+
+  [2026-11-20] Rev 16 - Pengguna: lapisan tambahan "sudah berhasil". Dikerjakan F3.4: core/synop_check.py baru,
+               tests/test_sandi.py, integrasi V7SATU.py, config.yaml/core/config.py (verify_sandi dst.).
+               Sandi nyata 08:00 UTC terverifikasi penuh. Berikutnya: pengguna dry-run SEMUA jam
+               (python V7SATU.py --dry-run --process-past) lalu jalankan python core/synop_check.py dan kirim keluarannya.
+  [2026-11-20] Rev 15 - Dry-run rev 14: Jenis awan rendah 1 sudah OK; 9 field lapisan tambahan merah (lihat REV 15
+               di atas). Perubahan: V7SATU.py (pilih_dropdown_posisi -> pilih_opsi_ant_select, urutan per jenis awan,
+               _catat_waktu, lapisan tambahan gagal = wajib), tes diperbarui. Berikutnya: dry-run ulang --jam 01:00,
+               kirim baris "⏱️" bila masih lambat.
+  [2026-11-20] Rev 14 - Dry-run pengguna (baris 01:00 UTC: CL=9, Jenis Cb): "Jenis Awan Rendah" gagal
+               (ElementNotInteractableException) -> seluruh baris dibatalkan. Analisis repo: (a) core/validator.py
+               pengguna masih rev 12 (tidak ada plan.extra/extra_off, kolom rendah-3/tinggi-2 tak dikenal);
+               (b) pilih_opsi_ant_select memanggil combobox.send_keys pada elemen yang tak bisa diinteraksi.
+               Perubahan: core/validator.py (EXTRA_SPECS, _check_extras, R-ORD, extra_layers_supported),
+               core/config.py (+extra_layers, send_despite_detail_fail), config.yaml, V7SATU.py (pilih_opsi_ant_select
+               diperkuat, _combo_siap/_diag_combobox, pilih_ant_select_berlapis, _kandidat_combobox, GAGAL_WAJIB,
+               isi_data lanjut-setelah-gagal), tests/test_continue.py (11 tes baru). Tes: validator 45, layers 17,
+               fill 30, flow 24, popup 13, continue 11 lulus (browser tiruan; perilaku web asli belum terbukti).
+               Berikutnya: pengguna dry-run ulang --jam 01:00; bila Jenis masih gagal, kirim baris "DIAG" dan
+               snapshot HTML (snapshots/*_gagal_*.html) agar penyebab pasti dapat ditentukan.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

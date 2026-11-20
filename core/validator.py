@@ -57,10 +57,16 @@ COLUMN_FIELD = {
     "awan_tinggi_jenis": "AWAN TINGGI|k1|b2|Jenis", "awan_tinggi_jumlah": "AWAN TINGGI|k1|b3|Jumlah",
     "cloud_arah_tinggi": "AWAN TINGGI|k1|b5|Arah",
     "land_cond": "land_cond",
+    # [F3.10] lapisan tambahan
+    "awan_rendah_3_jenis": "AWAN RENDAH|k3|b2|Jenis", "awan_rendah_3_jumlah": "AWAN RENDAH|k3|b3|Jumlah",
+    "cloud_arah_3": "AWAN RENDAH|k3|b6|Arah Gerak",
+    "awan_tinggi_2_jenis": "AWAN TINGGI|k2|b2|Jenis", "awan_tinggi_2_jumlah": "AWAN TINGGI|k2|b3|Jumlah",
+    "cloud_arah_tinggi_2": "AWAN TINGGI|k2|b5|Arah",
 }
 NUMERIC_COLS = [
     "visibility", "cloud_low_base_1", "cloud_low_peak_1", "cloud_low_base_2", "cloud_low_peak_2",
     "cloud_med_base_1", "cloud_med_base_2", "cloud_high_base_1",
+    "cloud_low_base_3", "cloud_high_base_2",
     "vertical_visibility", "hujan_override_mm",
 ]
 REQUIRED_COLUMNS = ["waktu_eksekusi", "jam_input", "visibility", "ww", "w1", "w2",
@@ -91,11 +97,30 @@ LAYERS = {
         "base": "cloud_high_base_1", "arah": "cloud_arah_tinggi", "extra": [], "l2": None,
     },
 }
+# [F3.10] lapisan tambahan yang diisi lewat posisi + switch (BUKAN jalur lama rendah-2/id 775)
+#   toggle_ordinal = urutan switch di kartu; fallback = id yang terlihat di web (hanya cadangan)
+EXTRA_SPECS = [
+    {"layer": "med", "n": 2, "section": "AWAN MENENGAH", "col": 2, "toggle_ordinal": 1, "fallback_toggle_id": "777",
+     "arah_row": 5, "jenis": "awan_menengah_jenis_2", "jumlah": "awan_menengah_jumlah_2",
+     "base_id": "cloud_med_base_2", "arah": "cloud_arah_menengah_2", "prev_base": ["cloud_med_base_1"]},
+    {"layer": "low", "n": 3, "section": "AWAN RENDAH", "col": 3, "toggle_ordinal": 2, "fallback_toggle_id": "776",
+     "arah_row": 6, "jenis": "awan_rendah_3_jenis", "jumlah": "awan_rendah_3_jumlah",
+     "base_id": "cloud_low_base_3", "arah": "cloud_arah_3", "prev_base": ["cloud_low_base_1", "cloud_low_base_2"]},
+    {"layer": "high", "n": 2, "section": "AWAN TINGGI", "col": 2, "toggle_ordinal": 1, "fallback_toggle_id": "778",
+     "arah_row": 5, "jenis": "awan_tinggi_2_jenis", "jumlah": "awan_tinggi_2_jumlah",
+     "base_id": "cloud_high_base_2", "arah": "cloud_arah_tinggi_2", "prev_base": ["cloud_high_base_1"]},
+]
+for _x in EXTRA_SPECS:
+    _x["cols"] = [_x["jenis"], _x["jumlah"], _x["base_id"], _x["arah"]]
 ALL_CLOUD_COLS = []
 for _l in LAYERS.values():
     ALL_CLOUD_COLS += [_l["type"], _l["cover"], _l["jenis"], _l["jumlah"], _l["base"], _l["arah"]] + _l["extra"]
     if _l["l2"]:
         ALL_CLOUD_COLS += [_l["l2"]["jenis"], _l["l2"]["jumlah"], _l["l2"]["base"], _l["l2"]["arah"]] + _l["l2"]["extra"]
+for _x in EXTRA_SPECS:
+    for _c in _x["cols"]:
+        if _c not in ALL_CLOUD_COLS:
+            ALL_CLOUD_COLS.append(_c)
 
 
 # --------------------------------------------------------------------------- #
@@ -231,14 +256,15 @@ def parse_waktu(v):
 # --------------------------------------------------------------------------- #
 class Validator:
     def __init__(self, options, rules, tz_hours=7, window_open_min=10, late_min=15,
-                 medium_layer2_supported=False):
+                 extra_layers_supported=True, medium_layer2_supported=None):
         self.fields = options["fields"]
         self.jam_list = options.get("jam", [])
         self.rules = rules
         self.tz = tz_hours
         self.window_open_min = window_open_min
         self.late_min = late_min
-        self.medium_layer2_supported = medium_layer2_supported
+        # [F3.10] medium_layer2_supported = nama lama (diabaikan); saklar sekarang: features.extra_layers
+        self.extra_layers_supported = extra_layers_supported
 
     @classmethod
     def from_files(cls, options_path, rules_path, **kw):
@@ -255,7 +281,7 @@ class Validator:
             Path(root) / cfg["paths"]["options"], Path(root) / cfg["paths"]["rules"],
             tz_hours=rt["timezone_offset_hours"], window_open_min=rt["window_open_minutes"],
             late_min=rt["late_info_minutes"],
-            medium_layer2_supported=ft.get("medium_layer2_supported", False),
+            extra_layers_supported=ft.get("extra_layers", True),
         )
 
     # ------------------------------------------------------------------ #
@@ -307,7 +333,8 @@ class Validator:
         res = RowResult(row_no=row_no)
         add = lambda lvl, rule, col, msg: res.issues.append(Issue(lvl, rule, col, msg))
         plan = res.plan = {"skip_clouds": False, "vertical_visibility": None, "total": None,
-                           "layers": {}, "rain_override": None, "ww_code": None, "notes": []}
+                           "layers": {}, "rain_override": None, "ww_code": None, "notes": [],
+                           "extra": [], "extra_off": []}
 
         # ---- waktu & slot ------------------------------------------------
         waktu = parse_waktu(row.get("waktu_eksekusi"))
@@ -459,6 +486,10 @@ class Validator:
             detail_cols = [L["cover"], L["jenis"], L["jumlah"], L["base"], L["arah"]] + L["extra"]
             if L["l2"]:
                 detail_cols += [L["l2"]["jenis"], L["l2"]["jumlah"], L["l2"]["base"], L["l2"]["arah"]] + L["l2"]["extra"]
+            for X in EXTRA_SPECS:
+                if X["layer"] == lk:
+                    detail_cols += X["cols"]
+            detail_cols = list(dict.fromkeys(detail_cols))
             if c in ("0", "/"):
                 filled = [d for d in detail_cols if val(row, d) is not None]
                 if filled:
@@ -502,7 +533,7 @@ class Validator:
                         add(WARNING if real else INFO, "R23", filled[0],
                             f"{why}: kolom ini NONAKTIF di web -> diabaikan: {filled}")
             # ---- lapisan 2 ----
-            L2 = L["l2"]
+            L2 = L["l2"] if lk == "low" else None   # [F3.10] menengah-2 & tinggi-2 lewat _check_extras
             if L2:
                 l2_cols = [L2["jenis"], L2["jumlah"], L2["base"], L2["arah"]]
                 if any(val(row, d) is not None for d in l2_cols + L2["extra"]):
@@ -521,9 +552,8 @@ class Validator:
                         if not p2 and any(val(row, e) is not None for e in L2["extra"]):
                             add(INFO, "R24", L2["extra"][0],
                                 "puncak/elevasi/arah sebenarnya lapisan 2 terisi tetapi Jenis bukan 8/9 (aturan lapisan 2 belum terverifikasi penuh)")
-                    if lk == "med" and not self.medium_layer2_supported:
-                        add(WARNING, "F3.10", L2["jenis"],
-                            "awan menengah ke-2 belum didukung bot versi ini (menunggu F3.10); lapisan 2 akan dilewati")
+
+        self._check_extras(row, res, matched, nums, codes)
 
         # ---- konsistensi tutupan total vs lapisan (peringatan) ------------
         ncs = {}
@@ -539,6 +569,58 @@ class Validator:
             if len(ncs) == 3 and t > sum(ncs.values()):
                 add(WARNING, "R-NC2", "cloud_cover_oktas_m",
                     f"tutupan total {t} lebih besar dari jumlah tutupan semua lapisan ({sum(ncs.values())} okta)")
+
+    # ------------------------------------------------------------------ #
+    def _check_extras(self, row, res, matched, nums, codes):
+        """[F3.10] Lapisan tambahan: menengah-2, rendah-3, tinggi-2 -> plan['extra'] / plan['extra_off']."""
+        add = lambda lvl, rule, col, msg: res.issues.append(Issue(lvl, rule, col, msg))
+        plan = res.plan
+        for X in EXTRA_SPECS:
+            lk = X["layer"]
+            L = LAYERS[lk]
+            c = codes.get(lk)
+            if c in (None, "0", "/"):
+                continue                      # lapisan 1 nonaktif / belum valid: lapisan tambahan tidak relevan
+            filled = [d for d in X["cols"] if val(row, d) is not None]
+            nama = f"{L['name']} ke-{X['n']}"
+            if not filled:
+                # kolom ADA di Excel tetapi kosong -> matikan switch bila masih aktif (sisa data lama)
+                if all(d in row for d in X["cols"]) and self.extra_layers_supported:
+                    plan["extra_off"].append({"layer": lk, "n": X["n"], "section": X["section"],
+                                              "toggle_ordinal": X["toggle_ordinal"],
+                                              "fallback_toggle_id": X["fallback_toggle_id"]})
+                continue
+            if not self.extra_layers_supported:
+                add(WARNING, "F3.10", X["jenis"], f"{nama} dilewati (features.extra_layers = false)")
+                continue
+            for d in X["cols"]:
+                if val(row, d) is None:
+                    add(ERROR, "R14", d, f"lapisan ke-{X['n']} {L['name']} dipakai: kolom ini WAJIB "
+                                         f"(web menandai merah jika kosong)")
+            allowed = self.rules[L["table"]][c]["jenis_allowed"]
+            jc = code_of(matched, X["jenis"])
+            if jc is not None and jc not in allowed:
+                add(ERROR, "R24", X["jenis"],
+                    f"{L['table']}={c}: Jenis lapisan {X['n']} ({jc}) TIDAK diizinkan. "
+                    f"Boleh: {self.jenis_names(L['jenis'], allowed)}")
+            # QC121: lapisan berikutnya tidak boleh lebih rendah dari sebelumnya
+            b = nums.get(X["base_id"])
+            prev = [nums[p] for p in X["prev_base"] if p in nums]
+            if b is not None and prev and b < max(prev):
+                add(WARNING, "R-ORD", X["base_id"],
+                    f"tinggi dasar {nama} ({b:g} m) lebih rendah dari lapisan sebelumnya ({max(prev):g} m)")
+            if res.errors and any(i.column in X["cols"] and i.level == ERROR for i in res.issues):
+                continue
+            def full(col):
+                m = matched.get(col)
+                return m.text if (m and m.ok) else None
+            plan["extra"].append({
+                "layer": lk, "n": X["n"], "section": X["section"], "col": X["col"],
+                "toggle_ordinal": X["toggle_ordinal"], "fallback_toggle_id": X["fallback_toggle_id"],
+                "arah_row": X["arah_row"], "base_id": X["base_id"],
+                "jenis": full(X["jenis"]), "jumlah": full(X["jumlah"]), "arah": full(X["arah"]),
+                "base": b,
+            })
 
     # ------------------------------------------------------------------ #
     def _check_rain(self, row, res, nums, jam):
@@ -572,7 +654,8 @@ class Validator:
         for c in OPTIONAL_NEW_COLUMNS:
             if c not in df.columns:
                 file_issues.append(Issue(INFO, "R-FILE", c, "kolom baru (opsional) belum ada di Excel"))
-        missing_cloud = [c for c in ALL_CLOUD_COLS if c not in df.columns]
+        _extra_cols = {c for X in EXTRA_SPECS for c in X["cols"]}
+        missing_cloud = [c for c in ALL_CLOUD_COLS if c not in df.columns and c not in _extra_cols]
         if missing_cloud:
             file_issues.append(Issue(WARNING, "R-FILE", "", f"kolom awan tidak ada (dianggap kosong): {missing_cloud[:6]}"))
 

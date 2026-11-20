@@ -47,6 +47,7 @@ sys.path.insert(0, str(ROOT))
 from core.config import load_config, resolve_path, get_credentials  # noqa: E402
 from core.validator import Validator, load_excel, format_report  # noqa: E402
 from core.db import SendLog  # noqa: E402
+from core.synop_check import verifikasi as verifikasi_sandi, format_hasil as format_hasil_sandi  # noqa: E402
 
 # 🔑 Data login dan pilihan  [F1.1: tidak ada kredensial di kode; dibaca dari .env / config.yaml]
 CFG = load_config()
@@ -65,6 +66,7 @@ SPEED_SCALE = float(_SPEED.get("scale", 0.5))                 # 1.0 = jeda asli 
 _T_OPSI = float(_SPEED.get("optional_timeout", 3))            # batas tunggu field OPSIONAL (V6: 5 detik)
 SNAPSHOT_OPTIONAL = bool(_SPEED.get("snapshot_optional", False))   # snapshot saat field opsional gagal
 GAGAL_OPSIONAL = []   # field opsional yang gagal diisi pada baris berjalan (dicatat ke log)
+GAGAL_WAJIB = []      # [rev 14] field WAJIB (Jenis/Jumlah/Arah dst.) yang gagal: pengisian tetap DILANJUTKAN, baris dibatalkan di akhir
 
 
 def _terapkan_opsi_anti_popup(opts):
@@ -261,8 +263,56 @@ def attempt_click(driver, element):
         return False
 
 
+_JS_STATE_COMBO = r"""
+const c = arguments[0]; if (!c) return null;
+const s = c.closest('.ant-select') || c;
+const r = c.getBoundingClientRect();
+const cs = window.getComputedStyle(c);
+return {shown: r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none',
+        disabled: s.classList.contains('ant-select-disabled') || c.getAttribute('aria-disabled') === 'true',
+        cls: (s.className || '').toString().slice(0, 120), w: Math.round(r.width), h: Math.round(r.height)};
+"""
+
+
+def _state_combo(driver, combobox):
+    try:
+        return driver.execute_script(_JS_STATE_COMBO, combobox)
+    except Exception:
+        return None
+
+
+def _diag_combobox(driver, combobox, nama_field):
+    """[rev 14] Cetak keadaan combobox yang gagal (terlihat? disabled? ukuran?) agar penyebab mudah dilacak."""
+    st = _state_combo(driver, combobox)
+    try:
+        aria = combobox.get_attribute("aria-controls")
+    except Exception:
+        aria = "?"
+    print(f"🔬 DIAG {nama_field}: aria-controls={aria} state={st}")
+
+
+def _combo_siap(driver, combobox, tunggu=4.0):
+    """[rev 14] Tunggu sampai combobox TERLIHAT dan TIDAK disabled (web mengaktifkannya setelah CL/NCL dipilih)."""
+    akhir = time.time() + tunggu
+    while True:
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", combobox)
+        except Exception:
+            pass
+        st = _state_combo(driver, combobox)
+        if st and st.get("shown") and not st.get("disabled"):
+            return True
+        if time.time() > akhir:
+            return False
+        time.sleep(0.15)
+
+
 def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
-    aria_id = combobox.get_attribute("aria-controls")
+    try:
+        aria_id = combobox.get_attribute("aria-controls")
+    except Exception as e:
+        print(f"❌ {nama_field}: elemen tidak bisa dibaca ({type(e).__name__})")
+        return False
     if not aria_id:
         print(f"❌ {nama_field}: aria-controls tidak ditemukan")
         return False
@@ -280,9 +330,27 @@ def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
             print(f"✅ {nama_field} sudah berisi '{target_teks}'")
             return True
 
+        # [rev 14] ElementNotInteractable sebelumnya: combobox belum aktif / tidak terlihat. Tunggu dulu,
+        # dan jangan pernah memakai element.send_keys() pada elemen yang tak bisa diinteraksi.
+        if not _combo_siap(driver, combobox):
+            print(f"❌ {nama_field}: combobox tidak terlihat atau masih nonaktif")
+            _diag_combobox(driver, combobox, nama_field)
+            return False
+
         target_normalized = " ".join(target_teks.split())
-        for attempt in range(2):
-            if not attempt_click(driver, combobox):
+        for attempt in range(3):
+            klik_pada = combobox
+            if attempt == 1:   # percobaan ke-2: klik bagian dalam (sama dengan pilih_dropdown_ant_select)
+                try:
+                    klik_pada = combobox.find_element(By.CSS_SELECTOR, ".ant-select-selection__rendered")
+                except Exception:
+                    klik_pada = combobox
+            if attempt == 2:   # percobaan ke-3: klik lewat JavaScript langsung
+                try:
+                    driver.execute_script("arguments[0].click();", combobox)
+                except Exception:
+                    pass
+            elif not attempt_click(driver, klik_pada):
                 continue
 
             try:
@@ -291,23 +359,26 @@ def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
                 )
             except TimeoutException:
                 if attempt == 0:
-                    combobox.send_keys(Keys.SPACE)
+                    try:
+                        ActionChains(driver).send_keys(Keys.SPACE).perform()
+                    except Exception:
+                        pass
                 continue
 
-            opsi = WebDriverWait(driver, 5).until(
-                lambda d: next(
-                    (
-                        item
-                        for item in d.find_elements(
-                            By.XPATH, f"//div[@id='{aria_id}']//li"
-                        )
-                        if item.is_displayed()
-                        and target_normalized in " ".join(item.text.split())
-                        and item.get_attribute("aria-disabled") != "true"
-                    ),
-                    False,
-                )
-            )
+            def _cari_item(d):
+                # [rev 15] prioritas: teks PERSIS > diawali target > mengandung target (hindari salah pilih opsi mirip)
+                items = [i for i in d.find_elements(By.XPATH, f"//div[@id='{aria_id}']//li")
+                         if i.is_displayed() and i.get_attribute("aria-disabled") != "true"]
+                teks = [(i, " ".join(i.text.split())) for i in items]
+                for cocok in (lambda t: t == target_normalized,
+                              lambda t: t.startswith(target_normalized),
+                              lambda t: target_normalized in t):
+                    for i, t in teks:
+                        if cocok(t):
+                            return i
+                return False
+
+            opsi = WebDriverWait(driver, 5).until(_cari_item)
             if not attempt_click(driver, opsi):
                 continue
 
@@ -321,11 +392,74 @@ def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
             f"❌ {nama_field}: menu '{aria_id}' tidak terbuka "
             f"atau opsi '{target_teks}' tidak berhasil dipilih"
         )
+        _diag_combobox(driver, combobox, nama_field)
     except Exception as e:
         print(
             f"❌ {nama_field}: gagal memilih '{target_teks}': "
-            f"{type(e).__name__}: {e}"
+            f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
         )
+        _diag_combobox(driver, combobox, nama_field)
+    return False
+
+
+# --- [rev 14] pencarian combobox berlapis: posisi (terbukti di web asli) -> relatif ke id -> XPath lama ---
+_JS_SELECT_DARI_ID = r"""
+const e = document.getElementById(arguments[0]); if (!e) return null;
+const k = arguments[1];
+let a = e.parentElement;
+while (a) {
+  if (a.classList.contains('row') && a.parentElement) {
+    const baris = Array.from(a.parentElement.children).filter(x => x.classList.contains('row'));
+    const t = baris[baris.indexOf(a) + k];
+    if (t) { const s = t.querySelector('.ant-select'); if (s && s.offsetParent !== null) return s; }
+  }
+  a = a.parentElement;
+}
+return null;
+"""
+
+
+def _combo_dari_select(sel):
+    return sel.find_element(By.CSS_SELECTOR, "[role='combobox']") if sel is not None else None
+
+
+def _kandidat_combobox(driver, section, col, row_idx, id_ref, k, xpath_lama):
+    def posisi():
+        return _combo_dari_select(driver.execute_script(_JS_SELECT_POSISI, section, col, row_idx))
+
+    def dari_id():
+        return _combo_dari_select(driver.execute_script(_JS_SELECT_DARI_ID, id_ref, k))
+
+    def xpath_lama_terlihat():   # XPath lama mengambil kecocokan PERTAMA (bisa elemen tersembunyi) -> pilih yang terlihat
+        for el in driver.find_elements(By.XPATH, xpath_lama):
+            try:
+                if el.is_displayed():
+                    return el
+            except Exception:
+                pass
+        return None
+
+    return [("posisi", posisi), ("relatif-id", dari_id), ("xpath-lama", xpath_lama_terlihat)]
+
+
+def pilih_ant_select_berlapis(driver, nama_field, target, kandidat, putaran=2):
+    """Coba tiap cara mencari combobox sampai ada yang berhasil memilih opsi `target` (maks `putaran` kali)."""
+    for putar in range(putaran):
+        for label, fn in kandidat:
+            try:
+                combo = fn()
+            except Exception as e:
+                print(f"ℹ️ {nama_field}: cara '{label}' error {type(e).__name__}")
+                continue
+            if combo is None:
+                print(f"ℹ️ {nama_field}: cara '{label}' tidak menemukan combobox")
+                continue
+            if pilih_opsi_ant_select(driver, combo, target, nama_field):
+                if putar or label != kandidat[0][0]:
+                    print(f"ℹ️ {nama_field}: berhasil lewat cara '{label}' (putaran {putar + 1})")
+                return True
+        if putar + 1 < putaran:
+            _jeda(1.0)   # beri waktu web selesai me-render ulang lalu ulangi
     return False
 
 
@@ -471,37 +605,25 @@ def wait_for_submit_progress(driver, timeout=10):
 
 #========================================= AWAN RENDAH ======================================#
 def isi_jenis_dan_jumlah_awan_Rendah(driver, jenis_target, jumlah_target):
-    try:
-        combobox_jenis = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_low_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jenis Awan Rendah): {aria_id_jenis}")
-        if not pilih_opsi_ant_select(
-            driver, combobox_jenis, jenis_target, "Jenis Awan Rendah"
-        ):
-            return False
-        _jeda(0.5)
-
-        combobox_jumlah = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_low_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jumlah Awan Rendah): {aria_id_jumlah}")
-        if not pilih_opsi_ant_select(
-            driver, combobox_jumlah, jumlah_target, "Jumlah Awan Rendah"
-        ):
-            return False
-        _jeda(0.5)
-        return True
-
-    except Exception as e:
-        print(f"❌ Gagal isi Jenis/Jumlah Awan Rendah: {type(e).__name__}: {e}")
-        return False
+    """[rev 14] Jenis & Jumlah dicoba TERPISAH: Jenis gagal tidak menghentikan Jumlah.
+    Kegagalan dicatat di GAGAL_WAJIB (baris dibatalkan di akhir isi_data, bukan di tengah)."""
+    xp = ("//div[@id='cloud_low_cover_oktas']/ancestor::div[contains(@class,'row')]"
+          "/following-sibling::div[contains(@class,'row')]{n}//div[@role='combobox']")
+    ok_jenis = pilih_ant_select_berlapis(
+        driver, "Jenis Awan Rendah", jenis_target,
+        _kandidat_combobox(driver, "AWAN RENDAH", 1, 2, "cloud_low_cover_oktas", 1, xp.format(n="")))
+    if not ok_jenis:
+        GAGAL_WAJIB.append(f"Jenis Awan Rendah '{jenis_target}' gagal dipilih")
+    _jeda(0.5)
+    ok_jumlah = pilih_ant_select_berlapis(
+        driver, "Jumlah Awan Rendah", jumlah_target,
+        _kandidat_combobox(driver, "AWAN RENDAH", 1, 3, "cloud_low_cover_oktas", 2, xp.format(n="[2]")))
+    if not ok_jumlah:
+        GAGAL_WAJIB.append(f"Jumlah Awan Rendah '{jumlah_target}' gagal dipilih")
+    _jeda(0.5)
+    if not (ok_jenis and ok_jumlah):
+        print("⚠️ Jenis/Jumlah Awan Rendah tidak lengkap; pengisian field berikutnya tetap dilanjutkan")
+    return ok_jenis and ok_jumlah
 
 
 def pilih_arah_sebenarnya(driver, target_teks):
@@ -705,53 +827,23 @@ def pilih_arah_Awan_Rendah(driver, target_teks):
 
 #========================================= AWAN MENENGAH ======================================#
 def isi_jenis_dan_jumlah_awan_menengah(driver, jenis_target, jumlah_target):
-    try:
-        combobox_jenis = WebDriverWait(driver, _T_OPSI).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_med_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jenis Awan Menengah): {aria_id_jenis}")
+    """[rev 14] Jenis & Jumlah dicoba terpisah dengan pencarian berlapis (lihat awan rendah)."""
+    xp = ("//div[@id='cloud_med_cover_oktas']/ancestor::div[contains(@class,'row')]"
+          "/following-sibling::div[contains(@class,'row')]{n}//div[@role='combobox']")
+    ok_jenis = pilih_ant_select_berlapis(
+        driver, "Jenis Awan Menengah", jenis_target,
+        _kandidat_combobox(driver, "AWAN MENENGAH", 1, 2, "cloud_med_cover_oktas", 1, xp.format(n="")))
+    if not ok_jenis:
+        GAGAL_OPSIONAL.append(f"Jenis Awan Menengah '{jenis_target}' gagal dipilih")
+    _jeda(0.5)
+    ok_jumlah = pilih_ant_select_berlapis(
+        driver, "Jumlah Awan Menengah", jumlah_target,
+        _kandidat_combobox(driver, "AWAN MENENGAH", 1, 3, "cloud_med_cover_oktas", 2, xp.format(n="[2]")))
+    if not ok_jumlah:
+        GAGAL_OPSIONAL.append(f"Jumlah Awan Menengah '{jumlah_target}' gagal dipilih")
+    _jeda(0.5)
+    return ok_jenis and ok_jumlah
 
-        safe_click(driver, combobox_jenis)
-        _jeda(0.5)
-
-        opsi_jenis = WebDriverWait(driver, _T_OPSI).until(
-            EC.element_to_be_clickable((By.XPATH,
-                f"//div[@id='{aria_id_jenis}']//li[contains(normalize-space(),\"{jenis_target}\")]"
-            ))
-        )
-        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jenis)
-        safe_click(driver, opsi_jenis)
-        print(f"✅ Jenis Awan Menengah dipilih: {jenis_target}")
-        _jeda(0.5)
-
-        combobox_jumlah = WebDriverWait(driver, _T_OPSI).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_med_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jumlah Awan Menengah): {aria_id_jumlah}")
-
-        safe_click(driver, combobox_jumlah)
-        _jeda(0.5)
-
-        opsi_jumlah = WebDriverWait(driver, _T_OPSI).until(
-            EC.element_to_be_clickable((By.XPATH,
-                f"//div[@id='{aria_id_jumlah}']//li[contains(normalize-space(),\"{jumlah_target}\")]"
-            ))
-        )
-        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jumlah)
-        safe_click(driver, opsi_jumlah)
-        print(f"✅ Jumlah Awan Menengah dipilih: {jumlah_target}")
-        _jeda(0.5)
-        return True
-
-    except Exception as e:
-        print(f"❌ Gagal isi Jenis/Jumlah Awan Menengah: {e}")
-        return False
 
 def pilih_arah_Awan_Menengah(driver, target_teks):
     try:
@@ -788,53 +880,23 @@ def pilih_arah_Awan_Menengah(driver, target_teks):
 
 #===================================== AWAN TINGGI ======================================#
 def isi_jenis_dan_jumlah_awan_Tinggi(driver, jenis_target, jumlah_target):
-    try:
-        combobox_jenis = WebDriverWait(driver, _T_OPSI).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_high_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jenis = combobox_jenis.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jenis Awan Tinggi): {aria_id_jenis}")
+    """[rev 14] Jenis & Jumlah dicoba terpisah dengan pencarian berlapis (lihat awan rendah)."""
+    xp = ("//div[@id='cloud_high_cover_oktas']/ancestor::div[contains(@class,'row')]"
+          "/following-sibling::div[contains(@class,'row')]{n}//div[@role='combobox']")
+    ok_jenis = pilih_ant_select_berlapis(
+        driver, "Jenis Awan Tinggi", jenis_target,
+        _kandidat_combobox(driver, "AWAN TINGGI", 1, 2, "cloud_high_cover_oktas", 1, xp.format(n="")))
+    if not ok_jenis:
+        GAGAL_OPSIONAL.append(f"Jenis Awan Tinggi '{jenis_target}' gagal dipilih")
+    _jeda(0.5)
+    ok_jumlah = pilih_ant_select_berlapis(
+        driver, "Jumlah Awan Tinggi", jumlah_target,
+        _kandidat_combobox(driver, "AWAN TINGGI", 1, 3, "cloud_high_cover_oktas", 2, xp.format(n="[2]")))
+    if not ok_jumlah:
+        GAGAL_OPSIONAL.append(f"Jumlah Awan Tinggi '{jumlah_target}' gagal dipilih")
+    _jeda(0.5)
+    return ok_jenis and ok_jumlah
 
-        safe_click(driver, combobox_jenis)
-        _jeda(0.5)
-
-        opsi_jenis = WebDriverWait(driver, _T_OPSI).until(
-            EC.element_to_be_clickable((By.XPATH,
-                f"//div[@id='{aria_id_jenis}']//li[contains(normalize-space(),\"{jenis_target}\")]"
-            ))
-        )
-        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jenis)
-        safe_click(driver, opsi_jenis)
-        print(f"✅ Jenis Awan Tinggi dipilih: {jenis_target}")
-        _jeda(0.5)
-
-        combobox_jumlah = WebDriverWait(driver, _T_OPSI).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[@id='cloud_high_cover_oktas']/ancestor::div[contains(@class,'row')]/following-sibling::div[contains(@class,'row')][2]//div[@role='combobox']"
-            ))
-        )
-        aria_id_jumlah = combobox_jumlah.get_attribute("aria-controls")
-        print(f"✅ Dapat aria-controls ID (Jumlah Awan Tinggi): {aria_id_jumlah}")
-
-        safe_click(driver, combobox_jumlah)
-        _jeda(0.5)
-
-        opsi_jumlah = WebDriverWait(driver, _T_OPSI).until(
-            EC.element_to_be_clickable((By.XPATH,
-                f"//div[@id='{aria_id_jumlah}']//li[contains(normalize-space(),\"{jumlah_target}\")]"
-            ))
-        )
-        driver.execute_script("arguments[0].scrollIntoView(true);", opsi_jumlah)
-        safe_click(driver, opsi_jumlah)
-        print(f"✅ Jumlah Awan Tinggi dipilih: {jumlah_target}")
-        _jeda(0.5)
-        return True
-
-    except Exception as e:
-        print(f"❌ Gagal isi Jenis/Jumlah Awan Tinggi: {e}")
-        return False
 
 def pilih_arah_Awan_Tinggi(driver, target_teks):
     try:
@@ -1670,6 +1732,17 @@ def _jeda(detik):
     time.sleep(max(0.05, float(detik) * SPEED_SCALE))
 
 
+_WAKTU_MARK = [0.0]
+
+
+def _catat_waktu(nama):
+    """[rev 15] Cetak lama pengisian tiap bagian (⏱️) untuk melacak bagian yang lambat."""
+    sekarang = time.time()
+    if _WAKTU_MARK[0]:
+        print(f"⏱️ {nama}: {sekarang - _WAKTU_MARK[0]:.1f} dtk")
+    _WAKTU_MARK[0] = sekarang
+
+
 def _tunggu_nilai_terpilih(driver, id_div, nilai, timeout=2.0):
     """[speed] Tunggu sampai dropdown menampilkan nilai terpilih (pengganti sleep tetap)."""
     kunci = " ".join(str(nilai).split()).lower()
@@ -1777,46 +1850,21 @@ def _id_toggle(driver, section, ordinal, fallback_id):
 
 def pilih_dropdown_posisi(driver, section, col, row, text, timeout=4):
     """
-    Pilih opsi dropdown pada posisi (seksi, kolom, baris) di kartu awan berdasar TEKS PERSIS opsi.
-    Cara kerja sama dengan collect_rules_matrix.py (terbukti di web asli).
+    Pilih opsi dropdown pada posisi (seksi, kolom, baris) di kartu awan.
+    [rev 15] Dulu menunggu menu lewat cek offsetParent (gagal DIAM-DIAM di web asli setelah 2x4 detik per field).
+    Kini memakai pilih_opsi_ant_select (jalur yang sama dengan Jenis/Jumlah lapisan 1, terbukti jalan) dan
+    mencetak alasan kegagalan.
     """
+    nama = f"{section} kolom {col} baris {row}"
     try:
         sel = driver.execute_script(_JS_SELECT_POSISI, section, col, row)
         if sel is None:
-            print(f"❌ Dropdown posisi ({section}, kolom {col}, baris {row}) tidak ditemukan")
+            print(f"❌ Dropdown posisi ({nama}) tidak ditemukan")
             return False
         combo = sel.find_element(By.CSS_SELECTOR, "[role='combobox']")
-        cid = combo.get_attribute("aria-controls")
-        target = " ".join(str(text).split())
-        for _ in range(2):
-            attempt_click(driver, combo)
-            try:
-                WebDriverWait(driver, timeout).until(lambda d: d.execute_script(_JS_MENU_TERBUKA, cid))
-            except TimeoutException:
-                continue
-            li = driver.execute_script(_JS_CARI_LI, cid, target)
-            if li is None:
-                print(f"❌ Opsi '{target}' tidak ada / nonaktif di dropdown ({section}, kolom {col}, baris {row})")
-                try:
-                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                except Exception:
-                    pass
-                return False
-            attempt_click(driver, li)
-            akhir = time.time() + 2.5
-            while time.time() < akhir:
-                try:
-                    vs = sel.find_elements(By.CSS_SELECTOR, ".ant-select-selection-selected-value")
-                    if vs:
-                        v = vs[0].get_attribute("title") or vs[0].text
-                        if _sama_teks(v, target):
-                            return True
-                except Exception:
-                    pass
-                time.sleep(0.05)
-        return False
+        return bool(pilih_opsi_ant_select(driver, combo, " ".join(str(text).split()), nama))
     except Exception as e:
-        print(f"❌ pilih_dropdown_posisi gagal ({section}, kolom {col}, baris {row}): {e}")
+        print(f"❌ pilih_dropdown_posisi gagal ({nama}): {type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
         return False
 
 
@@ -1862,17 +1910,23 @@ def _matikan_lapisan_tambahan(driver, off):
             GAGAL_OPSIONAL.append(f"{nama}: switch '{tid}' gagal dimatikan")
 
 
-def isi_lapisan_tambahan(driver, plan):
-    """[F3.10] Isi lapisan tambahan sesuai plan['extra'] dan matikan yang sisa di plan['extra_off']."""
+def isi_lapisan_tambahan(driver, plan, layer=None):
+    """[F3.10] Isi lapisan tambahan sesuai plan['extra'] dan matikan yang sisa di plan['extra_off'].
+    [rev 15] layer = 'low' | 'med' | 'high' -> hanya lapisan jenis itu (dipanggil tepat setelah awan jenis tsb,
+    agar urutan isi: rendah 1,2,3 -> menengah 1,2 -> tinggi 1,2). layer=None -> semua."""
     if not plan or not CFG["features"].get("extra_layers", True):
         return
     for item in plan.get("extra") or []:
+        if layer and item.get("layer") != layer:
+            continue
         try:
             _isi_satu_lapisan_tambahan(driver, item)
         except Exception as e:
             GAGAL_OPSIONAL.append(f"{item.get('section')} lapisan {item.get('n')}: error {e}")
             print(f"⚠️ Lapisan tambahan {item.get('section')} {item.get('n')} error: {e}")
     for off in plan.get("extra_off") or []:
+        if layer and off.get("layer") != layer:
+            continue
         try:
             _matikan_lapisan_tambahan(driver, off)
         except Exception as e:
@@ -1883,6 +1937,8 @@ def isi_data(driver, row, plan=None):
     # plan = keputusan dari core.validator (F1.9); None = perilaku V6 (tanpa plan)
     try:
         print("📝 Mengisi data parameter...")
+        GAGAL_WAJIB.clear()   # [rev 14]
+        _WAKTU_MARK[0] = time.time()
 
         # ── WAJIB (abort jika gagal) ──────────────────────────────────────────
         if not pilih_dropdown_ant_select(driver, "present_weather_ww", str(row['ww']).zfill(2)):
@@ -1923,6 +1979,7 @@ def isi_data(driver, row, plan=None):
             print("✅ Data berhasil diisi")
             return True
 
+        _catat_waktu("Cuaca, visibilitas, tutupan total")
         # ================ AWAN RENDAH ========================================#
         cloud_low_type = str(row['cloud_low_type_cl']).strip()
         cloud_low_type_code = cloud_low_type.split("-", 1)[0].strip()
@@ -1950,13 +2007,17 @@ def isi_data(driver, row, plan=None):
                 )
                 return False
 
+            # [rev 14] kegagalan di bagian awan rendah TIDAK lagi menghentikan pengisian: dicatat di
+            # GAGAL_WAJIB, field berikutnya (Jumlah, tinggi dasar, puncak, arah, lapisan lain) tetap diisi.
             if not pilih_dropdown_ant_select(driver, "cloud_low_cover_oktas", str(row['cloud_low_cover_oktas'])):
-                print("❌ cloud_low_cover_oktas gagal dipilih")
-                return False
+                print("❌ cloud_low_cover_oktas gagal dipilih (pengisian dilanjutkan)")
+                GAGAL_WAJIB.append(f"cloud_low_cover_oktas '{row['cloud_low_cover_oktas']}' gagal dipilih")
 
+            n_wajib_sebelum = len(GAGAL_WAJIB)
             if not isi_jenis_dan_jumlah_awan_Rendah(driver, str(row['awan_rendah_jenis']), str(row['awan_rendah_jumlah'])):
-                print("❌ Jenis/Jumlah Awan Rendah gagal diisi")
-                return False
+                print("❌ Jenis/Jumlah Awan Rendah gagal diisi (pengisian dilanjutkan)")
+                if len(GAGAL_WAJIB) == n_wajib_sebelum:   # fungsi tidak mencatat sendiri
+                    GAGAL_WAJIB.append("Jenis/Jumlah Awan Rendah gagal diisi")
 
             jenis_awan_rendah = str(row['awan_rendah_jenis']).strip()
             kode_jenis_awan_rendah = jenis_awan_rendah.split("-", 1)[0].strip()
@@ -2002,8 +2063,8 @@ def isi_data(driver, row, plan=None):
 
             if pd.notna(row['cloud_arah_awan_rendah']):
                 if not pilih_arah_Awan_Rendah(driver, str(row['cloud_arah_awan_rendah'])):
-                    print("❌ cloud_arah_awan_rendah gagal dipilih")
-                    return False
+                    print("❌ cloud_arah_awan_rendah gagal dipilih (pengisian dilanjutkan)")
+                    GAGAL_WAJIB.append(f"Arah Awan Rendah '{row['cloud_arah_awan_rendah']}' gagal dipilih")
 
             # [TOLERAN] Awan rendah kedua
             if pd.notna(row['awan_rendah_2_jenis']):
@@ -2065,6 +2126,10 @@ def isi_data(driver, row, plan=None):
                     _atur_switch(driver, "775", False)
                 print("ℹ️ Awan rendah kedua dilewati karena awan_rendah_2_jenis kosong (NaN)")
 
+            # [rev 15] awan rendah ke-3 langsung setelah lapisan 1 & 2 (urutan: rendah 1,2,3)
+            isi_lapisan_tambahan(driver, plan, layer="low")
+        _catat_waktu("Awan rendah")
+
         # ================ AWAN MENENGAH ======================================#
         cloud_med_type = str(row['cloud_med_type_cm'])
         cloud_med_type_code = cloud_med_type.split("-", 1)[0].strip()   # [F1.9]
@@ -2094,6 +2159,9 @@ def isi_data(driver, row, plan=None):
                 if not pilih_arah_Awan_Menengah(driver, str(row['cloud_arah_menengah_1'])):
                     GAGAL_OPSIONAL.append("cloud_arah_menengah_1 gagal dipilih, dilewati")   # [F1.5] dicatat ke log
                     print("⚠️ cloud_arah_menengah_1 gagal dipilih, dilewati")
+
+            isi_lapisan_tambahan(driver, plan, layer="med")   # [rev 15] menengah ke-2 tepat setelah menengah ke-1
+        _catat_waktu("Awan menengah")
 
         # ================ AWAN TINGGI ========================================#
         cloud_high_type = str(row['cloud_high_type_ch'])
@@ -2129,12 +2197,29 @@ def isi_data(driver, row, plan=None):
                             GAGAL_OPSIONAL.append("Gagal pilih arah awan tinggi, dilewati")   # [F1.5] dicatat ke log
                             print("⚠️ Gagal pilih arah awan tinggi, dilewati")
 
-        # [F3.10] lapisan tambahan: awan rendah ke-3, menengah ke-2, tinggi ke-2 (posisi + switch)
-        isi_lapisan_tambahan(driver, plan)
+            isi_lapisan_tambahan(driver, plan, layer="high")   # [rev 15] tinggi ke-2 tepat setelah tinggi ke-1
+        _catat_waktu("Awan tinggi")
 
         # ================ KEADAAN TANAH ======================================#
         if not pilih_dropdown_ant_select(driver, "land_cond", str(row['land_cond'])):
             return False  # WAJIB
+        _catat_waktu("Keadaan tanah")
+
+        # [rev 15] lapisan tambahan yang diminta Excel tetapi gagal diisi = field merah di web (form tidak valid,
+        # Preview pasti gagal) -> diperlakukan sebagai kegagalan wajib agar tidak membuang waktu mencoba Preview
+        for _g in GAGAL_OPSIONAL:
+            if (_g.startswith(("AWAN RENDAH lapisan", "AWAN MENENGAH lapisan", "AWAN TINGGI lapisan"))
+                    and _g not in GAGAL_WAJIB):
+                GAGAL_WAJIB.append(_g)
+
+        # [rev 14] ringkasan kegagalan wajib: semua field SUDAH dicoba; baris dibatalkan di sini (bukan di tengah)
+        if GAGAL_WAJIB:
+            print(f"❌ {len(GAGAL_WAJIB)} field WAJIB gagal diisi (field lain sudah dilanjutkan):")
+            for _g in GAGAL_WAJIB:
+                print(f"   - {_g}")
+            if not CFG["features"].get("send_despite_detail_fail", False):
+                return False
+            print("⚠️ features.send_despite_detail_fail=true: pengiriman TETAP dilanjutkan")
 
         print("✅ Data berhasil diisi")
         return True
@@ -2424,6 +2509,7 @@ def main():
             PERUBAHAN_OTOMATIS.clear()
             HUJAN_OVERRIDE_LOG.clear()
             GAGAL_OPSIONAL.clear()
+            GAGAL_WAJIB.clear()
 
             # ── LOOP RECOVERY PER BARIS ───────────────────────────────────────
             row_recovery_count = 0
@@ -2496,7 +2582,8 @@ def main():
                     )
 
                     if not isi_data(driver, row, plan=rr.plan):
-                        raise Exception("Gagal isi data; membatalkan pengiriman untuk baris ini")
+                        _detail = ("; ".join(GAGAL_WAJIB))[:300] if GAGAL_WAJIB else "lihat log di atas"
+                        raise Exception(f"Gagal isi data; membatalkan pengiriman untuk baris ini ({_detail})")
 
                     # [F1.5] rangkum field opsional yang gagal diisi (sebelumnya hanya peringatan di layar)
                     if GAGAL_OPSIONAL:
@@ -2566,6 +2653,28 @@ def main():
                     if sandi and slot[0]:
                         db.set_kode_synop(*slot, sandi)
                         print("🧾 Sandi:\n" + sandi)
+
+                    # [F3.4] verifikasi sandi: bandingkan dengan data Excel (+ kewajaran data AWS)
+                    if CFG["features"].get("verify_sandi", True):
+                        hasil_cek = None
+                        if not sandi:
+                            print("⚠️ Sandi tidak terbaca dari halaman; verifikasi dilewati")
+                        else:
+                            try:
+                                hasil_cek = verifikasi_sandi(
+                                    sandi, row, plan=rr.plan,
+                                    abaikan=("ww",) if "ww" in PERUBAHAN_OTOMATIS else (),
+                                    cfg=CFG["features"])
+                                print(format_hasil_sandi(hasil_cek))
+                                if slot[0]:
+                                    db.log_event(*slot, "verifikasi_sandi", hasil_cek.ringkas())
+                                if not hasil_cek.ok:
+                                    PERUBAHAN_OTOMATIS["verifikasi_sandi"] = hasil_cek.ringkas()
+                            except Exception as e_cek:   # verifikator tidak boleh menggagalkan pengiriman
+                                print(f"⚠️ Verifikasi sandi error (dilewati): {type(e_cek).__name__}: {e_cek}")
+                        if (hasil_cek is not None and hasil_cek.errors and not DRY_RUN
+                                and CFG["features"].get("sandi_block_on_mismatch", False)):
+                            raise Exception("Verifikasi sandi gagal; pengiriman dibatalkan: " + hasil_cek.ringkas())
                     if DRY_RUN:
                         print("🧪 DRY-RUN: sampai Preview selesai; TIDAK mengirim.")
                         if slot[0]:

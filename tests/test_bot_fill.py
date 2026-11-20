@@ -204,17 +204,23 @@ check("switch sudah mati: tidak disentuh", not has(cs, "atur_switch"), cs)
 M._switch_aktif, M._atur_switch = _orig_sw, _orig_atur
 
 print("== F3.10: isi_data memanggil lapisan tambahan sebelum keadaan tanah ==")
-M.isi_lapisan_tambahan = lambda drv, plan: calls.append(("lapisan_tambahan", len((plan or {}).get("extra") or [])))
+M.isi_lapisan_tambahan = lambda drv, plan, layer=None: calls.append(
+    ("lapisan_tambahan_" + str(layer), len([x for x in ((plan or {}).get("extra") or []) if x.get("layer") == layer])))
 MED2 = {"cloud_med_type_cm": "7 -", "awan_menengah_jenis_1": "4 - altostratus (As)",
         "awan_menengah_jenis_2": "3 - altocumulus (Ac)", "awan_menengah_jumlah_2": "2 okta", "cloud_med_base_2": 4500,
         "cloud_arah_menengah_2": "0 -"}
 ok, cs, rr = fill(MED2)
 names = [(c[1] if c[0] in ("select", "input") else c[0]) for c in cs]
-check("dipanggil dengan 1 lapisan tambahan", ("lapisan_tambahan", 1) in cs, cs)
-check("urutan: setelah awan tinggi, sebelum land_cond",
-      names.index("cloud_high_type_ch") < names.index("lapisan_tambahan") < names.index("land_cond"), names)
+check("menengah-2 dipanggil dengan 1 lapisan", ("lapisan_tambahan_med", 1) in cs, cs)
+check("[rev 15] urutan: rendah(1,2,3) -> menengah(1,2) -> tinggi(1,2) -> tanah",
+      names.index("cloud_low_type_cl") < names.index("lapisan_tambahan_low") < names.index("cloud_med_type_cm")
+      < names.index("lapisan_tambahan_med") < names.index("cloud_high_type_ch")
+      < names.index("lapisan_tambahan_high") < names.index("land_cond"), names)
+check("menengah-2 dipanggil setelah menengah-1 (sebelum awan tinggi)",
+      names.index("isi_jenis_dan_jumlah_awan_menengah") < names.index("lapisan_tambahan_med") < names.index("cloud_high_type_ch"), names)
 ok, cs, rr = fill({"cloud_cover_oktas_m": "0"})
-check("total 0: awan dilewati sehingga lapisan tambahan tidak dipanggil", not has(cs, "lapisan_tambahan"), cs)
+check("total 0: awan dilewati sehingga lapisan tambahan tidak dipanggil",
+      not any(c[0].startswith("lapisan_tambahan") for c in cs), cs)
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

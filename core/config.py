@@ -49,7 +49,13 @@ DEFAULTS = {
     },
     "observers": {"allowed": []},
     "features": {
-        "medium_layer2_supported": False,
+        "extra_layers": True,          # F3.10: isi lapisan tambahan (rendah-3, menengah-2, tinggi-2)
+        "send_despite_detail_fail": False,  # True: tetap kirim walau Jenis/Jumlah/Arah wajib gagal diisi
+        "verify_sandi": True,               # F3.4: bandingkan sandi hasil Preview dengan data Excel
+        "sandi_block_on_mismatch": False,   # True: batalkan KIRIM bila verifikasi sandi menemukan ERROR
+        "qff_qfe_check": True,              # periksa selisih QFF-QFE setelah Fill AWS Digi
+        "qff_qfe_expected_diff": 3.2,       # hPa; stasiun 27 m
+        "qff_qfe_tolerance": 1.0,           # hPa
         "dry_run": False,
         "allow_update": True,          # jam yang sudah ada di web boleh ditimpa lewat tombol Update
         "rain_override_strict": False,  # True: batalkan baris jika override hujan gagal diterapkan
