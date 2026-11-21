@@ -31,6 +31,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:                                  # [F1.10] aturan QC konsistensi (core/qc.py)
+    from core.qc import QC
+except ImportError:                   # dijalankan sebagai skrip dari dalam folder core/
+    from qc import QC
+
 ERROR, WARNING, INFO = "ERROR", "WARNING", "INFO"
 
 # --------------------------------------------------------------------------- #
@@ -256,7 +261,8 @@ def parse_waktu(v):
 # --------------------------------------------------------------------------- #
 class Validator:
     def __init__(self, options, rules, tz_hours=7, window_open_min=10, late_min=15,
-                 extra_layers_supported=True, medium_layer2_supported=None):
+                 extra_layers_supported=True, medium_layer2_supported=None,
+                 rules_qc=None, qc_enabled=True, qc_strict=False):
         self.fields = options["fields"]
         self.jam_list = options.get("jam", [])
         self.rules = rules
@@ -265,13 +271,20 @@ class Validator:
         self.late_min = late_min
         # [F3.10] medium_layer2_supported = nama lama (diabaikan); saklar sekarang: features.extra_layers
         self.extra_layers_supported = extra_layers_supported
+        # [F1.10] QC konsistensi: qc_strict=False -> semua temuan QC hanya WARNING/INFO
+        self.qc = QC(rules_qc, enabled=qc_enabled, strict=qc_strict)
 
     @classmethod
-    def from_files(cls, options_path, rules_path, **kw):
+    def from_files(cls, options_path, rules_path, rules_qc_path=None, **kw):
         with open(options_path, encoding="utf-8") as f:
             options = json.load(f)
         with open(rules_path, encoding="utf-8") as f:
             rules = json.load(f)
+        # rules_qc.json dicari di folder yang sama dengan rules.json bila path tidak diberikan
+        qp = Path(rules_qc_path) if rules_qc_path else Path(rules_path).with_name("rules_qc.json")
+        if "rules_qc" not in kw and qp.exists():
+            with open(qp, encoding="utf-8") as f:
+                kw["rules_qc"] = json.load(f)
         return cls(options, rules, **kw)
 
     @classmethod
@@ -282,6 +295,8 @@ class Validator:
             tz_hours=rt["timezone_offset_hours"], window_open_min=rt["window_open_minutes"],
             late_min=rt["late_info_minutes"],
             extra_layers_supported=ft.get("extra_layers", True),
+            rules_qc_path=Path(root) / cfg["paths"].get("rules_qc", "core/rules_qc.json"),
+            qc_enabled=ft.get("qc_enabled", True), qc_strict=ft.get("qc_strict", False),
         )
 
     # ------------------------------------------------------------------ #
@@ -453,6 +468,10 @@ class Validator:
             self._check_rain(row, res, nums, jam_for_rules)
 
         # ---- land_cond: sudah divalidasi lewat pencocokan ------------------
+
+        # ---- [F1.10] aturan QC konsistensi (core/qc.py) ----------------------
+        add_q = lambda lvl, rule, col, msg: res.issues.append(Issue(lvl, rule, col, msg))
+        plan["qc_hits"] = self.qc.run(row, matched, nums, total, plan, add_q)
         return res
 
     # ------------------------------------------------------------------ #

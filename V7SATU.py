@@ -47,6 +47,8 @@ sys.path.insert(0, str(ROOT))
 from core.config import load_config, resolve_path, get_credentials  # noqa: E402
 from core.validator import Validator, load_excel, format_report  # noqa: E402
 from core.db import SendLog  # noqa: E402
+from core.notify import Notifier  # noqa: E402   [F3.7] notifikasi Telegram
+from core.obsdb import ObsStore  # noqa: E402   [F2.7] data dari form web
 from core.synop_check import verifikasi as verifikasi_sandi, format_hasil as format_hasil_sandi  # noqa: E402
 
 # 🔑 Data login dan pilihan  [F1.1: tidak ada kredensial di kode; dibaca dari .env / config.yaml]
@@ -84,13 +86,59 @@ def _terapkan_opsi_anti_popup(opts):
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
 
 
-# === BACA DATA EXCEL ===
-def baca_data_terbaru(silent=False):
-    """Fungsi untuk membaca data terbaru dari file excel dengan format yang konsisten"""
-    if not silent:
-        print("\n🔍 Memuat data terbaru dari file...")
+# === BACA DATA (Excel atau database form web) ===
+SUMBER_DATA = str(CFG["features"].get("data_source", "excel")).lower()   # [F2.7] "excel" | "db"
+_OBS_STORE = None
+
+
+def _obs_store():
+    """[F2.7] penyimpanan observasi yang diisi lewat form web (app.py)."""
+    global _OBS_STORE
+    if _OBS_STORE is None:
+        _OBS_STORE = ObsStore(resolve_path(CFG, "db"), tz_hours=CFG["runtime"]["timezone_offset_hours"],
+                              menit_sebelum=int((CFG.get("web", {}) or {}).get("menit_sebelum", 2)))
+    return _OBS_STORE
+
+
+def _kunci_baris(row):
+    """Kunci slot (tanggal UTC, jam UTC) sebuah baris; stabil walau baris lain disisipkan/dihapus."""
     try:
-        df = load_excel(EXCEL_PATH)   # [F1.1] path dari config.yaml; kolom dirapikan, baris kosong dibuang
+        w = pd.to_datetime(row["waktu_eksekusi"]).to_pydatetime()
+    except Exception:
+        return None
+    utc = w - timedelta(hours=CFG["runtime"]["timezone_offset_hours"])
+    n = (utc + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+    return (n.strftime("%Y-%m-%d"), f"{n.hour:02d}:00")
+
+
+def _posisi(df, kunci, index):
+    """
+    [F2.7] Posisi baris dengan slot `kunci` di df. Mode DB: hanya berdasarkan slot (pengamat bisa menambah
+    jam baru kapan saja sehingga nomor urut bergeser). Mode Excel: bila slot tidak ditemukan (waktu/jam
+    diubah di Excel) dipakai nomor urut lama, seperti perilaku V6/V7.
+    """
+    if df is None:
+        return None
+    if kunci is not None:
+        for pos in range(len(df)):
+            if _kunci_baris(df.iloc[pos]) == kunci:
+                return pos
+    if SUMBER_DATA != "db" and index < len(df):
+        return index
+    return None
+
+
+def baca_data_terbaru(silent=False):
+    """Fungsi untuk membaca data terbaru (Excel, atau DB form web bila features.data_source = db)"""
+    if not silent:
+        print("\n🔍 Memuat data terbaru dari " + ("database (form web)..." if SUMBER_DATA == "db" else "file..."))
+    try:
+        if SUMBER_DATA == "db":
+            now = datetime.now(timezone.utc)
+            df = _obs_store().to_dataframe((now - timedelta(days=1)).strftime("%Y-%m-%d"),
+                                           (now + timedelta(days=1)).strftime("%Y-%m-%d"))
+        else:
+            df = load_excel(EXCEL_PATH)   # [F1.1] path dari config.yaml; kolom dirapikan, baris kosong dibuang
         df['waktu_eksekusi'] = pd.to_datetime(df['waktu_eksekusi'])
         df['jam_input'] = df['jam_input'].astype(str).str.zfill(5)
         if not silent:
@@ -494,51 +542,171 @@ def wait_for_modal_to_disappear(driver, timeout=10):
         return False
 
 
-def wait_for_send_ok_button(driver, timeout=12):
-    qc_popup_xpath = (
-        "//div[contains(@class,'swal2-container') and contains(@class,'swal2-backdrop-show')]"
-        "//div[contains(@class,'swal2-popup') and "
-        ".//div[contains(@class,'swal2-title') and contains(translate(normalize-space(.),"
-        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'koreksi qc')]]"
-    )
-    qc_submit_xpath = (
-        qc_popup_xpath
-        +
-        "//button[translate(normalize-space(.),"
-        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='submit']"
-    )
-    ok_xpath = "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']"
-    deadline = time.time() + timeout
+# ──────────────────────────── [F3.11] Pop-up "Koreksi QC" ────────────────────────────
+# Web menampilkan "Koreksi QC" (SweetAlert2: judul + daftar 'Step Check' + tombol Submit / Cek Data)
+# bila nilai AWS melonjak dibanding jam sebelumnya. Tanpa klik Submit data TIDAK jadi terkirim.
+# Keputusan pengguna 2026-11-20: data tetap dikirim (klik Submit); kejadian dicatat + diberitahukan.
+_LOW = "translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')"
+QC_POPUP_XPATHS = [
+    "//div[contains(@class,'swal2-popup')][.//*[contains(@class,'swal2-title')]"
+    f"[contains({_LOW},'koreksi qc')]]",
+    "//div[@role='dialog' or @role='alertdialog' or contains(@class,'ant-modal-content')]"
+    f"[.//*[contains({_LOW},'koreksi qc')]]",          # cadangan bila bukan SweetAlert2
+]
+SWAL_POPUP_XPATH = "//div[contains(@class,'swal2-popup')]"
 
+
+def _tampak(el):
+    try:
+        return bool(el.is_displayed())
+    except Exception:
+        return False
+
+
+def _popup_koreksi_qc(driver):
+    """Elemen popup 'Koreksi QC' yang sedang tampil, atau None."""
+    for xp in QC_POPUP_XPATHS:
+        try:
+            for el in driver.find_elements(By.XPATH, xp):
+                if _tampak(el):
+                    return el
+        except Exception:
+            continue
+    return None
+
+
+def _ringkas_teks_qc(teks):
+    t = re.sub(r"\s+", " ", teks or "").strip()
+    t = re.sub(r"^koreksi qc\s*", "", t, flags=re.I)
+    t = re.sub(r"\s*((submit|cek data)\s*)+$", "", t, flags=re.I)
+    return t[:400]
+
+
+def tangani_popup_koreksi_qc(driver, tunggu=0.0):
+    """
+    Cari popup 'Koreksi QC' (menunggu sampai `tunggu` detik) lalu klik tombol Submit DI DALAM
+    popup itu (bukan tombol Submit halaman). Return dict(muncul, diklik, teks).
+    Mati-kan klik otomatis dengan features.qc_popup_auto_submit=false (hanya catat + screenshot).
+    """
+    hasil = {"muncul": False, "diklik": False, "teks": ""}
+    batas = time.time() + max(0.0, tunggu)
+    while True:
+        popup = _popup_koreksi_qc(driver)
+        if popup is not None:
+            break
+        if time.time() >= batas:
+            return hasil
+        time.sleep(0.3)
+    hasil["muncul"] = True
+    try:
+        hasil["teks"] = _ringkas_teks_qc(popup.text)
+    except Exception:
+        pass
+    print(f"⚠️ Popup 'Koreksi QC' muncul: {hasil['teks']}")
+    try:
+        save_debug_snapshot(driver, "koreksi_qc")     # bukti: screenshot + HTML
+    except Exception:
+        pass
+    auto = bool(CFG["features"].get("qc_popup_auto_submit", True))
+    PERUBAHAN_OTOMATIS["koreksi_qc"] = (("Submit dikonfirmasi: " if auto else "BUTUH KONFIRMASI MANUAL: ")
+                                        + hasil["teks"])
+    if not auto:
+        print("⛔ features.qc_popup_auto_submit=false: popup dibiarkan; konfirmasi manual diperlukan")
+        return hasil
+    try:
+        tombol = [b for b in popup.find_elements(By.XPATH, f".//button[{_LOW}='submit']")
+                  if _tampak(b) and b.is_enabled()]
+    except Exception:
+        tombol = []
+    if not tombol:
+        print("❌ Tombol Submit di dalam popup Koreksi QC tidak ditemukan")
+        return hasil
+    if not attempt_click(driver, tombol[0]):
+        print("❌ Tombol Submit pada popup Koreksi QC gagal diklik")
+        return hasil
+    print("✅ Popup Koreksi QC: tombol Submit berhasil diklik")
+    tutup = time.time() + 10
+    while time.time() < tutup:                        # pastikan popup YANG TADI DIKLIK menutup
+        if not _tampak(popup):                        # (popup QC berikutnya boleh langsung muncul)
+            hasil["diklik"] = True
+            return hasil
+        time.sleep(0.3)
+    print("⚠️ Popup Koreksi QC belum menutup setelah Submit")
+    return hasil
+
+
+def _popup_swal_lain(driver):
+    """Popup SweetAlert2 lain yang tampil: (elemen, teks, apakah_galat) atau None."""
+    try:
+        for el in driver.find_elements(By.XPATH, SWAL_POPUP_XPATH):
+            if not _tampak(el):
+                continue
+            teks = re.sub(r"\s+", " ", el.text or "").strip()
+            galat = bool(el.find_elements(By.XPATH, ".//div[contains(@class,'swal2-icon-error')]")) or \
+                any(k in teks.lower() for k in ("gagal", "error", "failed", "tidak berhasil"))
+            return el, teks, galat
+    except Exception:
+        pass
+    return None
+
+
+def selesaikan_pasca_kirim(driver):
+    """
+    Dipanggil SETELAH tombol OK terakhir diklik: awasi popup susulan sampai layar tenang.
+      - 'Koreksi QC' -> klik Submit (data BARU terkirim setelah ini)
+      - popup SweetAlert lain berisi OK -> ditutup; bila isinya galat -> dianggap GAGAL
+    Return (berhasil, pesan). Layar dianggap tenang bila tidak ada popup selama
+    features.qc_popup_tenang detik; batas total features.qc_popup_tunggu detik.
+    """
+    ft = CFG["features"]
+    batas = float(ft.get("qc_popup_tunggu", 12))
+    tenang = float(ft.get("qc_popup_tenang", 4))
+    mulai = time.time()
+    aktif_terakhir = mulai
+    n_qc = 0
+    while True:
+        h = tangani_popup_koreksi_qc(driver, tunggu=0)
+        if h["muncul"]:
+            n_qc += 1
+            if not h["diklik"]:
+                return False, "popup Koreksi QC tidak dapat dikonfirmasi: " + h["teks"]
+            if n_qc > 3:
+                return False, "popup Koreksi QC muncul berulang (>3x): " + h["teks"]
+            aktif_terakhir = time.time()
+            continue
+        lain = _popup_swal_lain(driver)
+        if lain:
+            el, teks, galat = lain
+            print(f"ℹ️ Popup susulan: {teks[:120]}")
+            if galat:
+                try:
+                    save_debug_snapshot(driver, "popup_galat_setelah_kirim")
+                except Exception:
+                    pass
+                return False, "popup galat setelah SEND: " + teks[:160]
+            for b in el.find_elements(By.XPATH, f".//button[{_LOW}='ok']"):
+                if _tampak(b):
+                    attempt_click(driver, b)
+                    print("✅ Popup susulan ditutup (OK)")
+                    break
+            aktif_terakhir = time.time()
+            time.sleep(0.4)
+            continue
+        sekarang = time.time()
+        if sekarang - aktif_terakhir >= tenang or sekarang - mulai >= batas + tenang * 3:
+            return True, ""
+        time.sleep(0.4)
+
+
+def wait_for_send_ok_button(driver, timeout=12):
+    """Setelah klik SEND di modal GTS: tunggu popup Koreksi QC (-> Submit) atau tombol OK normal."""
+    ok_xpath = f"//button[{_LOW}='ok']"
+    deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            for button in driver.find_elements(By.XPATH, qc_submit_xpath):
-                if button.is_displayed() and button.is_enabled():
-                    if not attempt_click(driver, button):
-                        print("❌ Tombol Submit pada popup Koreksi QC gagal diklik")
-                        return False
-                    print("✅ Popup Koreksi QC terdeteksi; tombol Submit berhasil diklik")
-
-                    try:
-                        WebDriverWait(driver, timeout).until(
-                            lambda d: not any(
-                                popup.is_displayed()
-                                for popup in d.find_elements(
-                                    By.XPATH, qc_popup_xpath
-                                )
-                            )
-                            or any(
-                                button.is_displayed()
-                                for button in d.find_elements(
-                                    By.XPATH, ok_xpath
-                                )
-                            )
-                        )
-                    except TimeoutException:
-                        print("⚠️ Popup Koreksi QC belum menutup setelah Submit")
-                        return False
-                    return True
-
+            h = tangani_popup_koreksi_qc(driver, tunggu=0)
+            if h["muncul"]:
+                return bool(h["diklik"])
             for button in driver.find_elements(By.XPATH, ok_xpath):
                 if button.is_displayed():
                     print("✅ Popup Koreksi QC tidak muncul; tombol OK alur normal terdeteksi")
@@ -546,11 +714,7 @@ def wait_for_send_ok_button(driver, timeout=12):
         except Exception as e:
             print(f"⚠️ Error saat memeriksa konfirmasi setelah SEND: {e}")
         time.sleep(0.5)
-
-    print(
-        f"⚠️ Popup Koreksi QC maupun tombol OK tidak muncul setelah SEND "
-        f"({timeout}s)"
-    )
+    print(f"⚠️ Popup Koreksi QC maupun tombol OK tidak muncul setelah SEND ({timeout}s)")
     return False
 
 
@@ -584,6 +748,9 @@ def wait_for_submit_progress(driver, timeout=10):
     print(f"⏳ Menunggu progress submit selama {timeout}s...")
     while time.time() - start < timeout:
         try:
+            if _popup_koreksi_qc(driver) is not None:          # [F3.11] QC muncul lebih awal
+                print("✅ Deteksi popup Koreksi QC setelah klik")
+                return bool(tangani_popup_koreksi_qc(driver)["diklik"])
             if driver.find_elements(By.XPATH, "//div[contains(@id,'send-gts-message')]"):
                 print("✅ Deteksi modal send-gts-message muncul")
                 return True
@@ -1277,6 +1444,9 @@ def SEND_INASWITCH_SUBMIT(driver):
 
 def SEND_GTS_OK(driver):
     try:
+        qc = tangani_popup_koreksi_qc(driver, tunggu=0)       # [F3.11] jangan klik OK menembus popup QC
+        if qc["muncul"] and not qc["diklik"]:
+            return False
         ok_btn = wait_for_clickable(driver, (
             By.XPATH,
             "//button[translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='ok']"
@@ -2398,6 +2568,13 @@ def main():
             nama_observer, DRY_RUN = pilihan
     print(f"👤 Observer: {nama_observer} | mode: {'DRY-RUN (tidak mengirim)' if DRY_RUN else 'KIRIM'}")
 
+    print(f"📥 Sumber data: {'DATABASE (form web: python app.py)' if SUMBER_DATA == 'db' else 'file Excel'}")
+
+    # [F3.7] notifikasi Telegram (aman: error notifikasi tidak pernah menggagalkan pengiriman)
+    notifier = Notifier.from_config(CFG, dry_run=DRY_RUN)
+    print("📣 Telegram:", "aktif" if notifier.aktif else
+          "nonaktif (isi TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID di .env untuk mengaktifkan)")
+
     driver = buat_driver()
     login(driver)
     klik_tombol_oke_popup(drv=driver)
@@ -2418,20 +2595,24 @@ def main():
         df_sebelumnya = df_awal.copy()
 
         for index in range(len(df_awal)):
+            kunci_slot = _kunci_baris(df_awal.iloc[index])   # [F2.7] baris dikenali dari slotnya, bukan nomor urut
             print(f"\n🔄 Membaca ulang data sebelum memproses baris {index+1}")
             df = baca_data_terbaru(silent=True)
-            if df is None or index >= len(df):
+            pos = _posisi(df, kunci_slot, index)
+            if df is None or pos is None:
                 print(f"⚠️ Data tidak valid untuk baris {index+1}, melewati...")
                 continue
 
-            if not df.iloc[index].equals(df_sebelumnya.iloc[index]):
+            pos0 = _posisi(df_sebelumnya, kunci_slot, index)
+            if pos0 is None or not df.iloc[pos].equals(df_sebelumnya.iloc[pos0]):
                 print(f"\n⚠️ PERHATIAN: Data baris {index+1} berubah!")
-                for col in df.columns:
-                    if str(df.iloc[index][col]) != str(df_sebelumnya.iloc[index][col]):
-                        print(f"📌 {col}: {df_sebelumnya.iloc[index][col]} → {df.iloc[index][col]}")
+                if pos0 is not None:
+                    for col in df.columns:
+                        if col in df_sebelumnya.columns and str(df.iloc[pos][col]) != str(df_sebelumnya.iloc[pos0][col]):
+                            print(f"📌 {col}: {df_sebelumnya.iloc[pos0][col]} → {df.iloc[pos][col]}")
                 df_sebelumnya = df.copy()
 
-            row = df.iloc[index]
+            row = df.iloc[pos]
             waktu_eksekusi = row['waktu_eksekusi'].to_pydatetime()
             sekarang = datetime.now()
 
@@ -2468,18 +2649,21 @@ def main():
 
                 if time.time() - last_check_time >= 2:
                     df_baru = baca_data_terbaru(silent=True)
-                    if df_baru is not None and index < len(df_baru):
-                        if not df_baru.iloc[index].equals(df.iloc[index]):
+                    pos_baru = _posisi(df_baru, kunci_slot, index)
+                    if df_baru is not None and pos_baru is not None:
+                        if not df_baru.iloc[pos_baru].equals(df.iloc[pos]):
                             print(f"\n⚠️ PERHATIAN: Data baris {index+1} berubah selama countdown!")
                             for col in df.columns:
-                                if str(df_baru.iloc[index][col]) != str(df.iloc[index][col]):
-                                    print(f"📌 {col}: {df.iloc[index][col]} → {df_baru.iloc[index][col]}")
-                            row = df_baru.iloc[index]
+                                if col in df_baru.columns and str(df_baru.iloc[pos_baru][col]) != str(df.iloc[pos][col]):
+                                    print(f"📌 {col}: {df.iloc[pos][col]} → {df_baru.iloc[pos_baru][col]}")
+                            row = df_baru.iloc[pos_baru]
                             waktu_eksekusi = row['waktu_eksekusi'].to_pydatetime()
                             df = df_baru
+                            pos = pos_baru
                             df_sebelumnya = df.copy()
                             sekarang = datetime.now()
                             waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
+                    notifier.rekap_jika_waktunya(db)   # [F3.7] rekap harian (sekali/hari, dibatasi 1x/menit)
                     last_check_time = time.time()
 
                 mins, secs = divmod(max(0, waktu_tunggu), 60)
@@ -2499,6 +2683,7 @@ def main():
                 print(f"⛔ Baris {index+1} DILEWATI — {alasan}")
                 if slot[0]:
                     db.mark_skipped(*slot, alasan)
+                    notifier.dilewati_validasi(slot, alasan)   # [F3.7] data TIDAK terkirim -> beri tahu
                 continue
             if slot[0]:
                 db.register(slot[0], slot[1], waktu_eksekusi=waktu_eksekusi, plan=rr.plan)
@@ -2514,6 +2699,7 @@ def main():
             # ── LOOP RECOVERY PER BARIS ───────────────────────────────────────
             row_recovery_count = 0
             row_processed = False
+            gagal_terakhir = None   # [F3.7] (pesan, screenshot) kegagalan terakhir baris ini
 
             while row_recovery_count <= MAX_ROW_RECOVERY and not row_processed:
 
@@ -2702,22 +2888,33 @@ def main():
                     if not submit_with_retry(driver, "SEND_GTS_OK", lambda: SEND_GTS_OK(driver), max_attempts=3):
                         raise Exception("Gagal klik SEND GTS OK setelah 3 percobaan")
 
+                    # [F3.11] popup susulan (Koreksi QC dsb.) bisa muncul SETELAH OK; data baru terkirim
+                    # setelah popup itu dikonfirmasi -> jangan mencatat 'sent' sebelum layar tenang
+                    pasca_ok, pasca_pesan = selesaikan_pasca_kirim(driver)
+                    if "koreksi_qc" in PERUBAHAN_OTOMATIS and slot[0]:
+                        db.log_event(*slot, "koreksi_qc", PERUBAHAN_OTOMATIS["koreksi_qc"])
+                    if not pasca_ok:
+                        raise Exception("Setelah SEND: " + pasca_pesan + " (data BELUM terkirim)")
+
                     print("✅✅✅ PENGIRIMAN BERHASIL ✅✅✅")
                     if slot[0]:
                         db.mark_sent(*slot, kode_synop=sandi or None,
                                      diubah_otomatis=dict(PERUBAHAN_OTOMATIS) or None,
                                      hujan_override=dict(HUJAN_OVERRIDE_LOG) or None)
+                    notifier.sukses(slot, sandi, dict(PERUBAHAN_OTOMATIS) or None)   # [F3.7]
                     row_processed = True  # tandai sukses, keluar dari loop recovery
 
                 except Exception as e:
                     error_msg = str(e)
                     print(f"❌ Error saat memproses baris {index+1}: {error_msg}")
+                    gagal_terakhir = [error_msg, None]
                     if slot[0]:   # [F1.4] catat kegagalan (+ screenshot bila browser masih hidup)
                         try:
                             png = save_debug_snapshot(driver, f"gagal_{slot[0]}_{slot[1].replace(':', '')}")
                         except Exception:
                             png = None
                         db.mark_failed(*slot, error_msg, screenshot_path=png)
+                        gagal_terakhir[1] = png
 
                     # ── Cek apakah perlu recovery sesi ──────────────────────
                     if SESSION_RECOVERY_NEEDED in error_msg:
@@ -2727,6 +2924,7 @@ def main():
                                   f"({row_recovery_count}/{MAX_ROW_RECOVERY})...")
 
                             new_driver, recovery_ok = recover_session(driver, tanggal_utc=slot[0])
+                            notifier.recovery(slot, recovery_ok)   # [F3.7]
 
                             if recovery_ok:
                                 driver = new_driver          # ganti driver global
@@ -2747,6 +2945,10 @@ def main():
                         print("🔄 Melanjutkan ke baris berikutnya...")
                         row_recovery_count = MAX_ROW_RECOVERY + 1  # paksa keluar loop
 
+            if not row_processed and gagal_terakhir and slot[0]:   # [F3.7] gagal akhir (setelah recovery)
+                notifier.gagal(slot, gagal_terakhir[0], percobaan=(db.get(*slot) or {}).get("percobaan"),
+                               screenshot=gagal_terakhir[1])
+
             time.sleep(2)
 
         print("\n✅ Semua data dalam file telah diproses")
@@ -2754,9 +2956,19 @@ def main():
             print("📒 Ringkasan log:", db.summary(datetime.now(timezone.utc).strftime("%Y-%m-%d")))
         except Exception:
             pass
+        notifier.rekap_jika_waktunya(db)   # [F3.7]
         print("🔄 Memeriksa data baru dalam 10 detik...")
         time.sleep(10)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise
+    except Exception as _e_fatal:   # [F3.7] skrip berhenti karena error tak tertangani -> beri tahu
+        try:
+            Notifier.from_config(CFG).fatal(f"{type(_e_fatal).__name__}: {_e_fatal}")
+        except Exception:
+            pass
+        raise

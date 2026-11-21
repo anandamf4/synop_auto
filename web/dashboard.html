@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% block judul %}Dashboard{% endblock %}
+{% block isi %}
+<div class="kartu" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <button id="prev">◀</button><input type="date" id="tgl" value="{{ tanggal }}"><button id="next">▶</button>
+  <button id="hariini">Hari ini (UTC)</button><span class="redup">Tanggal &amp; jam = UTC</span><span style="flex:1"></span>
+  <a class="tombol" id="ekspor" href="#">⬇ Ekspor Excel</a>
+  <label class="tombol">⬆ Impor Excel<input type="file" id="impor" accept=".xlsx" hidden></label>
+</div>
+<div id="info"></div>
+<div id="ringkas" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
+<div class="kartu"><table id="tbl" style="width:100%;border-collapse:collapse">
+<thead><tr style="text-align:left;color:var(--redup);font-size:13px"><th>Jam (UTC)</th><th>Data</th><th>Pengiriman</th><th>Sandi / catatan</th><th></th></tr></thead><tbody></tbody></table></div>
+<style>#tbl td,#tbl th{padding:7px 8px;border-bottom:1px solid var(--garis);vertical-align:top}#tbl tr.skrg{background:#eef5ff}#tbl tr.lalu td{color:#444}
+.kotak{background:var(--kartu);border:1px solid var(--garis);border-radius:10px;padding:10px 16px;min-width:120px}.kotak b{font-size:22px;display:block}
+.sandi{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;color:#333}</style>
+<script>
+let tanggal="{{ tanggal }}";
+const $=s=>document.querySelector(s);
+function geser(n){const d=new Date(tanggal+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);tanggal=d.toISOString().slice(0,10);$("#tgl").value=tanggal;muat()}
+$("#prev").onclick=()=>geser(-1);$("#next").onclick=()=>geser(1);
+$("#hariini").onclick=()=>{tanggal=new Date().toISOString().slice(0,10);$("#tgl").value=tanggal;muat()};
+$("#tgl").onchange=e=>{tanggal=e.target.value;muat()};
+$("#impor").onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append("berkas",f);
+ const r=await fetch("/api/impor",{method:"POST",body:fd});const j=await r.json();
+ $("#info").innerHTML=`<div class="msg ${j.ok?'ok':'err'}">${j.ok?`Impor selesai: ${j.masuk} baris masuk, ${j.ditolak.length} ditolak`+
+  (j.ditolak.length?"<br>"+j.ditolak.map(x=>`baris ${x.baris} (${x.slot.join(' ')}): ${x.kesalahan.join('; ')}`).join("<br>"):""):j.pesan}</div>`;e.target.value="";muat()};
+const LV={kosong:"belum diisi",hijau:"siap",kuning:"ada peringatan",merah:"ada kesalahan"};
+const KR={sent:"terkirim",failed:"GAGAL",skipped:"dilewati",pending:"menunggu",running:"berjalan"};
+function esc(s){return (s||"").toString().replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+async function muat(){
+ const r=await fetch("/api/status?tanggal="+tanggal);if(!r.ok)return;const j=await r.json();
+ $("#ekspor").href="/ekspor/"+tanggal+".xlsx";$("#jam-server").textContent="UTC "+j.waktu_server_utc;
+ const R=j.ringkas;$("#ringkas").innerHTML=[["Terisi",R.terisi+"/24"],["Terkirim",R.terkirim],["Gagal",R.gagal],["Dilewati",R.dilewati],["Perlu perhatian",R.perlu_perhatian]]
+  .map(([a,b])=>`<div class="kotak"><span class="redup">${a}</span><b>${b}</b></div>`).join("");
+ $("#tbl tbody").innerHTML=j.baris.map(b=>`<tr class="${b.sekarang?'skrg':b.sudah_lewat?'lalu':''}">
+  <td><b>${b.jam}</b>${b.sekarang?' <small>(sekarang)</small>':''}</td>
+  <td><span class="badge b-${b.level}">${LV[b.level]}</span>${b.oleh?`<br><small>${esc(b.oleh)}</small>`:''}</td>
+  <td>${b.kirim?`<span class="badge b-${b.kirim}">${KR[b.kirim]||b.kirim}</span>`:'<small>—</small>'}</td>
+  <td>${b.sandi?`<div class="sandi">${esc(b.sandi)}</div>`:''}${b.pesan&&b.kirim!=='sent'?`<small>${esc(b.pesan)}</small>`:''}${b.diubah_otomatis?`<br><small>⚠ ${esc(b.diubah_otomatis)}</small>`:''}</td>
+  <td><a class="tombol ${b.level==='kosong'&&!b.sudah_lewat?'utama':''}" href="/form/${j.tanggal}/${b.jam}">${b.level==='kosong'?'Isi':'Buka'}</a></td></tr>`).join("");
+}
+muat();setInterval(muat,15000);
+</script>{% endblock %}

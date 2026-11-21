@@ -46,14 +46,23 @@ TUJUAN FILE INI
     pemetaan di bagian 2.5-2.7; catat perbedaan di log.
  i. core/options.json (format_version 1) SUDAH ada. Jika pengguna melampirkannya,
     pakai apa adanya dan jangan dibuat ulang; perluas hanya lewat F0.5/F1.2.
+ j. Aturan pengamatan/penyandian BMKG sudah dirangkum di bagian 2.12 (ID B-xxx,
+    termasuk errata PDF dan pemetaan ke QC). JANGAN mencari ulang; rujuk ID-nya.
+    Bila PDF/PPT bertentangan dengan perilaku web, percayai web dan catat di log.
 
 
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 17
+  Revisi catatan      : 21
   Terakhir diperbarui : 2026-11-20
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
+                        F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
+                        F1.10 (rev 19: aturan QC konsistensi di core/qc.py; 39 tes lulus),
+                        F3.7 (rev 21: --test ke grup Telegram TERKIRIM di PC pengguna),
+                        F3.11 (rev 21: popup web 'Koreksi QC' setelah Send ditangani),
+                        F2.1-F2.7 (rev 21: form+dashboard web app.py, DB observasi, bot dapat membaca DB;
+                        MENUNGGU uji nyata di web BMKG Satu & di browser pengguna),
                         F3.10 LAPISAN TAMBAHAN (rev 15; pengguna: "sudah berhasil" di web asli),
                         penyesuaian kecepatan/switch/field opsional (rev 12; pengguna
                         melaporkan "sudah lebih cepat")
@@ -82,6 +91,8 @@ TUJUAN FILE INI
                         features.medium_layer2_supported DIABAIKAN. Opsional lain: speed.*,
                         features.fail_on_optional, runtime.popup_wait_seconds,
                         features.popup_press_enter.
+  [rev 18] Roadmap terkini: (1) SELESAI [F3.4 tuntas]; sisa urut: F1.10 aturan QC ->
+                        F3.7 Telegram -> F2 -> CLIMAT. Aturan acuan: 2.12.
   [rev 16] Roadmap diperbarui: (1) SELESAI; (2) F3.4 DIIMPLEMENTASI; (4) QFF/QFE masuk F3.4. SISA: dry-run 24 jam penuh
                         untuk mengumpulkan sandi -> kalibrasi; lalu (3) aturan QC ke validator, (5) F3.7 notifikasi, (6) F2, (7) CLIMAT.
   Tahap berikutnya (usulan lama, urut): (1) pengguna dry-run baris yang memuat lapisan
@@ -91,6 +102,127 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 21 (2026-11-21) - F3.11 POPUP 'KOREKSI QC' + F2 FORM & DASHBOARD (KODE SELESAI; UJI NYATA MENUNGGU):
+    * Konfirmasi pengguna: tes rev 19/20 semua lulus di PC pengguna (QC 39, popup 13, layers 17, sandi 32,
+      validator 45); python core/notify.py --test -> 'Terkirim' ke grup Telegram (F3.7 nyata OK).
+    * F3.11 - Popup web 'Koreksi QC' (SweetAlert2: judul + daftar 'Step Check' lonjakan data AWS + tombol
+      Submit / Cek Data) yang muncul setelah Send terakhir membuat data TIDAK terkirim, padahal bot sudah mencatat
+      'sent'. Penyebab: penanganan lama hanya mengawasi 12 dtk SESUDAH klik Send; bila tombol OK muncul lebih dulu
+      atau popup QC muncul sesudah OK, popup dibiarkan. Perbaikan (V7SATU.py):
+        - tangani_popup_koreksi_qc(): klik tombol 'Submit' DI DALAM popup itu (bukan Submit halaman), memastikan
+          popup yang tadi diklik menutup, mengambil screenshot+HTML bukti (snapshots/), mencatat isi peringatan ke
+          PERUBAHAN_OTOMATIS['koreksi_qc'] (-> kolom diubah_otomatis, event audit 'koreksi_qc', pesan Telegram).
+        - selesaikan_pasca_kirim(): setelah OK terakhir bot mengawasi popup susulan sampai layar tenang
+          (features.qc_popup_tenang=4 dtk, batas qc_popup_tunggu=12): Koreksi QC -> Submit (maks 3x berturut);
+          popup SweetAlert lain berisi OK ditutup; popup GALAT (ikon error / 'gagal') -> baris dianggap GAGAL.
+          Baris dicatat 'sent' HANYA setelah layar tenang.
+        - Juga dicek di wait_for_submit_progress dan SEND_GTS_OK (popup QC di atas tombol OK ditangani lebih dulu).
+        - features.qc_popup_auto_submit=false: popup tidak diklik, baris GAGAL + notifikasi (konfirmasi manual).
+      Keputusan pengguna: data tetap dikirim (klik Submit) walau ada peringatan step-check; kejadian dilaporkan.
+      Tes: tests/test_koreksi_qc.py (26; DOM SweetAlert2 tiruan dgn XPath lxml sungguhan + jam virtual) dan 3 tes
+      baru di test_bot_flow. KETERBATASAN: selector memakai struktur SweetAlert2 (judul 'Koreksi QC', tombol
+      'Submit'); belum pernah diuji pada popup asli. Bila popup asli muncul dan gagal diklik: ambil
+      snapshots/*koreksi_qc*.html dan perbaiki QC_POPUP_XPATHS di V7SATU.py.
+    * F2 - form pengamatan + dashboard (pengganti pengetikan Excel):
+        core/obsdb.py       tabel `observasi` di data/synop.db (JSON utuh per slot, sama dgn kolom Excel);
+                            waktu_eksekusi dihitung = jam UTC + 7 jam - web.menit_sebelum (bawaan 2). Excel nyata
+                            memakai 0-2 mnt sebelum jam; selisih tidak berpengaruh. Impor/ekspor Excel (24 baris
+                            nyata: bulat-pulang identik, 0 ERROR).
+        core/formschema.py  skema form + field_state(): aktif/wajib/pilihan jenis (rules.json) dihitung di SERVER;
+                            browser tidak menyalin aturan. Uji sifat: 3000 baris acak dari field aktif -> 0 ERROR.
+        app.py + web/*.html Flask: dashboard (24 jam, status isi & kirim, sandi, rekap, impor/ekspor), form
+                            (validasi langsung /api/validasi, simpan DITOLAK bila ada ERROR, salin jam sebelumnya
+                            lintas hari UTC, template cepat Cerah/Hujan, peringatan jam yg sudah terkirim,
+                            PIN opsional WEB_PIN di .env). Jalankan: pip install flask; python app.py (port 8080).
+        F2.7 bot membaca DB: features.data_source: db (bawaan excel). BAHAYA YANG DIPERBAIKI: bot memilih baris
+            dengan nomor urut; di DB pengamat dapat menambah jam kapan saja -> nomor urut bergeser -> bot bisa
+            mengirim jam yg salah. Kini baris dikenali dari SLOT (tanggal+jam UTC) lewat _kunci_baris/_posisi
+            (mode Excel: bila slot tak ketemu dipakai nomor urut lama = perilaku V7). Tes mutasi membuktikan
+            logika lama mengirim 08:00 di waktu 09:00. Jendela data DB: kemarin..besok (UTC).
+      Cara peralihan: (1) python app.py; (2) isi form / impor Excel; (3) config.yaml features.data_source: db;
+      (4) jalankan bot dgn --dry-run dulu. Excel tetap bisa dipakai (data_source: excel).
+    * Tes total (semua lulus di sandbox AI): validator 45, sandi 32, qc 39, notify 33, popup 13, layers 17, bot_fill 31,
+      bot_flow 37, koreksi_qc 26, form 21, obsdb 15, app 24. Catatan proses: sempat ada tes notify yang berhenti
+      diam-diam (kesalahan tanda tangan check) -> sudah diperbaiki; periksa selalu baris 'Hasil/Total' tiap tes.
+    * Belum: uji nyata form di browser PC pengguna; uji data_source=db dgn dry-run di web asli; F2.4 template
+      cepat baru 2 (Cerah, Hujan-cuaca saja); login per observer (hanya PIN bersama); F3.1-F3.3.
+    * Urutan berikutnya: (1) pengguna uji form + dry-run DB; (2) F3.1-F3.3 (bot tahan banting) atau perbaikan UI form
+      sesuai masukan pemakaian nyata.
+  REV 20 (2026-11-20) - F3.7 NOTIFIKASI TELEGRAM (KODE SELESAI; UJI NYATA MENUNGGU PENGGUNA):
+    * Keputusan pengguna: pesan = error, gagal kirim, ringkasan harian; tujuan = GRUP Telegram
+      (bukan akun pribadi); tidak perlu nomor HP baru (bot dibuat lewat @BotFather dgn akun yang
+      sudah ada). F1.10b (QC yang butuh data AWS) DITUTUP: pengguna memilih web BMKG Satu yang
+      mengatur (data AWS terintegrasi di web). Cukup bot mampu menutup pop-up peringatan
+      tambahan setelah Submit (mis. data berjarak jauh); kejadian itu jarang & sulit dibuktikan,
+      jadi tidak dikejar sekarang (catatan F3.9/F3.3 bila suatu saat muncul di snapshots/).
+    * File baru: core/notify.py (Notifier; hanya stdlib; tidak pernah melempar exception),
+      tests/test_notify.py (32 tes, server Telegram palsu di localhost). Diubah: V7SATU.py
+      (7 titik panggilan), core/config.py & config.yaml (blok notify:).
+    * Jenis pesan: gagal akhir (+screenshot, +alarm suara Windows) | baris dilewati karena
+      validasi ERROR | recovery sesi berhasil/gagal | terkirim dengan perubahan otomatis | rekap
+      harian (sekali per hari UTC setelah notify.rekap_jam_utc=23:50, penanda di tabel events)
+      | skrip berhenti (fatal). Pesan 'sukses tiap jam' BAWAAN MATI (kirim_sukses: false).
+      Gagal akhir dikirim SETELAH recovery habis (tidak ribut bila recovery menolong).
+      'Waktu eksekusi sudah lewat' tidak dinotifikasi per baris (bisa belasan saat start);
+      muncul di rekap harian.
+    * Rahasia: TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID hanya di .env (di-.gitignore). Repo
+      GitHub bersifat publik: jangan taruh token di config.yaml/commit. Tautan undangan grup
+      (t.me/+...) TIDAK dipakai API; yang dipakai chat_id (negatif, grup super: -100...).
+    * Cara setup (pengguna): (1) Telegram -> @BotFather -> /newbot -> salin token; (2) tambahkan
+      bot ke grup; kirim satu pesan di grup; (3) isi .env: TELEGRAM_BOT_TOKEN=... ; (4)
+      python core/notify.py --cari-chat-id -> salin angka chat_id grup ke .env
+      TELEGRAM_CHAT_ID=...; (5) python core/notify.py --test -> pesan uji masuk grup.
+    * Kalibrasi nyata BELUM: sandbox AI tidak punya akses ke api.telegram.org; jalur HTTP
+      (termasuk upload screenshot) diuji ke server palsu lokal. Setelah --test berhasil, F3.7
+      ditandai [x]; uji kegagalan nyata: matikan internet/ubah kata sandi sementara pada dry-run.
+    * Urutan berikutnya: F3.1-F3.3 (bot lebih tahan banting) atau F2 (form/dashboard).
+  REV 19 (2026-11-20) - F1.10 SELESAI: ATURAN QC KONSISTENSI DI VALIDATOR:
+    * Jawaban pengguna: N7 = ambang intensitas hujan di PDF hanya kategori, BUKAN aturan
+      (pengamat bebas memilih ww) -> TIDAK ada QC ww-vs-curah-hujan berdasar ambang itu.
+      N8 = PDF sudah sesuai perka dan lengkap; SK.38/2006 asli hanya scan (tak terbaca),
+      jadi PDF dipakai sebagai acuan tertulis. U1 dijalankan: QC bawaan WARNING.
+    * File baru: core/qc.py (mesin QC), core/rules_qc.json (daftar aturan, level, ambang),
+      tests/test_qc.py (39 tes). Diubah: core/validator.py (impor QC + 1 pemanggilan di akhir
+      validate_row; parameter rules_qc/qc_enabled/qc_strict; semua kode lama utuh),
+      core/config.py & config.yaml (paths.rules_qc, features.qc_enabled, features.qc_strict).
+    * Aturan terpasang (nomor QC = PPT pusat): QC10 (W1>=W2), QC13 (N=9 vs ww), QC35 (N<8 &
+      CH=7), QC44/QC47 (Nh=8 -> CM/CH '/'), QC90 (tinggi dasar vs jenis: Cc/Cs>=4800,
+      Ac/As>=2100, Ns<=6900, Sc/St/Cu/Cb<=1800 m), QC102 (Cs 8 okta <-> CH=7), QC107
+      (jumlah lapisan > total), QC121 (awan rendah ke-2 lebih rendah dari ke-1). Turunan/usulan:
+      QC-PK (puncak konvektif wajar), QC-U1 (ww presipitasi & N=0), QC-U2 (tanah kering saat
+      hujan, INFO), QC-U3 (ww 20-29/91-94 harus tercermin di W1/W2, INFO).
+    * Tingkat: bawaan semua WARNING/INFO (tidak memblok baris). features.qc_strict: true ->
+      aturan bernomor PPT menjadi ERROR (blok baris); aturan turunan tetap WARNING/INFO.
+      Satu aturan bisa dimatikan lewat "aktif": false di rules_qc.json.
+    * Kalibrasi: Excel 14 Nov (24 baris) -> 0 ERROR, 0 temuan QC pada mode bawaan DAN strict
+      (tidak ada alarm palsu). tests/test_validator.py 45 lulus, tests/test_sandi.py 32 lulus.
+    * BELUM: QC15/QC14 dan aturan PPT lain yang rinciannya tidak ada di catatan 2.11 (hanya
+      yang tertulis di 2.11/2.12 yang diimplementasi); QC yang butuh AWS/riwayat sandi
+      (kelompok A1-A6) -> tahap F1.10b. Mode strict belum diuji terhadap penolakan web
+      sungguhan; naikkan per aturan ke ERROR hanya setelah ada bukti dari web.
+    * Urutan berikutnya: (1) F3.7 notifikasi Telegram; (2) F1.10b QC AWS di synop_check;
+      (3) F2 form/dashboard; (4) CLIMAT.
+  REV 18 (2026-11-20) - F3.4 TUNTAS + ATURAN BMKG MASUK CATATAN (bagian 2.12):
+    * Hasil pengguna: python core/synop_check.py --db data/synop.db
+      --excel legacy/INPUT_PARAMETER_baru.xlsx -> 24 sandi (14 Nov 2026, 00:00-23:00
+      UTC) diperiksa, SEMUA sesuai, 0 bermasalah. F3.4 ditandai [x]. Yang belum
+      terbukti tetap tercatat di REV 16/17 (sandi dgn lapisan ke-3 >= 5 okta,
+      grup puncak/57 lapisan-2, N=9) dan dipantau terus lewat dry-run harian.
+    * Pengguna mengunggah PDF "Materi Pengamatan/Observasi Meteorologi
+      Permukaan" (Djakiman, AMG 2014) -> diringkas di 2.12: waktu & jadwal grup,
+      struktur sandi, tiap unsur (angin, tekanan, suhu, awan, cuaca, hujan,
+      penguapan, penyinaran, tanah), pencatatan Me-48, ERRATA PDF (B-ERR),
+      pemetaan ke QC (bagian M) dan kasus uji dari soal latihan (bagian N).
+    * PDF (hal.20, 35) MENEGASKAN aturan pemilihan grup 8NsChshs: lapisan
+      terendah Ns >= 1, berikutnya Ns >= 3, berikutnya Ns >= 5, Cb didahulukan =
+      sama dengan synop_check REV 17. Sisa pertanyaan hanya: apakah WEB
+      melaporkan grup ke-3 menurut aturan itu (butuh sandi dgn 3 lapisan, lapisan
+      ke-3 >= 5 okta; bila tak dilaporkan padahal wajib -> WARNING S-GRUP).
+    * Salah ketik penting di PDF (jangan ditiru): 3000 m -> hshs 60 (bukan 59);
+      W1 >= W2 (bukan >); ww 11/12 tidak otomatis VV < 1 km. Lengkapnya B-ERR.
+    * Urutan berikutnya: (1) F1.10 aturan QC ke validator (WARNING dulu);
+      (2) F3.7 notifikasi Telegram; (3) F2 form/dashboard; (4) CLIMAT.
+      Untuk (1) AI baru perlu: core/validator.py, core/rules.json, Excel terbaru.
   REV 17 (2026-11-20) - KALIBRASI F3.4 DENGAN 22 SANDI NYATA (run pengguna: 19 dari 22 WARNING S-GRUP):
     * Penyebab WARNING: verifikator mengharapkan SEMUA grup awan; web hanya melaporkan grup terpilih (WMO 306):
       grup-1 = lapisan terendah (berapa pun), grup-2 = lapisan berikutnya > 2 okta, grup-3 = berikutnya > 4 okta,
@@ -160,10 +292,10 @@ TUJUAN FILE INI
     * Jenis/Jumlah awan menengah & tinggi memakai pencarian berlapis yang sama (kegagalan = GAGAL_OPSIONAL).
     * Excel: 19 baris ERROR R3 karena cloud_arah_tinggi KOSONG saat CH=1 (data, bukan bug). Isi kolom itu.
     * tests/validator.py adalah salinan lama core/validator.py yang nyasar: hapus.
-  Tahap berjalan      : F3.10 (uji di web asli; dry-run ulang setelah rev 14)
+  Tahap berjalan      : uji nyata F2 (python app.py; features.data_source: db dgn dry-run) & F3.11 (menunggu popup QC asli)
   Diblokir            : -
   Keputusan           : K1-K9 (bagian 8)
-  Pertanyaan teknis terbuka: N3 (Telegram), N5
+  Pertanyaan teknis terbuka: N5
   Lingkungan pengguna : Windows; Python 3.13 (Store) dipakai (juga ada 3.9/3.12);
                         pip install -r requirements.txt di interpreter yang SAMA.
   CLI V7SATU: --observer, --no-gui, --dry-run, --check-only, --process-past, --jam.
@@ -173,12 +305,12 @@ TUJUAN FILE INI
                         tambahan di web asli BELUM terbukti; mode Update memakai alur SEND
                         yang sama setelah 'Send & Update' (belum diuji kirim).
   STRUKTUR PROYEK (D:\alarm\synop_auto): V7SATU.py, config.yaml, .env, check_excel.py,
-    tambah_kolom_lapisan.py, collect_*.py, core/{config,validator,db}.py + options.json +
+    tambah_kolom_lapisan.py, collect_*.py, core/{config,validator,db,qc,notify,synop_check}.py + options.json +
     rules.json, tests/{test_validator,test_bot_flow,test_bot_fill,test_popup,test_speed,
     test_layers}.py, bot/, legacy/V6SATU.py, data/synop.db, snapshots/.
   File hasil sejauh ini:
     - Seluruh isi synop_auto/ (README.txt: cara pakai & urutan uji).
-    - SYNOP_UPGRADE_HANDOFF.txt (file ini, revisi 13)
+    - SYNOP_UPGRADE_HANDOFF.txt (file ini, revisi 21)
 
 
 ================================================================================
@@ -569,6 +701,342 @@ Library : selenium, pandas, pyautogui (+ opencv opsional), openpyxl (baca xlsx)
   berikutnya.
 
 
+2.12 ATURAN PENGAMATAN, PENCATATAN Me-48 & PENYANDIAN SYNOP BMKG
+     Sumber: PDF "Materi Pengamatan/Observasi Meteorologi Permukaan" (Djakiman,
+     AMG Jakarta, 2014; diunggah pengguna 2026-11-20). Nomor "hal." = nomor
+     "Page N" pada footer PDF (bukan nomor halaman penampil PDF).
+  SIFAT SUMBER: bahan ajar yang disusun dari Peraturan Kepala BMG No.
+     SK.38/KT.104/KB/BMG-2006 (9 Jan 2006; Tata Cara Tetap Pelaksanaan
+     Pengamatan, Penyandian, Pelaporan, Pengarsipan Data Meteorologi Permukaan)
+     dan SK.32/TL.202/KB/BMG-2006 (iklim & agroklimat). Jadi ini RINGKASAN,
+     bukan teks resmi, dan memuat salah ketik (lihat B-ERR).
+  URUTAN PRIORITAS bila ada pertentangan (USULAN, belum dikonfirmasi pengguna):
+     (1) perilaku web BMKGSoft v2 + PPT pusat 16 Nov 2026 (2.7, 2.8, 2.11);
+     (2) SK.38/2006 asli; (3) PDF ini; (4) WMO hanya untuk melengkapi yang tidak
+     ada di PDF. Isi bertanda [WMO] TIDAK tertulis di PDF; bertanda [turunan]
+     = penalaran/fisika, bukan aturan tertulis.
+  Aturan tidak perlu dicari ulang: bila perlu, rujuk ID (B-xxx) di bawah.
+
+  ---- A. WAKTU & JADWAL GRUP ----
+  B-WKT1 [hal.2,31] Standar pokok 00,06,12,18 UTC; standar penting 03,09,15,21
+         UTC; lainnya tiap jam. Waktu pengamatan = saat barometer dibaca;
+         pengamatan berakhir setelah barometer dibaca.
+  B-WKT2 [hal.8,11] ww = keadaan 10 menit sebelum waktu pengamatan. Angin =
+         rata-rata 10 menit sebelum waktu pengamatan, di 10 m.
+  B-WKT3 [hal.8,30] Cuaca lalu W1/W2 mencakup: 1 jam (pengamatan tiap jam),
+         3 jam (03,09,15,21 UTC), 6 jam (00,06,12,18 UTC).
+  B-WKT4 [hal.31] Grup 9GGgg hanya bila waktu pengamatan berbeda > 10 menit dari
+         GG di seksi 0.
+  B-WKT5 [hal.16] Me-48: tanggal & jam UTC; kolom "jam waktu setempat" terpisah.
+  B-JADWAL Grup yang hanya pada jam tertentu [hal.28,32-34]:
+         5appp                      : 00,03,06,09,12,15,18,21 UTC
+         6RRRtR seksi 1             : 00,06,12,18 UTC (00 -> tR=4 = 24 jam;
+                                      06/12/18 -> tR=1 = 6 jam)
+         6RRRtR seksi 3 (tR=7,3 jam): 00,03,06,09,12,15,18,21 UTC
+         1SnTxTxTx (Tmax)           : 12 UTC
+         2SnTnTnTn (Tmin)           : 00 UTC
+         5EEEiE, 55SSS, 55508+5F24..: hanya 00 UTC
+         58/59 P24P24P24            : 00 dan 12 UTC
+         56/57/8NsChshs/80Chshs     : tiap jam, bila ada awan yang relevan
+         Contoh nyata 08:00 UTC (bukan jam 3-jaman): tanpa 5appp & 6RRRtR; iR=4.
+
+  ---- B. SEKSI 0 & STRUKTUR SANDI [hal.24] ----
+  B-S0   Seksi 0 : MiMiMjMj YYGGiw IIiii
+         Seksi 1 : iRiXhVV Nddff (00fff) 1SnTTT 2SnTdTdTd (atau 29UUU) 3P0P0P0P0
+                   4PPPP (atau 4a3hhh) 5appp 6RRRtR 7wwW1W2 8NhCLCMCH 9GGgg
+         Seksi 3 : 333 (1SnTxTxTx) (2SnTnTnTn) (5EEEiE) (55SSS) ((55508)
+                   (5F24F24F24F24)) (56DLDMDH) (57CDaec) (58/59 P24P24P24)
+                   (6RRRtR) (8NsChshs) (80Chshs)
+         iw: 0 angin perkiraan m/s; 1 anemometer m/s; 3 perkiraan knot;
+             4 anemometer knot (web kita memakai 4: "AAXX 14084").
+         Stasiun kita: blok 96, IIiii = 96195. Header nyata "SNID52 WIJJ ddhhmm".
+         (Contoh PDF 96745 = Jakarta; 96073 = Sibolga, hanya contoh.)
+  B-S0b  Suhu [hal.26,32]: Sn 0 = positif/0, 1 = negatif; nilai dalam 0,1 C.
+         28,8 -> 10288 | Td 26,5 -> 20265 | Tmax 32,5 -> 10325 | Tmin 24,5 ->
+         20245. Td tidak ada tetapi RH ada -> 29UUU (RH 75 -> 29075; 100 ->
+         29100).
+
+  ---- C. SEKSI 1: iRiXhVV ----
+  B-IR   [hal.25] iR: 0 = 6RRRtR di seksi 1 dan 3; 1 = seksi 1 saja; 2 = seksi 3
+         saja; 3 = tidak dilaporkan, hujan = 0; 4 = tidak dilaporkan, hujan
+         tidak diukur/alat rusak.
+  B-IX   [hal.25] iX: 1 = 7wwW1W2 dilaporkan; 2 = tidak dilaporkan (tidak
+         bermakna); 3 = tidak dilaporkan (tidak diamati); 4/5/6 = padanan 1/2/3
+         untuk stasiun otomatis.
+  B-HGT  [hal.25] h = tinggi dasar awan TERENDAH dari permukaan stasiun.
+         PDF hanya memuat: 3 = 200-300 m; 4 = 300-600 m; 5 = 600-1000 m. Batas
+         bawah masuk kelas atas (600 m -> h=5, bukan 4).
+         [WMO 1600, lengkap] 0: <50 m | 1: 50-99 | 2: 100-199 | 3: 200-299 |
+         4: 300-599 | 5: 600-999 | 6: 1000-1499 | 7: 1500-1999 | 8: 2000-2499 |
+         9: >= 2500 m atau tidak ada awan | /: tidak diketahui.
+         Nyata: Cu 450 m -> h=4 ("41450").
+  B-VV   [hal.25] VV (tabel 4377): 00 < 0,1 km; 01-50 = persepuluhan km (01 =
+         0,1; 23 = 2,3; 50 = 5,0); 51-55 tidak dipakai; 56-80 = kode-50 km
+         (77 -> 27 km); 81-88 = (kode-74) x 5 km (85 -> 55 km); 89 > 70 km;
+         90-99 untuk laut. Visibilitas tidak sama ke segala arah -> laporkan
+         yang TERPENDEK. Tepat di tengah dua kode -> kode TERKECIL (350 m -> 03,
+         bukan 04). [turunan] nilai antara kode dibulatkan ke bawah.
+         Me-48 [hal.16]: km ditulis angka saja ('6'); meter dengan 'm' ('600 m').
+  B-VIS  [hal.8-9] Visibilitas = jarak terjauh benda hitam berukuran sesuai
+         masih terlihat & dikenali dengan latar langit; diamati di tempat
+         terbuka, ke segala arah, matahari di samping/belakang pengamat; malam
+         hari dilakukan paling akhir (di luar gedung) setelah unsur lain.
+
+  ---- D. ANGIN: Nddff (00fff) [hal.11,16,26,46] ----
+  B-ANG1 Rata-rata 10 menit pada 10 m; arah dalam derajat dari utara sebenarnya
+         searah jarum jam; kecepatan knot (PDF: 1 knot = 0,5 m/s, pendekatan;
+         eksaknya 0,5144). Dibaca dari anemometer atau perkiraan Beaufort.
+  B-ANG2 Sandi: N (tutupan total; 9 = langit tak terlihat, / = tak dapat
+         ditentukan), dd = puluhan derajat (090 -> 09), ff = knot 2 digit.
+         ff >= 99 -> ff=99 + grup 00fff (115 kt -> "N1299 00115").
+         [WMO] calm dd=00 ff=00; angin berubah-ubah dd=99. synop_check memakai
+         dd 00-36 atau 99.
+  B-ANG3 Me-48: arah 3 digit (5 derajat -> 005), kecepatan tanpa nol di depan
+         (5, bukan 05).
+  B-BFT  Skala Beaufort [hal.46], knot (m/s): 0 <1 (0-0,2) | 1: 1-3 (0,3-1,5) |
+         2: 4-6 (1,6-3,3) | 3: 7-10 (3,4-5,4) | 4: 11-16 (5,5-7,9) |
+         5: 17-21 (8,0-10,7) | 6: 22-27 (10,8-13,8) | 7: 28-33 (13,9-17,1) |
+         8: 34-40 (17,2-20,7) | 9: 41-47 (20,8-24,4) | 10: 48-55 (24,5-28,4) |
+         11: 56-63 (28,5-32,6) | 12: >= 64 (>= 32,7).
+
+  ---- E. TEKANAN [hal.12,17,26-28,37] ----
+  B-TEK1 QFE = tekanan di stasiun; QFF = di muka laut. Koreksi: indeks, lintang,
+         tinggi, suhu. Me-48: QFF = dibaca + koreksi QFF (bertanda; contoh
+         PDF 1016,0 dengan koreksi -5,8 -> 1010,2). QFE sama dengan koreksi QFE.
+         1 hPa = 1 mb; konversi inci: 1010,2 mb = 29,83 inci.
+  B-TEK2 3P0P0P0P0 = QFE dalam 0,1 hPa, angka ribuan dibuang (998,6 -> 39986;
+         nyata 1007,4 -> 30074). 4PPPP = QFF sama (1009,6 -> 40096; nyata
+         1010,5 -> 40105). 4a3hhh hanya bila PPPP tak akurat/stasiun tinggi:
+         tidak relevan untuk Sultan Thaha (27 m). [WMO 0264] a3: 1=1000 hPa,
+         2=925, 5=500, 7=700, 8=850.
+  B-TEK3 5appp (jam 3-jaman): ppp = |QFF sekarang - QFF 3 jam lalu| dalam 0,1
+         hPa; a = karakteristik (tabel 0.10.063, hal.37):
+           0 naik lalu turun (sekarang >= 3 jam lalu)
+           1 naik lalu tetap / naik lebih lambat
+           2 naik (tetap/tidak tetap)
+           3 turun/tetap lalu naik, atau naik lalu naik lebih cepat
+           4 tetap (sama dengan 3 jam lalu)
+           5 turun lalu naik (sekarang <= 3 jam lalu)
+           6 turun lalu tetap / turun lebih lambat
+           7 turun (tetap/tidak tetap)
+           8 tetap/naik lalu turun, atau turun lalu turun lebih cepat
+         0-3 = lebih tinggi (0: tinggi atau sama); 5-8 = lebih rendah.
+         Stasiun otomatis: a = 2 (naik), 7 (turun), 4 (nol).
+         Contoh: 1014,9 -> 1012,8 = -2,1 -> "57021".
+  B-TEK4 58/59 P24P24P24 (00 & 12 UTC): perubahan QFF 24 jam, 0,1 hPa; 58 =
+         positif, 59 = negatif. Me-48: perubahan 3 jam = QFF - QFF 3 jam lalu
+         (1010,2 - 1010,5 = -0,3); 24 jam = QFF - QFF 24 jam lalu (+0,7).
+  B-TEK5 [turunan] QFF - QFE di Sultan Thaha ~ 3,1-3,2 hPa (sudah di
+         synop_check: S-QFF).
+  B-TEK6 Cara baca barometer [hal.12]: baca suhu termometer terpasang dulu
+         (hindari paralaks), vernier sejajar puncak air raksa, baca skala.
+
+  ---- F. SUHU & KELEMBABAN [hal.3-5,17-18] ----
+  B-SU1  Termometer di sangkar meteorologi, 1,20-1,25 m; BK, BB, Max, Min.
+         Baca sampai 0,1 C, mata sejajar meniskus (hindari paralaks).
+  B-SU2  Tmax diamati 12 UTC, Tmin 00 UTC (sekali sehari). Tmax >= BK tertinggi
+         hari itu; Tmin <= BK terendah hari itu. Setelah dibaca Tmax diayun/
+         Tmin diturunkan; nilainya harus sama/dekat BK saat itu.
+  B-SU3  BB dibaca 15 menit setelah air diganti (kain muslin cukup basah). RH
+         dari tabel Me-91; Td dari buku tabel titik embun.
+  B-SU4  [turunan] Td <= BB <= BK; BK = BB = Td -> RH 100.
+
+  ---- G. AWAN [hal.6-8,18-20,31,33-36] ----
+  B-AW1  N dalam okta (1 okta = 1/8 langit); 4 kuadran, tiap kuadran 2/8.
+         Jumlah golongan tertentu: anggap golongan lain tidak ada.
+  B-AW2  Arah gerak awan = arah ASAL awan (derajat searah jarum jam).
+         Sandi Da: 0 diam/tidak ada awan; 1 NE; 2 E; 3 SE; 4 S; 5 SW; 6 W;
+         7 NW; 8 N; 9 tak diketahui/tak terlihat. Contoh Me-48: Cb dari timur,
+         elevasi 30 -> "090/30".
+  B-AW3  Elevasi puncak awan ec (hal.33): 0 puncak tak terlihat; 1 >= 45;
+         2 ~30; 3 ~20; 4 ~15; 5 ~12; 6 ~9; 7 ~7; 8 ~6; 9 < 5 derajat.
+  B-AW4  8NhCLCMCH [hal.31]: Nh = jumlah awan rendah (CL); tidak ada CL -> jumlah
+         awan menengah (CM); tidak ada CL & CM tetapi ada CH -> Nh = 0.
+         Tidak dilaporkan bila N = 0 atau N = 9.
+  B-AW5  8NsChshs [hal.20,34-35]:
+         a. Cb selalu didahulukan, lalu lapisan terendah dan seterusnya.
+         b. Pemilihan lapisan: terendah bila Ns >= 1; berikutnya bila Ns >= 3;
+            berikutnya bila Ns >= 5. (Sama dengan aturan di synop_check REV 17.)
+         c. 2+ jenis dengan tinggi dasar sama -> SATU grup: Ns = jumlah total,
+            C = jenis terbanyak; jumlah sama -> kode jenis tertinggi
+            (2/8 Cu + 3/8 Sc -> 5/8 Sc; 2/8 Cu + 2/8 Sc -> 4/8 Cu).
+         d. N = 0 -> tidak dilaporkan; Ns = / -> tidak dilaporkan.
+         e. N = 9 -> "89/hshs", hshs = vertical visibility (QC & K8: wajib).
+         f. Ulangi grup 8 untuk tiap lapisan berbeda.
+  B-AW6  hshs (tabel 1677) [hal.34]; bulatkan KE BAWAH ke kode yang tersedia:
+         <= 1500 m : hshs = tinggi / 30     (300 m -> 10; 450 -> 15; 600 -> 20)
+         > 1500-9000 m : (tinggi / 300) + 50 (1800 -> 56; 3000 -> 60; 7800 -> 76)
+         > 9000-21000 m: (tinggi - 9000)/1500 + 80 (12000 -> 82)
+         > 21000 m : 89; kode 90-99 tidak dipakai. [WMO] kode 51-55 tidak dipakai.
+         8000 m -> 76 (7800), bukan 77 (8100). Terbukti nyata: 3000 m -> 60.
+  B-AW7  80Chshs [hal.33,36]: puncak awan konvektif CL (C = 8 Cu, 9 Cb; Tcu
+         termasuk), tinggi dari permukaan bumi. Rentang wajar PDF (kaki):
+         Cu dasar 1000-3000, puncak 7000-15000 | Tcu puncak 15000-30000 |
+         Cb puncak 30000-60000. [turunan, meter] Cu 2100-4600 | Tcu 4600-9100 |
+         Cb 9100-18300. Nyata: "80860" = puncak Cu 3000 m.
+  B-AW8  57CDaec [hal.33]: C = jenis konvektif (Cu/Cb), Da (B-AW2), ec (B-AW3).
+         56DLDMDH = arah gerak CL, CM, CH (nyata "56009": CL & CM diam, CH tak
+         terlihat). Excel kolom awan: arah gerak & sudut elevasi mengikuti ini.
+  B-AW9  Tinggi dasar awan: balon pilot (naik ~120-150 m/menit; PDF 500
+         kaki/menit) atau perkiraan [hal.7].
+  B-AW10 Penulisan Me-48 [hal.18-20]: jenis 'Cu' atau 'Cb/Cu/Sc'; tidak ada awan
+         = 0; tidak kelihatan = '-' (strip panjang); arah: 'STNR' (tidak
+         bergerak), 'No Cloud'; lapisan: jenis, tinggi (m), okta; urut dari
+         lapisan terendah (Cb dulu).
+
+  ---- H. CUACA SAAT INI & LALU: 7wwW1W2 [hal.29-30,38-45] ----
+  B-WW1  Tidak dilaporkan bila ww = 00-03 DAN W1/W2 anggota {0,1,2} (-> iX=2).
+  B-WW2  Beberapa fenomena -> ambil kode ww TERTINGGI, kecuali ww=17 didahulukan
+         atas 20-49.
+  B-WW3  ww=05 haze: visibilitas didominasi partikel kering. ww=10 mist
+         (web menolak bila RH < 95% -> fallback ke 05 = R10/K2).
+  B-WW4  ww=18 squalls: angin mendadak dari 16 knot menjadi >= 22 knot, bertahan
+         >= 1 menit [PDF; WMO: kenaikan >= 16 kt hingga >= 22 kt].
+  B-WW5  Badai guntur dianggap mulai sejak guntur pertama terdengar, berhenti
+         bila 10-15 menit tak terdengar lagi. ww=17 = TS tanpa endapan saat
+         pengamatan; 91-94 = hujan/salju saat pengamatan, TS dalam sejam lalu;
+         95-99 = TS saat pengamatan (96/99 dengan rambun/hail; 98 + badai
+         debu/pasir); 29 = TS sejam lalu, bukan saat pengamatan; 13 = kilat
+         tanpa guntur.
+  B-WW6  ww 80-90 hanya untuk endapan tipe shower (80-82 hujan shower: ringan,
+         sedang/lebat, hebat). "Sebentar-sebentar" = pernah terputus >= 1 kali
+         dalam sejam lalu dan bukan shower; "terus-menerus" = tidak pernah
+         terputus selama sejam lalu.
+  B-WW7  Intensitas (ditentukan saat pengamatan) menurut PDF: ringan < 0,5
+         mm/jam; sedang 0,5-4,0; lebat > 4,0. (Lihat N7.)
+  B-WW8  Hujan/drizzle saat pengamatan: 50/51 drizzle ringan, 52/53 sedang,
+         54/55 lebat; 60/61 hujan ringan, 62/63 sedang, 64/65 lebat (genap =
+         sebentar-sebentar, ganjil = terus-menerus). ww 20-29 = kejadian SEJAM
+         LALU saja, bukan saat pengamatan (20 DZ, 21 RA, 25 RA shower, 28 kabut,
+         29 TS). Nyata: jam 08:00 ww=21 dengan W1=6.
+  B-WW9  Kabut: ww 40-49 (PDF: visibilitas < 1000 m); ww 11/12 kabut tipis <= 2
+         m di darat; ww 10 mist; 04 asap; 05 haze (lihat B-ERR E5).
+  B-W12  W1/W2 [hal.30,45]: 0 langit <= 4/8 sepanjang periode ("Cloudy -");
+         1 > 4/8 sebagian periode & <= 4/8 sebagian ("Cloudy +-"); 2 >= 5/8
+         sepanjang periode ("Cloudy +"); 3 badai debu/pasir/salju hembus; 4
+         kabut/kabut es/haze tebal; 5 drizzle; 6 hujan; 7 salju/hujan+salju;
+         8 shower; 9 badai guntur (dengan/tanpa endapan). W1 >= W2 (W1 = W2
+         boleh); W1, W2, ww dipilih agar bersama memberi gambaran lengkap.
+         Padanan okta: Clear 0-1/8; Sl cloudy 2/8; Cloudy 3-4/8; Cloudy 5/8;
+         Very cloudy 6-7/8; Overcast 8/8.
+
+  ---- I. HUJAN [hal.9-10,17-18,28,34] ----
+  B-RR1  Satuan mm. Penakar Obs ditakar tiap 3 jam (00,03,...,21 UTC), harian
+         pukul 07.00 waktu setempat untuk Hillman. Hillman: jumlah = (X x 10) +
+         Y; X = berapa kali tercapai 10 mm, Y = skala terakhir.
+  B-RR2  RRR 3 digit mm bulat (37 mm -> 037). [WMO 3590] 990 = jejak (< 0,1);
+         991-999 = 0,1-0,9 mm; 989 = >= 989 mm.
+  B-RR3  tR: 1 = 6 jam; 4 = 24 jam; 7 = 3 jam (seksi 3). [WMO] 2 = 12 jam; 3 =
+         18 jam; 5 = 1 jam; 6 = 2 jam; 8 = 9 jam; 9 = 15 jam.
+  B-RR4  6RRRtR tidak perlu dilaporkan bila hujan = 0 atau data tidak ada.
+  B-RR5  Kolom hujan di web terbuka tiap 3 jam UTC; default dari Fill AWS Digi
+         (R22; override R16/F1.8).
+
+  ---- J. PENGUAPAN, PENYINARAN, RADIASI, TANAH ----
+  B-EV1  [hal.11] Penguapan 24 jam = (tinggi air kemarin - tinggi air sekarang)
+         + curah hujan 24 jam. Contoh: (75,1 - 74,0) + 1,2 = 2,3 mm; hujan
+         lebat: (74,0 - 83,7) + 11,2 = 1,5 mm. Hanya 00 UTC.
+  B-EV2  [hal.32] 5EEEiE: EEE dalam 0,1 mm; iE: 0 panci terbuka; 1 panci
+         berpenutup kisi; 2 GGI-300; 3 tangki 20 m2; 4 lainnya. Me-48: tidak ada
+         alat = kosong; rusak = '-'; tidak ada penguapan = 0.
+  B-SUN  [hal.12,32] Campbell-Stokes, pias dibaca per jam; 55SSS = jam &
+         persepuluhan jam 24 jam lalu (3 j 20 m = 3,3 -> 55033; 5 j 6 m = 5,1).
+         Hanya 00 UTC. Radiasi: 55508 + 5F24F24F24F24 (joule/cm2), 00 UTC.
+  B-GND  [hal.13,21,47] Keadaan tanah E (kolom land_cond): visual tanpa alat;
+         lokasi bidang gundul ~1x2 m2 di taman alat, atau di luar (terbuka,
+         datar, beda tinggi <= 30 m, bukan rawa/lereng/batuan/terlindung).
+         0 kering | 1 lembab | 2 basah (genangan) | 3 tergenang/banjir | 4
+         bekuan/butiran es | 5 lapisan es | 6-10 debu/pasir/retak/es dominan |
+         11-19 salju. Indonesia umumnya 0-3. Beberapa kejadian -> kode
+         TERTINGGI. 0-2 dan 4 = tanah gundul; 3 dan 5-19 = area terbuka.
+         Hal ekstrem (air bah) dicatat di kolom Catatan.
+
+  ---- K. PENCATATAN Me-48 [hal.15-21] ----
+  B-ME1  Diisi tiap jam pengamatan, mulai data mentah sampai sandi; urutan
+         kerja: kumpulkan data -> catat -> sandikan -> koreksi -> kirim real
+         time. Buku diperiksa & ditandatangani penanggung jawab/Kepala stasiun,
+         dikirim tiap awal bulan; stasiun menyimpan salinan.
+  B-ME2  Tanda: kolom KOSONG = stasiun tak punya alat; '-' (strip panjang) =
+         alat rusak/tak dapat diamati; 0 = tidak ada. Tahun/bulan tidak
+         disingkat. Nama terang observer ditulis sekali di awal tugas, lalu
+         cukup paraf.
+  B-ME3  W1 > W2 pada hal.17 sebenarnya W1 >= W2 (lihat B-ERR E4).
+
+  ---- L. ERRATA / KONFLIK DALAM PDF (jangan diikuti mentah) ----
+  B-ERR  E1 hal.34: contoh "tinggi 3000 m -> (2700:300)+50 = 59" keliru; 3000 m
+            -> 60 (59 = 2700 m). Terbukti oleh sandi nyata (60 untuk 3000 m).
+         E2 hal.34: "(12000-9000):500+80 = 82" -> pembagi seharusnya 1500.
+         E3 hal.20 vs 35: hal.20 menulis 3/8 Cu + 3/8 Sc = 5/8 Sc (jumlahnya
+            6/8). Pakai hal.35 + PPT (2.11): jumlah sama -> kode tertinggi.
+         E4 hal.17 menulis W1 > W2, hal.45 W1 >= W2 -> pakai >= (QC10: error
+            hanya bila W1 < W2).
+         E5 hal.29 butir e/g: ww 11/12 "visibilitas < 1000 m" tidak selaras
+            dengan definisi ww 11/12 (kabut tipis di ketinggian rendah) dan ww
+            40-47. JANGAN dijadikan ERROR otomatis; ikuti QC3/4/5/7 resmi (PPT).
+         E6 hal.29 butir h: "16 knot menjadi 22 knot" (WMO: naik >= 16 kt hingga
+            >= 22 kt).
+         E7 hal.7 tabel tinggi jenis awan: kolom tak sejajar saat ekstraksi
+            (hanya 6 dari 10 jenis punya angka) -> JANGAN dipakai; gunakan
+            QC90-93 (2.11) dan hal.36 untuk puncak konvektif.
+         E8 hal.28 tabel a3 rusak -> pakai WMO 0264 (B-TEK2); tak relevan 27 m.
+         E9 hal.31 butir Nh/CL/CM/CH terpotong (teks hilang); B-AW4 disusun
+            dari WMO 2700 yang konsisten dengan contoh PDF.
+         E10 hal.28 "lihat tabel 0.10.063 = hal.23": tabel ada di hal.37.
+
+  ---- M. PEMETAAN KE QC (bahan F1.10) ----
+  Q  Bisa dicek dari Excel (WARNING dulu; nomor QC = PPT pusat, 2.11).
+     STATUS rev 19: Q1-Q9 SUDAH diimplementasi di core/qc.py (kecuali Q2 hanya QC13 dan
+     Q6 yang sudah dicakup F3.4); lihat REV 19. Q3 tetap di R-WX/R21; QC39 dicakup R-NC1.
+   Q1  W1 >= W2 (QC10) [B-W12]
+   Q2  ww vs N (QC13/14/15; N=9 dan ww 00-03,05-16,18-29,40,42,44,46,48 tidak
+       konsisten, ww=04 dikecualikan) [B-WW]
+   Q3  VV vs ww (QC3/4/5/7); N=9 -> VV < 1 km (QC36 = K8); kabut ww 40-47 ->
+       VV < 1 km [B-WW9; hati-hati E5]
+   Q4  N=0 -> CL=CM=CH=0 & tanpa lapisan (R20); N < Nh (QC39); Nh=8 -> CM & CH
+       '/' (QC44/47); N<8 & CH=7 (QC35); Ns > N dan Ns=8 -> N=8 (QC107/108);
+       Cs 8 okta <-> CH=7 (QC102/103)
+   Q5  Tinggi dasar vs jenis (QC90-93): Cc/Cs >= 4800 m; Ac/As >= 2100 m;
+       Ns <= 6900 m; Sc/St/Cu/Cb <= 1800 m. Grup-2 lebih tinggi dari grup-1
+       (QC121). Pemilihan grup 8 menurut B-AW5.
+   Q6  h (B-HGT) konsisten dengan tinggi dasar lapisan terendah.
+   Q7  Puncak konvektif wajar (B-AW7) dan hanya untuk CL 2,3,8,9 & Jenis 8/9
+       (R23).
+   Q8  land_cond di luar 0-3 -> WARNING (B-GND). [usulan] land_cond=0 (kering)
+       saat ww hujan sedang berlangsung (50-69,80-99) -> WARNING heuristik.
+   Q9  [usulan, turunan WMO] ww 91-99 -> W1 atau W2 = 9 (TS dalam periode).
+  A  Butuh data AWS / riwayat sandi 24 jam di send_log (kerjakan di
+     synop_check, setelah Preview):
+   A1  Td <= BB <= BK; RH konsisten (B-SU4); QFF - QFE ~ 3,1 (B-TEK5)
+   A2  Tmax (12 UTC) >= BK tertinggi hari itu; Tmin (00 UTC) <= BK terendah
+       (B-SU2): hitung dari 24 sandi di DB.
+   A3  ppp & a vs QFF 3 jam lalu; P24 vs QFF 24 jam lalu (B-TEK3/4): dari DB.
+   A4  iR sesuai jam (B-IR, B-JADWAL); grup jam-tertentu hadir/absen sesuai
+       B-JADWAL (sebagian sudah di F3.4).
+   A5  [turunan] RRR 24 jam >= akumulasi 3 jam; RRR 6 jam >= 3 jam terakhir;
+       ww hujan saat pengamatan dengan RRR = 0 -> WARNING.
+   A6  ww=18 butuh angin >= 22 kt (B-WW4, B-BFT 6).
+
+  ---- N. KASUS UJI (SOAL LATIHAN hal.49; TURUNAN SAYA, BUKAN KUNCI RESMI) ----
+  Data: Sibolga (96073), 5 Apr 2014 00.00 UTC; angin anemometer 310/10 kt;
+  VV 300 m; ww hujan ringan terus-menerus; cuaca lalu hujan; N=8; BK=BB=Td=
+  23,4; RH 100; dibaca 1015,2 mb, koreksi QFF -3,1, QFE -4,3; QFF 3 jam lalu
+  1010,3 dan 24 jam lalu 1010,0; Tmin 22,1; hujan takaran terakhir 22 mm, 24
+  jam 37 mm; penguapan tidak diukur; penyinaran 7 j 6 m; awan rendah 5/8 Cb
+  berlandasan, dasar 300 m, puncak 9000 m, diam; menengah Ns & As diam; tinggi
+  tidak kelihatan; tanah basah/genangan.
+  Hasil sebagian yang tak ambigu (QFE=1010,9; QFF=1012,1):
+    AAXX 05004 96073 01403 83110 10234 20234 30109 40121 52018 60374
+    [76166 atau 76162] 8592/ 333 20221 55071 56009 57900 58021 60227 85910
+    80980
+  Catatan asumsi: ww=61 (hujan ringan terus-menerus); W1/W2 = 6,6 atau 6,2
+  (tidak jelas; PDF tak memberi kunci) -> sesuai kurung siku di atas; 5EEEiE
+  tidak dilaporkan; jumlah & tinggi lapisan awan menengah tidak diberikan,
+  jadi grup 8NsChshs untuk lapisan menengah tidak dapat dibuat; iR=0 karena
+  6RRRtR di seksi 1 dan 3; a=2 karena QFF naik. Gunakan hanya sebagai uji
+  asap (smoke test) bila kelak ada enkoder sendiri; sandi sesungguhnya tetap
+  dari web.
+
+
 ================================================================================
 3. TEMUAN MASALAH (T = Temuan) DAN PEMETAAN KE TAHAP PERBAIKAN
 ================================================================================
@@ -901,46 +1369,55 @@ FASE 1 - PENGAMAN (dapat dipasang di script lama)
              pemetaan zero-loss.
     DoD    : baris contoh dengan total 0, 9, "/" lolos dry-run tanpa error.
 
+[x] F1.10 Aturan QC konsistensi ke validator  (rev 19: SELESAI)
+    Hasil  : core/qc.py + core/rules_qc.json + hook di validator.py; 39 tes (tests/test_qc.py);
+             Excel nyata 0 temuan. Rincian aturan dan level: lihat REV 19 (bagian 1).
+    Catatan: bawaan WARNING; qc_strict menaikkan aturan bernomor PPT ke ERROR. Aturan PPT lain
+             (mis. QC14/15) ditambah ke rules_qc.json + qc.py bila rincian PPT tersedia.
+
+[x] F1.10b QC yang butuh data AWS  DITUTUP (rev 20, keputusan pengguna: web BMKG Satu yang mengatur;
+    data AWS digi terintegrasi di web). Aturan A1-A6 di 2.12-M tetap sebagai referensi bila diperlukan.
+
 --------------------------------------------------------------------------------
 FASE 2 - FORM INPUT USER-FRIENDLY (menggantikan pengetikan di Excel)
 --------------------------------------------------------------------------------
-[ ] F2.1  Skema data observasi
+[~] F2.1  Skema data observasi  (rev 21: core/obsdb.py + tes; menunggu uji nyata pengguna)
     Cara   : tabel observasi di SQLite sesuai 40 kolom Excel + kolom baru untuk
              lapisan tambahan sesuai 2.6 (K5 DIPUTUSKAN: dipakai; awan menengah
              ke-2 sudah ada di Excel, tambah awan rendah ke-3 & awan tinggi
              ke-2 jika diperlukan); konversi waktu lokal/UTC jelas.
     DoD    : satu baris Excel contoh dapat disimpan & dibaca utuh.
 
-[ ] F2.2  Kerangka web lokal
+[~] F2.2  Kerangka web lokal  (rev 21: app.py (Flask), PIN opsional; menunggu uji nyata pengguna)
     Cara   : Flask/FastAPI + halaman login ringan/pilih observer; berjalan di
              jaringan lokal.
     DoD    : halaman terbuka dari PC lain di jaringan stasiun.
 
-[ ] F2.3  Form dengan dropdown & field kondisional
+[~] F2.3  Form dengan dropdown & field kondisional  (rev 21: core/formschema.py + web/form.html; uji sifat 3000 baris; menunggu uji nyata pengguna)
     Cara   : semua dropdown dari options.json; field muncul/hilang otomatis
              sesuai R1-R8 dan R11-R15 (mis. CL=0 menyembunyikan awan rendah; jenis 8/9
              mengaktifkan peak); validasi langsung di browser + server;
              sertakan toggle 'Override hujan' + angka mm (F1.8).
     DoD    : tidak mungkin menyimpan kombinasi yang melanggar aturan.
 
-[ ] F2.4  Salin dari jam sebelumnya & template cepat
+[~] F2.4  Salin dari jam sebelumnya & template cepat  (rev 21: salin jam sebelumnya + 2 template; template lain menyusul; menunggu uji nyata pengguna)
     Cara   : tombol salin; template (cerah berawan, hujan ringan, dll) yang
              bisa diatur.
     DoD    : mengisi 1 jam dapat dilakukan dengan <= beberapa klik.
 
-[ ] F2.5  Pratinjau & status validasi
+[~] F2.5  Pratinjau & status validasi  (rev 21: validasi langsung + dashboard status kirim/sandi; menunggu uji nyata pengguna)
     Cara   : ringkasan baris + indikator warna (hijau/kuning/merah); jika
              memungkinkan, tampilkan kode SYNOP hasil dry-run.
     DoD    : pengamat melihat kesalahan sebelum jadwal kirim.
 
-[ ] F2.6  Import/Export Excel
+[~] F2.6  Import/Export Excel  (rev 21: impor/ekspor Excel di dashboard; menunggu uji nyata pengguna)
     Cara   : unggah INPUT_PARAMETER.xlsx -> validasi -> masuk DB (laporan
              baris error); ekspor DB ke Excel;
              buat TEMPLATE Excel baru berisi dropdown validasi dari
              options.json (K6: Excel tetap jadi cadangan input).
     DoD    : file Excel lama tetap bisa dipakai sebagai cadangan.
 
-[ ] F2.7  Penjadwalan dari DB
+[~] F2.7  Penjadwalan dari DB  (rev 21: features.data_source=db + pemilihan baris menurut slot; menunggu uji nyata pengguna)
     Cara   : worker membaca jadwal dari DB (bukan Excel); hitung waktu
              eksekusi dari tanggal+jam; tangani pergantian hari UTC (T11).
     DoD    : mengubah data di form sebelum waktu kirim memengaruhi
@@ -949,6 +1426,9 @@ FASE 2 - FORM INPUT USER-FRIENDLY (menggantikan pengetikan di Excel)
 --------------------------------------------------------------------------------
 FASE 3 - BOT LEBIH TAHAN BANTING
 --------------------------------------------------------------------------------
+[x] F3.11 Popup web 'Koreksi QC' setelah Send (rev 21: kode+tes selesai; belum pernah terlihat popup asli)
+    Hasil  : lihat REV 21. Bila gagal pada popup asli: snapshots/*koreksi_qc*.html -> perbaiki QC_POPUP_XPATHS.
+
 [ ] F3.1  fields.py + fungsi generik
     Cara   : satu fungsi pilih_ant_select(field_id, nilai) dan isi_input;
              peta field (id, tipe, kondisi aktif, wajib/opsional) sebagai
@@ -966,7 +1446,7 @@ FASE 3 - BOT LEBIH TAHAN BANTING
              login tidak berulang; Selenium Manager untuk driver.
     DoD    : waktu proses per jam turun & stabil.
 
-[~] F3.4  Verifikasi kode SYNOP  (rev 16: diimplementasi core/synop_check.py; menunggu kalibrasi dgn lebih banyak sandi nyata)
+[x] F3.4  Verifikasi kode SYNOP  (rev 18: TUNTAS; 24/24 sandi 14 Nov 2026 sesuai. Kalibrasi lanjutan opsional lewat dry-run harian)
     Cara   : baca kode dari modal preview, simpan ke send_log, bandingkan
              dengan yang diharapkan dari data form.
     DoD    : kode tersimpan; mismatch memicu peringatan.
@@ -984,10 +1464,11 @@ FASE 3 - BOT LEBIH TAHAN BANTING
              "diubah_otomatis".
     DoD    : tidak ada perubahan data tanpa jejak/pemberitahuan.
 
-[ ] F3.7  Notifikasi
+[x] F3.7  Notifikasi  (rev 21: uji nyata --test OK di PC pengguna)
     Cara   : Telegram (+ alarm suara lokal untuk gagal total; K4 diputuskan) untuk sukses, gagal (+screenshot),
-             recovery sesi.
-    DoD    : kegagalan terkirim sebagai pesan dalam hitungan detik.
+             recovery sesi. Implementasi: core/notify.py; konfigurasi blok notify: di config.yaml.
+    DoD    : kegagalan terkirim sebagai pesan dalam hitungan detik. [x] uji server palsu; [ ] uji
+             nyata: python core/notify.py --test (setelah .env diisi).
 
 [x] F3.8  DITUTUP (K3: tidak ada API/endpoint; tidak dikerjakan)
     Cara   : amati tab Network; JANGAN dipakai sebelum ada izin dari
@@ -1048,6 +1529,10 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
   K5  Awan menengah ke-2 (Ac/As) DIPAKAI. Tambah F0.4 dan F3.10.
   K6  Excel tetap ada sebagai cadangan input (import ke DB) + template Excel
       baru berdropdown validasi.
+  K11 (2026-11-21) Popup 'Koreksi QC' (step-check AWS): bot KLIK Submit otomatis (data tetap terkirim), kejadian dicatat
+      + diberitahukan (Telegram). Sakelar features.qc_popup_auto_submit. Form web: data disimpan HANYA bila 0 ERROR.
+  K10 (2026-11-20) Notifikasi: gagal/error + rekap harian ke GRUP; 'sukses tiap jam' mati secara bawaan
+      (nyalakan lewat notify.kirim_sukses). QC aturan-AWS (F1.10b) ditutup: web yang mengatur.
   K9  (2026-11-17) Field yang nonaktif di web tetapi terisi di Excel = dilewati, cukup WARNING
       (bukan error). Kegagalan mengisi field opsional = peringatan + tercatat di log;
       features.fail_on_optional tetap default false.
@@ -1059,12 +1544,21 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
   N1  TERJAWAB (F0.5 penuh): kode "/" pada CL/CM/CH berperilaku seperti 0
       (detail nonaktif + diisi otomatis web). Lihat R20b.
   N2  TERJAWAB 2026-11-14: id toggle 775-778 sama pada dua sesi.
-  N3  Detail Telegram (token bot, grup piket) -> saat mengerjakan F3.7.
+  N3  TERJAWAB (rev 20): grup Telegram, tanpa nomor HP baru; token & chat_id di .env (lihat REV 20).
   N4  TERJAWAB (pengguna + uji): hujan diisi otomatis Fill AWS Digi; kolom
       hujan terbuka tiap 3 jam UTC, tidak bergantung ww/W1/W2 (R22). Vertical
       visibility: lihat R21/N6.
   N5  (TERBUKA) Baris jam 00:00 hampir kosong di Excel contoh: placeholder atau
       data nyata? Menentukan perlakuan validator (R9).
+  N7  TERJAWAB (rev 19): ambang hanya kategori, bukan aturan. [pertanyaan asli rev 18] Ambang intensitas endapan di PDF hal.29 (ringan < 0,5;
+      sedang 0,5-4,0; lebat > 4,0 mm/jam): berlaku utk memilih ww di stasiun
+      kita? Menentukan apakah QC ww-vs-hujan AWS (A5) boleh memakai ambang ini.
+  N8  TERJAWAB (rev 19): PDF sudah sesuai perka & lengkap; SK asli scan. [pertanyaan asli rev 18] Apakah pengguna punya SK.38/KT.104/KB/BMG-2006 lengkap
+      (lampiran: tata cara pengisian Me-48 per kolom, tabel kode 0500/0509/0513/
+      0515/0877/1819/1860/2700/3590)? Bila ya, unggah agar errata B-ERR dan butir
+      yang terpotong di PDF (E5, E9) bisa dipastikan dari sumber primer.
+  U1  DIJALANKAN (rev 19, pengguna: 'lanjut'; bisa diubah lewat qc_strict) Urutan prioritas sumber aturan di 2.12 dan
+      aturan QC baru berstatus WARNING dulu (F1.10).
   N6  TERJAWAB (K8, 2026-11-15): syarat visibilitas < 1 km ditegakkan sebagai
       ERROR; pada uji web kolom vertical visibility aktif walau visibilitas
       3.5 km, jadi aturan ini adalah ketentuan stasiun.
@@ -1201,6 +1695,36 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                fill 30, flow 24, popup 13, continue 11 lulus (browser tiruan; perilaku web asli belum terbukti).
                Berikutnya: pengguna dry-run ulang --jam 01:00; bila Jenis masih gagal, kirim baris "DIAG" dan
                snapshot HTML (snapshots/*_gagal_*.html) agar penyebab pasti dapat ditentukan.
+
+  [2026-11-20] Rev 17 - (Dicatat belakangan di rev 18; isi lengkap di bagian 1.)
+               Kalibrasi F3.4 dengan 22 sandi nyata: 19 WARNING S-GRUP disebabkan
+               verifikator mengharapkan semua grup awan; diperbaiki dengan aturan
+               WMO 306 (grup-1 lapisan terendah, grup-2 > 2 okta, grup-3 > 4 okta,
+               Cb tersendiri). Hasil 20/20 sandi di log cocok; tests/test_sandi.py
+               32 lulus.
+  [2026-11-20] Rev 18 - Pengguna menjalankan synop_check.py: 24 dari 24 sandi
+               (14 Nov 2026) sesuai, 0 bermasalah -> F3.4 [x]. Pengguna
+               mengunggah PDF Materi Pengamatan Meteorologi Permukaan (AMG 2014)
+               dan meminta aturannya dicatat. Ditambahkan bagian 2.12 (aturan B-xxx,
+               errata B-ERR, pemetaan QC Q1-Q9/A1-A6, kasus uji Sibolga), tahap
+               F1.10, instruksi 0.j, pertanyaan N7-N8 dan usulan U1. Tidak ada
+               kode yang diubah. Berikutnya: F1.10 (unggah validator.py,
+               rules.json, Excel), lalu F3.7.
+
+  [2026-11-20] Rev 19 - F1.10 selesai: core/qc.py, core/rules_qc.json, tests/test_qc.py baru;
+               validator.py, config.py, config.yaml diubah kecil. Pengguna menjawab N7 (ambang hujan
+               hanya kategori) dan N8 (PDF sesuai perka). 39 tes QC + 45 + 32 tes lama lulus; Excel
+               14 Nov 0 temuan. Berikutnya: F3.7 Telegram, F1.10b.
+
+  [2026-11-20] Rev 20 - F3.7: core/notify.py + tests/test_notify.py baru; V7SATU.py (7 titik), config.py,
+               config.yaml diubah. F1.10b ditutup (keputusan pengguna). Hasil tes pengguna rev 19:
+               tests/test_qc.py 39 lulus di PC pengguna. Berikutnya: pengguna menjalankan setup Telegram
+               (REV 20) dan python core/notify.py --test.
+
+  [2026-11-21] Rev 21 - F3.11 popup Koreksi QC (V7SATU.py, tests/test_koreksi_qc.py); F2 form+dashboard
+               (app.py, web/*.html, core/obsdb.py, core/formschema.py, tes form/obsdb/app); bot: pemilihan baris
+               menurut slot + features.data_source (V7SATU.py, config.py, config.yaml); requirements.txt + Flask;
+               test_bot_flow +10 tes, test_notify diperbaiki. Berikutnya: uji nyata pengguna.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

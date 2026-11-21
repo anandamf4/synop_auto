@@ -1,0 +1,200 @@
+# -*- coding: utf-8 -*-
+"""
+core/obsdb.py  -  F2.1: penyimpanan data observasi (pengganti pengetikan di Excel)
+
+Satu baris = satu slot (tanggal UTC + jam UTC). Isinya disimpan UTUH sebagai JSON berisi kolom
+yang sama dengan Excel (nama kolom = nama kolom Excel; nilai dropdown = teks opsi web), jadi:
+  * validator.py yang sama dipakai untuk Excel dan form;
+  * satu baris Excel dapat disimpan dan dibaca kembali tanpa kehilangan apa pun (DoD F2.1).
+waktu_eksekusi dan jam_input TIDAK disimpan; dihitung dari tanggal+jam (zona waktu & menit
+sebelum jam observasi dari konfigurasi), sehingga tidak bisa salah ketik/tidak cocok.
+
+Tabel `observasi` berada di berkas SQLite yang sama dengan send_log (data/synop.db).
+"""
+import datetime as dt
+import json
+import math
+import sqlite3
+from pathlib import Path
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS observasi (
+    tanggal_utc  TEXT NOT NULL,
+    jam          TEXT NOT NULL,
+    data_json    TEXT NOT NULL,
+    diubah_oleh  TEXT,
+    dibuat       TEXT,
+    updated_at   TEXT,
+    PRIMARY KEY (tanggal_utc, jam)
+);
+"""
+# urutan kolom seperti Excel INPUT_PARAMETER (kolom tak dikenal ditaruh di belakang)
+URUTAN_KOLOM = [
+    "waktu_eksekusi", "jam_input", "visibility", "ww", "w1", "w2", "cloud_cover_oktas_m",
+    "cloud_low_type_cl", "cloud_low_cover_oktas", "awan_rendah_jenis", "awan_rendah_jumlah", "cloud_low_base_1",
+    "cloud_low_peak_1", "cloud_arah_awan_rendah", "cloud_elevation_1_angle_ec", "cloud_arah_sebenarnya_1",
+    "awan_rendah_2_jenis", "awan_rendah_2_jumlah", "cloud_low_base_2", "cloud_low_peak_2", "cloud_arah_2",
+    "cloud_elevation_2_angle_ec", "cloud_arah_sebenarnya_2", "awan_rendah_3_jenis", "awan_rendah_3_jumlah",
+    "cloud_low_base_3", "cloud_arah_3", "cloud_med_type_cm", "cloud_med_cover_oktas", "awan_menengah_jenis_1",
+    "awan_menengah_jumlah_1", "cloud_med_base_1", "cloud_arah_menengah_1", "awan_menengah_jenis_2",
+    "awan_menengah_jumlah_2", "cloud_med_base_2", "cloud_arah_menengah_2", "cloud_high_type_ch",
+    "cloud_high_cover_oktas", "awan_tinggi_jenis", "awan_tinggi_jumlah", "cloud_high_base_1", "cloud_arah_tinggi",
+    "awan_tinggi_2_jenis", "awan_tinggi_2_jumlah", "cloud_high_base_2", "cloud_arah_tinggi_2", "land_cond",
+    "vertical_visibility", "hujan_override_aktif", "hujan_override_mm",
+]
+TIDAK_DISIMPAN = ("waktu_eksekusi", "jam_input")
+
+
+def _now():
+    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _kosong(v):
+    if v is None:
+        return True
+    if isinstance(v, float) and math.isnan(v):
+        return True
+    return str(v).strip() in ("", "nan", "NaN", "NaT", "None", "-")
+
+
+def _bersih(v):
+    """Nilai yang aman disimpan sebagai JSON (angka tetap angka, bool tetap bool)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        f = float(v)
+        return int(f) if f.is_integer() else f
+    if hasattr(v, "item"):            # numpy scalar
+        return _bersih(v.item())
+    return str(v).strip()
+
+
+def normalisasi(data):
+    """Buang kolom kosong & kolom turunan; kembalikan dict siap simpan."""
+    out = {}
+    for k, v in (data or {}).items():
+        k = str(k).strip()
+        if k in TIDAK_DISIMPAN or k.startswith("Unnamed") or _kosong(v):
+            continue
+        out[k] = _bersih(v)
+    return out
+
+
+class ObsStore:
+    def __init__(self, path, tz_hours=7, menit_sebelum=2):
+        self.path = str(path)
+        self.tz = tz_hours
+        self.menit = menit_sebelum
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        with self._conn() as c:
+            c.executescript(SCHEMA)
+
+    def _conn(self):
+        c = sqlite3.connect(self.path, timeout=15)
+        c.row_factory = sqlite3.Row
+        try:
+            c.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.DatabaseError:
+            pass
+        return c
+
+    # ---------------------------------------------------------------- CRUD
+    def get(self, tanggal_utc, jam):
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM observasi WHERE tanggal_utc=? AND jam=?", (tanggal_utc, jam)).fetchone()
+        return json.loads(r["data_json"]) if r else None
+
+    def info(self, tanggal_utc, jam):
+        with self._conn() as c:
+            r = c.execute("SELECT diubah_oleh, dibuat, updated_at FROM observasi WHERE tanggal_utc=? AND jam=?",
+                          (tanggal_utc, jam)).fetchone()
+        return dict(r) if r else None
+
+    def upsert(self, tanggal_utc, jam, data, oleh=None):
+        d = normalisasi(data)
+        js = json.dumps(d, ensure_ascii=False, sort_keys=True)
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO observasi (tanggal_utc, jam, data_json, diubah_oleh, dibuat, updated_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(tanggal_utc, jam) DO UPDATE SET data_json=excluded.data_json, "
+                "diubah_oleh=excluded.diubah_oleh, updated_at=excluded.updated_at",
+                (tanggal_utc, jam, js, oleh, _now(), _now()))
+        return d
+
+    def delete(self, tanggal_utc, jam):
+        with self._conn() as c:
+            c.execute("DELETE FROM observasi WHERE tanggal_utc=? AND jam=?", (tanggal_utc, jam))
+
+    def list_day(self, tanggal_utc):
+        with self._conn() as c:
+            rs = c.execute("SELECT * FROM observasi WHERE tanggal_utc=? ORDER BY jam", (tanggal_utc,)).fetchall()
+        return {r["jam"]: {"data": json.loads(r["data_json"]), "oleh": r["diubah_oleh"],
+                           "updated_at": r["updated_at"]} for r in rs}
+
+    @staticmethod
+    def slot_sebelumnya(tanggal_utc, jam):
+        t = dt.datetime.strptime(f"{tanggal_utc} {jam}", "%Y-%m-%d %H:%M") - dt.timedelta(hours=1)
+        return t.strftime("%Y-%m-%d"), t.strftime("%H:%M")
+
+    def sebelumnya(self, tanggal_utc, jam):
+        """Data jam sebelumnya (melewati pergantian hari UTC) untuk tombol 'salin'."""
+        return self.get(*self.slot_sebelumnya(tanggal_utc, jam))
+
+    # ------------------------------------------------- jembatan ke bot/validator
+    def waktu_eksekusi(self, tanggal_utc, jam):
+        """Waktu setempat (naive) saat bot mulai mengisi: jam observasi (UTC) + zona - menit_sebelum."""
+        t = dt.datetime.strptime(f"{tanggal_utc} {jam}", "%Y-%m-%d %H:%M")
+        return t + dt.timedelta(hours=self.tz) - dt.timedelta(minutes=self.menit)
+
+    def to_row(self, tanggal_utc, jam, data=None):
+        """Baris bergaya Excel (dict) untuk Validator.validate_row / DataFrame bot."""
+        d = self.get(tanggal_utc, jam) if data is None else normalisasi(data)
+        if d is None:
+            return None
+        row = {"waktu_eksekusi": self.waktu_eksekusi(tanggal_utc, jam), "jam_input": jam}
+        row.update(d)
+        return row
+
+    def to_dataframe(self, dari=None, sampai=None):
+        """DataFrame seperti load_excel() untuk slot dalam rentang tanggal UTC [dari, sampai]."""
+        import pandas as pd
+        q, args = "SELECT * FROM observasi", []
+        if dari or sampai:
+            q += " WHERE 1=1"
+            if dari:
+                q += " AND tanggal_utc>=?"
+                args.append(dari)
+            if sampai:
+                q += " AND tanggal_utc<=?"
+                args.append(sampai)
+        q += " ORDER BY tanggal_utc, jam"
+        with self._conn() as c:
+            rs = c.execute(q, args).fetchall()
+        rows = [self.to_row(r["tanggal_utc"], r["jam"], json.loads(r["data_json"])) for r in rs]
+        if not rows:
+            return pd.DataFrame(columns=URUTAN_KOLOM)
+        df = pd.DataFrame(rows)
+        urut = [c for c in URUTAN_KOLOM if c in df.columns] + [c for c in df.columns if c not in URUTAN_KOLOM]
+        df = df[urut]
+        df["waktu_eksekusi"] = pd.to_datetime(df["waktu_eksekusi"])
+        return df.reset_index(drop=True)
+
+    def import_dataframe(self, df, tz_hours=None, oleh="import Excel"):
+        """
+        Masukkan baris Excel ke DB. Tanggal/jam UTC diturunkan dari waktu_eksekusi (+ pembulatan 30 menit,
+        sama seperti validator). Return (jumlah_masuk, [(no_baris, alasan)] yang dilewati).
+        """
+        import pandas as pd
+        tz = self.tz if tz_hours is None else tz_hours
+        masuk, lewat = 0, []
+        for i, (_, r) in enumerate(df.iterrows()):
+            try:
+                w = pd.to_datetime(r["waktu_eksekusi"]).to_pydatetime()
+            except Exception:
+                lewat.append((i + 2, "waktu_eksekusi tidak valid"))
+                continue
+            utc = w - dt.timedelta(hours=tz)
+            n = (utc + dt.timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+            self.upsert(n.strftime("%Y-%m-%d"), f"{n.hour:02d}:00", {k: r[k] for k in df.columns}, oleh)
+            masuk += 1
+        return masuk, lewat

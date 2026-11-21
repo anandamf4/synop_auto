@@ -1,0 +1,114 @@
+{
+  "_meta": {
+    "format_version": 1,
+    "dibuat": "2026-11-20",
+    "sumber": "PPT pusat 'Update Modul Pengamatan di BMKGSoft v2' (16 Nov 2026) + PDF Materi Pengamatan AMG 2014 (lihat handoff 2.11, 2.12-M)",
+    "catatan": [
+      "level = tingkat bawaan; strict_level = tingkat bila config features.qc_strict = true.",
+      "Aturan turunan/usulan (QC121, QC-PK, QC-U1..U3) tidak pernah ERROR.",
+      "Nomor QC mengikuti PPT pusat. Rumusan batas dari ringkasan PPT; naikkan ke ERROR hanya setelah dicocokkan dengan perilaku web (alur Gross -> Consistency).",
+      "Set \"aktif\": false untuk mematikan satu aturan tanpa mengubah kode."
+    ]
+  },
+  "rules": {
+    "QC10": {
+      "sumber": "PPT QC10; PDF hal.17,45",
+      "uraian": "W1 >= W2",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC13": {
+      "sumber": "PPT slide 9 (QC13)",
+      "uraian": "N=9 dengan ww tertentu tidak konsisten",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC35": {
+      "sumber": "PPT QC35",
+      "uraian": "N<8 dengan CH=7",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC44": {
+      "sumber": "PPT QC44",
+      "uraian": "Nh=8 (awan rendah) -> CM harus '/'",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC47": {
+      "sumber": "PPT QC47",
+      "uraian": "Nh=8 -> CH harus '/'",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC90": {
+      "sumber": "PPT QC90-93",
+      "uraian": "tinggi dasar vs jenis (Cc/Cs>=4800; Ac/As>=2100; Ns<=6900; Sc/St/Cu/Cb<=1800 m)",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC102": {
+      "sumber": "PPT QC102/103",
+      "uraian": "Cs 8 okta <-> CH=7",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC107": {
+      "sumber": "PPT QC107/108",
+      "uraian": "jumlah lapisan > tutupan total; Ns=8 -> N=8",
+      "level": "WARNING",
+      "strict_level": "ERROR",
+      "aktif": true
+    },
+    "QC121": {
+      "sumber": "PPT QC121 (diterapkan ke awan rendah ke-2 saja)",
+      "uraian": "grup/lapisan ke-2 harus lebih tinggi dari ke-1",
+      "level": "WARNING",
+      "strict_level": "WARNING",
+      "aktif": true
+    },
+    "QC-PK": {
+      "sumber": "turunan PDF hal.36",
+      "uraian": "puncak konvektif wajar (Cu <= 6900 m; Cb >= 4500 m; puncak >= dasar)",
+      "level": "WARNING",
+      "strict_level": "WARNING",
+      "aktif": true
+    },
+    "QC-U1": {
+      "sumber": "usulan",
+      "uraian": "ww presipitasi dengan tutupan total 0",
+      "level": "WARNING",
+      "strict_level": "WARNING",
+      "aktif": true
+    },
+    "QC-U2": {
+      "sumber": "usulan",
+      "uraian": "tanah kering saat ww presipitasi",
+      "level": "INFO",
+      "strict_level": "INFO",
+      "aktif": true
+    },
+    "QC-U3": {
+      "sumber": "turunan WMO",
+      "uraian": "ww 20-29/91-94 harus tercermin di W1/W2",
+      "level": "INFO",
+      "strict_level": "INFO",
+      "aktif": true
+    }
+  },
+  "param": {
+    "base_min_cc_cs_m": 4800,
+    "base_min_ac_as_m": 2100,
+    "base_max_ns_m": 6900,
+    "base_max_low_m": 1800,
+    "cu_top_max_m": 6900,
+    "cb_top_min_m": 4500
+  }
+}

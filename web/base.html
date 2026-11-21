@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block judul %}SYNOP{% endblock %} — {{ stasiun }}</title>
+<style>
+:root{--bg:#f5f7fa;--kartu:#fff;--garis:#dde3ea;--teks:#1d2733;--redup:#6b7785;--biru:#1766d1;--hijau:#1a8f4c;--kuning:#c98a00;--merah:#c93434;--abu:#8a94a0}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--teks)}
+header{background:#0f2f57;color:#fff;padding:10px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+header a{color:#cfe2ff;text-decoration:none}header h1{font-size:17px;margin:0;font-weight:600}header .sp{flex:1}
+main{max-width:1100px;margin:16px auto;padding:0 14px}
+.kartu{background:var(--kartu);border:1px solid var(--garis);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.kartu h2{font-size:15px;margin:0 0 10px;color:#0f2f57}
+button,.tombol{font:inherit;border:1px solid var(--garis);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer;color:var(--teks);text-decoration:none;display:inline-block}
+button.utama,.tombol.utama{background:var(--biru);border-color:var(--biru);color:#fff}button.bahaya{color:var(--merah);border-color:#e6b5b5}
+button:disabled{opacity:.45;cursor:not-allowed}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;color:#fff;background:var(--abu)}
+.b-hijau,.b-sent{background:var(--hijau)}.b-kuning,.b-pending,.b-running{background:var(--kuning)}.b-merah,.b-failed{background:var(--merah)}.b-skipped{background:#6c5ce7}.b-kosong{background:#b8c0ca}
+input,select{font:inherit;padding:6px 8px;border:1px solid var(--garis);border-radius:7px;background:#fff;max-width:100%}
+.msg{padding:8px 12px;border-radius:8px;margin:8px 0}.msg.ok{background:#e6f6ec;color:#146c38}.msg.err{background:#fde8e8;color:#9b2323}
+small,.redup{color:var(--redup)}
+</style>
+</head>
+<body>
+<header><h1>SYNOP — {{ stasiun }}</h1><a href="/">Dashboard</a><span class="sp"></span><span id="jam-server" class="redup" style="color:#a9c4ea"></span></header>
+<main>{% block isi %}{% endblock %}</main>
+</body></html>

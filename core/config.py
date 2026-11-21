@@ -36,6 +36,7 @@ DEFAULTS = {
         "snapshots": "snapshots",
         "options": "core/options.json",
         "rules": "core/rules.json",
+        "rules_qc": "core/rules_qc.json",   # F1.10: aturan QC konsistensi
         # gambar tombol OK untuk popup awal (pyautogui); jika tidak ada, bot mencoba klik via Selenium
         "ok_image": r"D:\OTO_SYNOP\SYNOP\ok.PNG",
     },
@@ -59,6 +60,26 @@ DEFAULTS = {
         "dry_run": False,
         "allow_update": True,          # jam yang sudah ada di web boleh ditimpa lewat tombol Update
         "rain_override_strict": False,  # True: batalkan baris jika override hujan gagal diterapkan
+        "qc_enabled": True,             # F1.10: jalankan aturan QC konsistensi (core/qc.py)
+        "qc_strict": False,             # True: temuan QC "pasti" (PPT) menjadi ERROR dan memblok baris
+        "data_source": "excel",         # F2.7: "excel" (INPUT_PARAMETER.xlsx) atau "db" (diisi lewat form web app.py)
+        "qc_popup_auto_submit": True,   # F3.11: popup web "Koreksi QC" -> klik Submit otomatis (data tetap terkirim)
+        "qc_popup_tunggu": 12,          # F3.11: batas (detik) mengawasi popup susulan setelah OK terakhir
+        "qc_popup_tenang": 4,           # F3.11: layar dianggap tenang bila tak ada popup selama N detik
+    },
+    "web": {"host": "0.0.0.0", "port": 8080, "menit_sebelum": 2},   # F2: form & dashboard (app.py)
+    "notify": {                         # F3.7 Telegram (token & chat_id di .env, BUKAN di sini)
+        "enabled": True,
+        "kirim_gagal": True,            # gagal kirim / baris dilewati karena validasi / bot berhenti
+        "kirim_recovery": True,         # pemulihan sesi browser
+        "kirim_diubah": True,           # terkirim tetapi ada perubahan otomatis (mis. ww 10->05)
+        "kirim_sukses": False,          # pesan tiap jam terkirim (24x/hari); bawaan mati
+        "kirim_rekap": True,            # ringkasan harian
+        "kirim_screenshot": True,
+        "kirim_saat_dry_run": False,
+        "alarm_suara": True,            # bunyi lokal (Windows) saat gagal total
+        "rekap_jam_utc": "23:50",
+        "nama_stasiun": "Sultan Thaha (96195)",
     },
 }
 

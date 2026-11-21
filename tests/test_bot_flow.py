@@ -64,7 +64,7 @@ class Recorder:
 
 
 def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_data_result=True,
-             allow_update=True, start_wib=None):
+             allow_update=True, start_wib=None, pasca_fn=None, db_rows=None, hook_isi=None):
     """Jalankan V7.main() dengan semua interaksi browser dipalsukan. Return Recorder."""
     rec = Recorder()
     with tempfile.TemporaryDirectory() as d:
@@ -74,6 +74,15 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
         V7.CFG["paths"]["db"] = str(db_path)
         V7.CFG["features"]["allow_update"] = allow_update
         V7.DRY_RUN = False
+        # [F2.7] db_rows != None -> bot membaca data dari database form web (bukan Excel)
+        V7.SUMBER_DATA = "db" if db_rows is not None else "excel"
+        V7._OBS_STORE = None
+        if db_rows is not None:
+            from core.obsdb import ObsStore
+            st = ObsStore(db_path, tz_hours=7, menit_sebelum=2)
+            for r in db_rows:
+                st.upsert("2026-11-14", r["jam_input"], {k: v for k, v in r.items()
+                                                         if k not in ("waktu_eksekusi", "jam_input")}, "Tester")
 
         clock = {"now": start_wib or (UTC_DAY + dt.timedelta(hours=7 + 6, minutes=40))}   # 13:40 WIB
 
@@ -110,7 +119,12 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
             return True
         V7.memilih_tanggal = f_tanggal
         V7.tanggal_di_web = lambda drv: state["tanggal"]
-        V7.isi_per_jam = lambda drv, row: (rec.add("jam", str(row["jam_input"])) or True)
+        def f_isi(drv, row):
+            rec.add("jam", str(row["jam_input"]))
+            if db_rows is not None and hook_isi:
+                hook_isi(str(row["jam_input"]), st)
+            return True
+        V7.isi_per_jam = f_isi
         V7.Fill_AWS_Digi = lambda drv: True
         V7.memilih_observer = lambda drv: True
         V7.wait_for_clickable = lambda *a, **k: object()
@@ -134,6 +148,9 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
         V7.SEND_INASWITCH_SUBMIT = lambda drv: True
         V7.SEND_GTS = lambda drv: True
         V7.SEND_GTS_OK = lambda drv: True
+        # [F3.11] pengawas popup susulan diganti tiruan (jam palsu di tes ini maju tiap sleep);
+        # perilaku popup diuji terpisah di tests/test_koreksi_qc.py
+        V7.selesaikan_pasca_kirim = pasca_fn or (lambda drv: (True, ""))
         V7.save_debug_snapshot = lambda drv, tag="debug": f"snap_{tag}.png"
 
         def f_recover(cur, max_attempts=3, tanggal_utc=None):
@@ -264,6 +281,63 @@ with tempfile.TemporaryDirectory() as d:
     rec = run_main(rows, ["--observer", "Tester", "--no-gui", "--dry-run"], db11, start_wib=late)
     check("tanpa --process-past: baris lewat waktu dilewati (perilaku aman)",
           len(rec.names("isi_data")) == 0, rec.names("isi_data"))
+
+print("== [F3.11] popup susulan setelah OK (Koreksi QC) ==")
+with tempfile.TemporaryDirectory() as d:
+    db12 = Path(d) / "l.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db12,
+                   pasca_fn=lambda drv: (False, "popup Koreksi QC tidak dapat dikonfirmasi: pressure_qff"))
+    s = slots(db12)[("2026-11-14", "07:00")]
+    check("popup tak bisa dikonfirmasi -> status failed (BUKAN sent)", s["status"] == "failed"
+          and "BELUM terkirim" in s["pesan"] and "Koreksi QC" in s["pesan"], s)
+    db13 = Path(d) / "m.db"
+
+    def pasca_qc(drv):
+        V7.PERUBAHAN_OTOMATIS["koreksi_qc"] = "Submit dikonfirmasi: temp_drybulb_c Step Check"
+        return True, ""
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db13, pasca_fn=pasca_qc)
+    s = slots(db13)[("2026-11-14", "07:00")]
+    ev = {e["event"]: e["detail"] for e in SendLog(db13).events(limit=50)}
+    check("Koreksi QC dikonfirmasi -> sent + tercatat di diubah_otomatis", s["status"] == "sent"
+          and "koreksi_qc" in (s["diubah_otomatis"] or ""), s)
+    check("Koreksi QC dicatat sebagai event audit", "koreksi_qc" in ev and "Step Check" in ev["koreksi_qc"], ev)
+
+print("== [F2.7] data dari database (form web) ==")
+import pandas as pd  # noqa: E402
+with tempfile.TemporaryDirectory() as d:
+    V7.SUMBER_DATA = "db"
+    k = lambda jam, tgl="2026-11-14": (tgl, jam)
+    mk = lambda jam, wib_menit_utc: pd.Series({"waktu_eksekusi": pd.Timestamp(UTC_DAY + dt.timedelta(hours=jam + 7, minutes=-2))})
+    df3 = pd.DataFrame([{"waktu_eksekusi": UTC_DAY + dt.timedelta(hours=h + 7, minutes=-2), "jam_input": f"{h:02d}:00"} for h in (7, 8, 9)])
+    check("_kunci_baris: slot dari waktu_eksekusi (13:58 WIB -> 07:00 UTC)", V7._kunci_baris(df3.iloc[0]) == ("2026-11-14", "07:00"))
+    check("_posisi mode DB: baris ditemukan menurut slot walau posisinya bergeser",
+          V7._posisi(df3, ("2026-11-14", "09:00"), 1) == 2)
+    check("_posisi mode DB: slot yang hilang -> None (tidak jatuh ke nomor urut)", V7._posisi(df3, ("2026-11-14", "12:00"), 1) is None)
+    V7.SUMBER_DATA = "excel"
+    check("_posisi mode Excel: slot tidak ketemu -> nomor urut lama (perilaku V7)", V7._posisi(df3, ("2026-11-14", "12:00"), 1) == 1)
+    check("_posisi mode Excel: nomor urut di luar jangkauan -> None", V7._posisi(df3, ("2026-11-14", "12:00"), 9) is None)
+    check("_posisi: df None -> None", V7._posisi(None, ("2026-11-14", "07:00"), 0) is None)
+
+    dbA = Path(d) / "a.db"
+    rec = run_main([], ["--observer", "Tester", "--no-gui"], dbA, db_rows=[make_row(7), make_row(9)])
+    sl = slots(dbA)
+    check("DB: dua slot dari form dikirim (07 dan 09 UTC)", sl.get(("2026-11-14", "07:00"), {}).get("status") == "sent"
+          and sl.get(("2026-11-14", "09:00"), {}).get("status") == "sent", sl)
+    check("DB: urutan pengisian di web 07 lalu 09", [c[1] for c in rec.calls if c[0] == "jam"] == ["07:00", "09:00"], rec.calls)
+
+    dbB = Path(d) / "b.db"
+
+    def sisip(jam, st):                     # pengamat mengisi jam 08 di form SAAT bot sedang memproses jam 07
+        if jam == "07:00":
+            r = make_row(8)
+            st.upsert("2026-11-14", "08:00", {k: v for k, v in r.items() if k not in ("waktu_eksekusi", "jam_input")}, "Tester")
+    rec = run_main([], ["--observer", "Tester", "--no-gui"], dbB, db_rows=[make_row(7), make_row(9)], hook_isi=sisip)
+    urut = [c[1] for c in rec.calls if c[0] == "jam"]
+    check("DB: jam 08 disisipkan di tengah pass TIDAK menggeser baris — jam 09 tetap benar (bukan 08 di waktu 09)",
+          urut == ["07:00", "09:00"], urut)
+    check("DB: jam 08 yang baru diisi tidak hilang (menunggu pass berikutnya)", slots(dbB).get(("2026-11-14", "09:00"), {}).get("status") == "sent")
+    V7.SUMBER_DATA = "excel"
+    V7._OBS_STORE = None
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)
