@@ -22,7 +22,7 @@ def check(n, c, info=""):
     failed += (not c)
 
 
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     st = ObsStore(Path(d) / "o.db")
     print("== dasar ==")
     check("normalisasi: kosong/NaN/Unnamed/kolom turunan dibuang, angka bulat jadi int",

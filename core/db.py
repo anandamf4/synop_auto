@@ -24,6 +24,7 @@ Pemakaian:
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime
 
 STATUSES = ("pending", "running", "sent", "failed", "skipped")
@@ -74,13 +75,34 @@ class SendLog:
         if d:
             os.makedirs(d, exist_ok=True)
         self.path = path
-        self.conn = sqlite3.connect(path)
-        self.conn.row_factory = sqlite3.Row
+        # Flask melayani tiap permintaan di thread berbeda; objek koneksi SQLite tidak boleh
+        # dipakai lintas thread. Solusi: satu koneksi PER THREAD (dibuat saat pertama dipakai).
+        self._local = threading.local()
+        self._semua = []
+        self._kunci = threading.Lock()
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 
+    @property
+    def conn(self):
+        c = getattr(self._local, "c", None)
+        if c is None:
+            c = sqlite3.connect(self.path, timeout=15, check_same_thread=False)
+            c.row_factory = sqlite3.Row
+            self._local.c = c
+            with self._kunci:
+                self._semua.append(c)
+        return c
+
     def close(self):
-        self.conn.close()
+        with self._kunci:
+            for c in self._semua:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+            self._semua.clear()
+        self._local = threading.local()
 
     # ------------------------------------------------------------------ #
     def get(self, tanggal_utc, jam):

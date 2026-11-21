@@ -31,8 +31,10 @@ def op(app, col, kode):
     return next(o for o in opsi_kolom(app.validator, col) if o.split(" ")[0] == kode)
 
 
-with tempfile.TemporaryDirectory() as d:
-    app = create_app(load_config(), db_path=str(Path(d) / "a.db"))
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    _cfg = load_config()                 # load_config() membaca .env -> bisa mengisi WEB_PIN lagi
+    os.environ.pop("WEB_PIN", None)      # tes ini mengukur perilaku TANPA PIN
+    app = create_app(_cfg, db_path=str(Path(d) / "a.db"))
     c = app.test_client()
     cerah = {"cloud_cover_oktas_m": op(app, "cloud_cover_oktas_m", "0"), "visibility": 10, "ww": op(app, "ww", "00"),
              "w1": op(app, "w1", "0"), "w2": op(app, "w2", "0"), "land_cond": op(app, "land_cond", "0")}
@@ -101,7 +103,7 @@ with tempfile.TemporaryDirectory() as d:
 
 print("\n== PIN ==")
 os.environ["WEB_PIN"] = "4321"
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     app2 = create_app(load_config(), db_path=str(Path(d) / "b.db"))
     c2 = app2.test_client()
     check("tanpa PIN: halaman diarahkan ke /login, API 401", c2.get("/").status_code == 302 and c2.get("/api/status").status_code == 401)

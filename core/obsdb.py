@@ -15,6 +15,7 @@ import datetime as dt
 import json
 import math
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA = """
@@ -89,14 +90,24 @@ class ObsStore:
         with self._conn() as c:
             c.executescript(SCHEMA)
 
+    @contextmanager
     def _conn(self):
+        """Koneksi sekali pakai: commit bila sukses, rollback bila error, SELALU ditutup
+        (sqlite3 'with' biasa tidak menutup; di Windows berkas .db jadi terkunci)."""
         c = sqlite3.connect(self.path, timeout=15)
         c.row_factory = sqlite3.Row
         try:
             c.execute("PRAGMA journal_mode=WAL")
         except sqlite3.DatabaseError:
             pass
-        return c
+        try:
+            yield c
+            c.commit()
+        except BaseException:
+            c.rollback()
+            raise
+        finally:
+            c.close()
 
     # ---------------------------------------------------------------- CRUD
     def get(self, tanggal_utc, jam):

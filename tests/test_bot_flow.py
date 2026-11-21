@@ -67,7 +67,7 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
              allow_update=True, start_wib=None, pasca_fn=None, db_rows=None, hook_isi=None):
     """Jalankan V7.main() dengan semua interaksi browser dipalsukan. Return Recorder."""
     rec = Recorder()
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         xlsx = Path(d) / "in.xlsx"
         pd.DataFrame(rows).to_excel(xlsx, index=False)
         V7.EXCEL_PATH = xlsx
@@ -185,7 +185,7 @@ def slots(db_path):
 
 
 print("== alur normal: sent / skipped(ERROR) / sent ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db1 = Path(d) / "a.db"
     rows = [make_row(7), make_row(8, cloud_cover_oktas_m="9 -", visibility=3.5, vertical_visibility=100),
             make_row(9, cloud_cover_oktas_m="0")]
@@ -212,7 +212,7 @@ with tempfile.TemporaryDirectory() as d:
     check("tidak ada pengisian ulang", len(rec2.names("isi_data")) == 0, rec2.names("isi_data"))
 
 print("== dry-run ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db2 = Path(d) / "b.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui", "--dry-run"], db2)
     s = slots(db2)[("2026-11-14", "07:00")]
@@ -221,7 +221,7 @@ with tempfile.TemporaryDirectory() as d:
           and "dry-run" in s["pesan"], s)
 
 print("== gagal isi data ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db3 = Path(d) / "c.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db3, isi_data_result=False)
     s = slots(db3)[("2026-11-14", "07:00")]
@@ -230,7 +230,7 @@ with tempfile.TemporaryDirectory() as d:
     check("tidak dikirim", len(rec.names("send_submit")) == 0)
 
 print("== recovery sesi ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db4 = Path(d) / "d.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db4, fail_form_once=True)
     s = slots(db4)[("2026-11-14", "07:00")]
@@ -239,7 +239,7 @@ with tempfile.TemporaryDirectory() as d:
     check("tanggal dipilih ulang setelah recovery", len(rec.names("tanggal")) >= 2, rec.names("tanggal"))
 
 print("== mode Update (data jam sudah ada di web) ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db5 = Path(d) / "e.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db5, update_mode=True)
     s = slots(db5)[("2026-11-14", "07:00")]
@@ -251,7 +251,7 @@ with tempfile.TemporaryDirectory() as d:
     check("allow_update=false: dilewati, tidak dikirim", s["status"] == "skipped" and len(rec.names("send_submit")) == 0, s)
 
 print("== waktu sudah lewat & check-only ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db7 = Path(d) / "g.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db7,
                    start_wib=UTC_DAY + dt.timedelta(hours=7 + 8))      # 15:00 WIB, jadwal 13:58 sudah lewat
@@ -263,7 +263,7 @@ with tempfile.TemporaryDirectory() as d:
     check("--check-only: tidak membuka browser/login", len(rec.names("login")) == 0, rec.calls)
 
 print("== --process-past dan --jam ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db9 = Path(d) / "i.db"
     rows = [make_row(7), make_row(8)]
     late = UTC_DAY + dt.timedelta(hours=7 + 9)      # 16:00 WIB: kedua jadwal sudah lewat
@@ -283,7 +283,7 @@ with tempfile.TemporaryDirectory() as d:
           len(rec.names("isi_data")) == 0, rec.names("isi_data"))
 
 print("== [F3.11] popup susulan setelah OK (Koreksi QC) ==")
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     db12 = Path(d) / "l.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], db12,
                    pasca_fn=lambda drv: (False, "popup Koreksi QC tidak dapat dikonfirmasi: pressure_qff"))
@@ -304,7 +304,7 @@ with tempfile.TemporaryDirectory() as d:
 
 print("== [F2.7] data dari database (form web) ==")
 import pandas as pd  # noqa: E402
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     V7.SUMBER_DATA = "db"
     k = lambda jam, tgl="2026-11-14": (tgl, jam)
     mk = lambda jam, wib_menit_utc: pd.Series({"waktu_eksekusi": pd.Timestamp(UTC_DAY + dt.timedelta(hours=jam + 7, minutes=-2))})
