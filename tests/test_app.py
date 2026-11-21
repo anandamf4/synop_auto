@@ -101,6 +101,55 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     r = c.post("/api/impor", data={"berkas": (io.BytesIO(b"ini bukan berkas excel"), "x.xlsx")}, content_type="multipart/form-data")
     check("berkas rusak ditolak dengan pesan (bukan crash)", r.status_code == 400 and not r.get_json()["ok"])
 
+    print("\n== nilai Excel (kode saja) tampil di dropdown form ==")
+    mentah = {"cloud_cover_oktas_m": 0, "visibility": 10, "ww": "00", "w1": 0, "w2": 0, "land_cond": 0,
+              "hujan_override_aktif": "ya", "hujan_override_mm": 2}
+    hook, app.obs.kanonik = app.obs.kanonik, None          # simpan MENTAH seperti hasil impor lama
+    app.obs.upsert("2026-12-05", "09:00", mentah, "import Excel")
+    app.obs.kanonik = hook
+    j = c.get("/api/slot/2026-12-05/09:00").get_json()["data"]
+    cocok = all(j[k] in opsi_kolom(app.validator, k) for k in ("cloud_cover_oktas_m", "ww", "w1", "w2", "land_cond"))
+    check("data mentah (0, '00', 'ya') dikembalikan sebagai teks opsi persis dropdown", cocok and j["hujan_override_aktif"] is True, j)
+    check("nilai angka (visibilitas, curah hujan) tidak berubah", j["visibility"] == 10 and j["hujan_override_mm"] == 2, j)
+    app.obs.upsert("2026-12-05", "10:00", {"cloud_cover_oktas_m": 0, "ww": "00", "w1": 0, "w2": 0, "land_cond": 0, "visibility": 10}, "x")
+    check("simpan lewat app menyimpan teks opsi (bukan kode mentah)", app.obs.get("2026-12-05", "10:00")["ww"] == cerah["ww"])
+    check("salin jam sebelumnya juga memakai teks opsi", c.get("/api/salin?tanggal=2026-12-05&jam=11:00").get_json()["data"]["ww"] == cerah["ww"])
+
+    print("\n== salin dari tanggal lain (rentang jam) ==")
+    S, K = "2026-12-01", "2026-12-02"
+    for h in (6, 7, 8):
+        app.obs.upsert(S, f"{h:02d}:00", dict(cerah, **({"hujan_override_aktif": True, "hujan_override_mm": 3} if h == 6 else {})), "Tester")
+    def salin(**kw):
+        b = {"dari_tanggal": S, "ke_tanggal": K, "seharian": True, "mode": "lewati", "observer": "Tester"}
+        b.update(kw)
+        return c.post("/api/salin_rentang", json=b)
+    r = salin(pratinjau=True).get_json()
+    check("pratinjau seharian: 3 jam akan disalin, TIDAK menulis apa pun", r["ok"] and len(r["disalin"]) == 3 and r["pratinjau"] and app.obs.get(K, "06:00") is None, r)
+    check("tanpa data sumber dilaporkan (21 jam)", len(r["tanpa_sumber"]) == 21, r)
+    r = salin(seharian=False, jam_dari=6, jam_sampai=8).get_json()
+    check("salin rentang 06-08: 3 jam masuk", len(r["disalin"]) == 3 and all(app.obs.get(K, f"{h:02d}:00") for h in (6, 7, 8)), r)
+    j = c.get(f"/api/slot/{K}/06:00").get_json()
+    check("hasil salinan terbuka lengkap di form & override hujan TIDAK ikut", j["ada"] and j["data"]["ww"] == cerah["ww"] and "hujan_override_mm" not in j["data"], j["data"])
+    check("diubah_oleh = observer yang menyalin", j["info"]["diubah_oleh"] == "Tester")
+    r = salin().get_json()
+    check("mode lewati: jam yang sudah terisi tidak disentuh", r["lewati_terisi"] == ["06:00", "07:00", "08:00"] and not r["disalin"], r)
+    app.obs.upsert(K, "08:00", dict(cerah, visibility=4), "Tester")
+    r = salin(mode="timpa").get_json()
+    check("mode timpa: menimpa 3 jam, ditandai menimpa", len(r["disalin"]) == 3 and all(x["menimpa"] for x in r["disalin"]), r)
+    check("timpa benar-benar mengganti isi (visibilitas 4 -> 10)", app.obs.get(K, "08:00")["visibility"] == 10)
+    app.log.register(K, "07:00"); app.log.start_attempt(K, "07:00"); app.log.mark_sent(K, "07:00", kode_synop="AAXX")
+    app.obs.upsert(K, "07:00", dict(cerah, visibility=2), "Tester")
+    r = salin(mode="timpa").get_json()
+    check("jam yang sudah TERKIRIM tidak diubah sama sekali", r["lewati_terkirim"] == ["07:00"] and len(r["disalin"]) == 2
+          and app.obs.get(K, "07:00")["visibility"] == 2, r)
+    check("tanpa observer (bukan pratinjau) -> 422", salin(observer="").status_code == 422)
+    check("pratinjau tanpa observer boleh", salin(observer="", pratinjau=True).status_code == 200)
+    check("tanggal sumber = tujuan -> 400", salin(ke_tanggal=S).status_code == 400)
+    check("rentang terbalik -> 400", salin(seharian=False, jam_dari=9, jam_sampai=3).status_code == 400)
+    check("jam di luar 00-23 -> 400", salin(seharian=False, jam_dari=0, jam_sampai=24).status_code == 400)
+    check("format tanggal salah -> 400", salin(dari_tanggal="2026-13-99").status_code == 400)
+    check("mode tak dikenal -> 400", salin(mode="hapus").status_code == 400)
+
 print("\n== PIN ==")
 os.environ["WEB_PIN"] = "4321"
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:

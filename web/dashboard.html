@@ -3,9 +3,38 @@
 <div class="kartu" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <button id="prev">◀</button><input type="date" id="tgl" value="{{ tanggal }}"><button id="next">▶</button>
   <button id="hariini">Hari ini (UTC)</button><span class="redup">Tanggal &amp; jam = UTC</span><span style="flex:1"></span>
+  <button id="buka-salin">⧉ Salin dari tanggal lain</button>
   <a class="tombol" id="ekspor" href="#">⬇ Ekspor Excel</a>
   <label class="tombol">⬆ Impor Excel<input type="file" id="impor" accept=".xlsx" hidden></label>
 </div>
+<dialog id="dlg" style="border:1px solid var(--garis);border-radius:12px;padding:0;max-width:520px;width:92%">
+ <div style="padding:16px 18px">
+  <h2 style="margin:0 0 4px;font-size:17px;color:#0f2f57">Salin data dari tanggal lain</h2>
+  <div class="redup" style="margin-bottom:12px">Data hasil salinan langsung bisa dibuka &amp; diedit di form. Semua tanggal &amp; jam = UTC.</div>
+  <div style="display:grid;grid-template-columns:130px 1fr;gap:10px 12px;align-items:center">
+   <label>Salin DARI</label><input type="date" id="s-dari">
+   <label>Salin KE</label><b id="s-ke"></b>
+   <label>Jam</label>
+   <div>
+    <label><input type="radio" name="s-jam" value="all" checked> Seharian (00–23)</label><br>
+    <label><input type="radio" name="s-jam" value="rng"> Rentang:</label>
+    <select id="s-j1"></select> sampai <select id="s-j2"></select>
+   </div>
+   <label>Bila jam tujuan sudah terisi</label>
+   <div>
+    <label><input type="radio" name="s-mode" value="lewati" checked> Lewati (jangan ubah)</label><br>
+    <label><input type="radio" name="s-mode" value="timpa"> Timpa dengan data salinan</label>
+   </div>
+   <label>Observer</label>
+   <select id="s-obs"><option value="">— pilih —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select>
+  </div>
+  <div class="redup" style="margin-top:10px;font-size:13px">Jam yang sudah <b>terkirim</b> tidak pernah diubah. Isian curah hujan (override AWS) tidak ikut disalin.</div>
+  <div id="s-hasil" style="margin-top:10px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+   <button id="s-tutup">Tutup</button><button id="s-cek">Pratinjau</button><button class="utama" id="s-go">Salin</button>
+  </div>
+ </div>
+</dialog>
 <div id="info"></div>
 <div id="ringkas" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
 <div class="kartu"><table id="tbl" style="width:100%;border-collapse:collapse">
@@ -39,5 +68,37 @@ async function muat(){
   <td>${b.sandi?`<div class="sandi">${esc(b.sandi)}</div>`:''}${b.pesan&&b.kirim!=='sent'?`<small>${esc(b.pesan)}</small>`:''}${b.diubah_otomatis?`<br><small>⚠ ${esc(b.diubah_otomatis)}</small>`:''}</td>
   <td><a class="tombol ${b.level==='kosong'&&!b.sudah_lewat?'utama':''}" href="/form/${j.tanggal}/${b.jam}">${b.level==='kosong'?'Isi':'Buka'}</a></td></tr>`).join("");
 }
+
+// ---- salin dari tanggal lain
+const DLG=$("#dlg");
+for(const id of ["#s-j1","#s-j2"])$(id).innerHTML=Array.from({length:24},(_,h)=>`<option value="${h}">${String(h).padStart(2,"0")}:00</option>`).join("");
+$("#s-j2").value="23";
+function paramSalin(pratinjau){
+ const seharian=document.querySelector('[name="s-jam"]:checked').value==="all";
+ return {dari_tanggal:$("#s-dari").value,ke_tanggal:tanggal,seharian,jam_dari:+$("#s-j1").value,jam_sampai:+$("#s-j2").value,
+  mode:document.querySelector('[name="s-mode"]:checked').value,observer:$("#s-obs").value,pratinjau};
+}
+$("#buka-salin").onclick=()=>{const d=new Date(tanggal+"T00:00:00Z");d.setUTCDate(d.getUTCDate()-1);$("#s-dari").value=d.toISOString().slice(0,10);
+ $("#s-ke").textContent=tanggal;$("#s-hasil").innerHTML="";DLG.showModal()};
+$("#s-tutup").onclick=()=>DLG.close();
+async function jalankanSalin(pratinjau){
+ const r=await fetch("/api/salin_rentang",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(paramSalin(pratinjau))});
+ if(r.status===401){location.href="/login";return}
+ const j=await r.json();const h=$("#s-hasil");
+ if(!j.ok){h.innerHTML=`<div class="msg err">${esc(j.pesan)}</div>`;return}
+ const jm=a=>a.map(x=>(x.jam||x).slice(0,2)).join(", ");
+ const baris=[];
+ baris.push(`<b>${j.disalin.length}</b> jam ${pratinjau?"akan disalin":"berhasil disalin"}${j.disalin.length?` (${jm(j.disalin)})`:""}`);
+ const lewat=j.disalin.filter(x=>x.sudah_lewat);if(lewat.length)baris.push(`ℹ ${lewat.length} jam sudah lewat waktunya — tersimpan, tetapi bot tidak mengirimnya otomatis`);
+ const menimpa=j.disalin.filter(x=>x.menimpa);if(menimpa.length)baris.push(`${menimpa.length} jam menimpa data yang ada (${jm(menimpa)})`);
+ if(j.lewati_terisi.length)baris.push(`${j.lewati_terisi.length} jam dilewati karena sudah terisi (${jm(j.lewati_terisi)})`);
+ if(j.lewati_terkirim.length)baris.push(`${j.lewati_terkirim.length} jam dilewati karena sudah terkirim (${jm(j.lewati_terkirim)})`);
+ if(j.tanpa_sumber.length)baris.push(`${j.tanpa_sumber.length} jam tanpa data di tanggal sumber (${jm(j.tanpa_sumber)})`);
+ if(j.ditolak.length)baris.push(`⚠ ${j.ditolak.length} jam ditolak validasi: `+j.ditolak.map(x=>`${x.jam.slice(0,2)} (${esc(x.alasan.join("; "))})`).join("; "));
+ h.innerHTML=`<div class="msg ${j.disalin.length||pratinjau?'ok':'err'}">${baris.join("<br>")}</div>`;
+ if(!pratinjau&&j.disalin.length)muat();
+}
+$("#s-cek").onclick=()=>jalankanSalin(true);
+$("#s-go").onclick=()=>{if(!$("#s-obs").value){$("#s-hasil").innerHTML='<div class="msg err">Pilih nama observer dulu</div>';return}jalankanSalin(false)};
 muat();setInterval(muat,15000);
 </script>{% endblock %}

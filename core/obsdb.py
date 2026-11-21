@@ -86,6 +86,7 @@ class ObsStore:
         self.path = str(path)
         self.tz = tz_hours
         self.menit = menit_sebelum
+        self.kanonik = None          # fungsi opsional dict->dict (dipasang app.py: nilai dropdown -> teks opsi web)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.executescript(SCHEMA)
@@ -122,7 +123,7 @@ class ObsStore:
         return dict(r) if r else None
 
     def upsert(self, tanggal_utc, jam, data, oleh=None):
-        d = normalisasi(data)
+        d = normalisasi(self.kanonik(data) if self.kanonik else data)
         js = json.dumps(d, ensure_ascii=False, sort_keys=True)
         with self._conn() as c:
             c.execute(

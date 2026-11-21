@@ -33,7 +33,7 @@ from core.config import load_config, resolve_path  # noqa: E402
 from core.db import SendLog  # noqa: E402
 from core.formschema import build_schema, field_state, SEMUA_KOLOM  # noqa: E402
 from core.obsdb import ObsStore, normalisasi, URUTAN_KOLOM  # noqa: E402
-from core.validator import Validator  # noqa: E402
+from core.validator import Validator, COLUMN_FIELD  # noqa: E402
 
 ERR, WRN, INF = "ERROR", "WARNING", "INFO"
 
@@ -65,6 +65,30 @@ def create_app(cfg=None, db_path=None):
         if not jam.endswith(":00"):
             abort(400, "jam harus HH:00")
         return tanggal, jam
+
+    YA = {"1", "true", "ya", "yes", "y", "v"}
+    TIDAK = {"0", "false", "tidak", "no", "n", ""}
+
+    def kanonik(data):
+        """Samakan nilai dengan teks opsi di form. Excel biasanya menyimpan kode saja (mis. 5, '00', 'ya'),
+        sedangkan dropdown form berisi teks lengkap ('5 oktas', '00 - clear sky'); tanpa penyamaan,
+        dropdown tampil KOSONG walau datanya ada. Nilai yang tak dikenali dibiarkan apa adanya."""
+        out = {}
+        for k, v in (data or {}).items():
+            if k in COLUMN_FIELD and v is not None and str(v).strip() != "":
+                try:
+                    m = V.resolve(k, v)
+                except Exception:
+                    m = None
+                out[k] = m.text if (m is not None and m.ok and m.text) else v
+            elif k == "hujan_override_aktif" and not isinstance(v, bool) and v is not None:
+                t = str(v).strip().lower()
+                out[k] = True if t in YA else (False if t in TIDAK else v)
+            else:
+                out[k] = v
+        return out
+
+    OBS.kanonik = kanonik
 
     def hasil_validasi(tanggal, jam, data):
         d = normalisasi(data)
@@ -110,7 +134,8 @@ def create_app(cfg=None, db_path=None):
     @app.route("/")
     def dashboard():
         tgl = request.args.get("tanggal") or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
-        return render_template("dashboard.html", tanggal=tgl, stasiun=nama_stasiun, observer=request.cookies.get("observer", ""))
+        return render_template("dashboard.html", tanggal=tgl, stasiun=nama_stasiun, observers=daftar_observer(),
+                               observer=request.cookies.get("observer", ""))
 
     @app.route("/form/<tanggal>/<jam>")
     def form(tanggal, jam):
@@ -128,6 +153,8 @@ def create_app(cfg=None, db_path=None):
     def api_slot(tanggal, jam):
         parse_slot(tanggal, jam)
         data = OBS.get(tanggal, jam)
+        if data is not None:
+            data = kanonik(data)              # data lama/impor Excel -> teks opsi form (dropdown terisi)
         d, rr, temuan, S = hasil_validasi(tanggal, jam, data or {})
         s = LOG.get(tanggal, jam)
         return jsonify({"ada": data is not None, "data": data or {}, "state": S, "temuan": temuan if data else [],
@@ -168,10 +195,65 @@ def create_app(cfg=None, db_path=None):
         data = OBS.sebelumnya(tanggal, jam)
         if data is None:
             return jsonify({"ada": False}), 404
-        data = dict(data)
+        data = kanonik(data)
         for k in ("hujan_override_aktif", "hujan_override_mm"):     # override hujan tidak ikut disalin
             data.pop(k, None)
         return jsonify({"ada": True, "data": data, "dari": OBS.slot_sebelumnya(tanggal, jam)})
+
+    @app.route("/api/salin_rentang", methods=["POST"])
+    def api_salin_rentang():
+        """Salin data satu tanggal ke tanggal lain untuk rentang jam (UTC) atau seharian.
+        pratinjau=true -> hanya menghitung, tidak menulis. Slot yang sudah TERKIRIM tidak pernah disentuh."""
+        b = request.get_json(force=True, silent=True) or {}
+        dari, ke = b.get("dari_tanggal", ""), b.get("ke_tanggal", "")
+        parse_slot(dari, "00:00")
+        parse_slot(ke, "00:00")
+        if dari == ke:
+            return jsonify({"ok": False, "pesan": "tanggal sumber dan tujuan tidak boleh sama"}), 400
+        try:
+            j1, j2 = (0, 23) if b.get("seharian") else (int(b.get("jam_dari")), int(b.get("jam_sampai")))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "pesan": "rentang jam tidak valid"}), 400
+        if not (0 <= j1 <= j2 <= 23):
+            return jsonify({"ok": False, "pesan": "rentang jam tidak valid (00-23, awal <= akhir)"}), 400
+        mode = b.get("mode", "lewati")
+        if mode not in ("lewati", "timpa"):
+            return jsonify({"ok": False, "pesan": "mode harus 'lewati' atau 'timpa'"}), 400
+        pratinjau = bool(b.get("pratinjau"))
+        oleh = (b.get("observer") or "").strip()
+        if not pratinjau and not oleh:
+            return jsonify({"ok": False, "pesan": "pilih nama observer dulu"}), 422
+        sekarang = dt.datetime.now(dt.timezone.utc)
+        hasil = {"disalin": [], "lewati_terisi": [], "lewati_terkirim": [], "tanpa_sumber": [], "ditolak": []}
+        for h in range(j1, j2 + 1):
+            jam = f"{h:02d}:00"
+            src = OBS.get(dari, jam)
+            if src is None:
+                hasil["tanpa_sumber"].append(jam)
+                continue
+            st = LOG.get(ke, jam)
+            if st and st["status"] == "sent":
+                hasil["lewati_terkirim"].append(jam)
+                continue
+            ada = OBS.get(ke, jam) is not None
+            if ada and mode == "lewati":
+                hasil["lewati_terisi"].append(jam)
+                continue
+            d = kanonik(src)
+            for k in ("hujan_override_aktif", "hujan_override_mm"):     # override hujan tidak ikut disalin
+                d.pop(k, None)
+            d, rr, temuan, S = hasil_validasi(ke, jam, d)
+            d = {k: v for k, v in d.items() if k not in S or S[k]["aktif"]}
+            d, rr, temuan, S = hasil_validasi(ke, jam, d)
+            galat = [t["pesan"] for t in temuan if t["level"] == ERR]
+            if galat:
+                hasil["ditolak"].append({"jam": jam, "alasan": galat[:2]})
+                continue
+            if not pratinjau:
+                OBS.upsert(ke, jam, d, oleh)
+            waktu = dt.datetime.strptime(f"{ke} {jam}", "%Y-%m-%d %H:%M").replace(tzinfo=dt.timezone.utc)
+            hasil["disalin"].append({"jam": jam, "menimpa": ada, "sudah_lewat": waktu <= sekarang})
+        return jsonify({"ok": True, "pratinjau": pratinjau, **hasil})
 
     @app.route("/api/hapus", methods=["POST"])
     def api_hapus():
