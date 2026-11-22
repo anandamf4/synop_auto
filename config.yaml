@@ -22,6 +22,12 @@ paths:
   # V7SATU mencoba mengklik popup lewat Selenium. Sesuaikan dengan lokasi ok.PNG Anda.
   ok_image: "legacy/ok.PNG"
 
+chrome:
+  # [F3.3] Profil Chrome TETAP khusus bot, agar sesi login BMKG Satu tersimpan (login tidak berulang tiap bot dibuka).
+  # Kosong = perilaku lama (profil sementara, login tiap kali). Contoh: "chrome_profile" (di folder proyek).
+  # JANGAN diarahkan ke profil Chrome harian Anda. Folder ini berisi cookie sesi; jangan dibagikan / di-commit.
+  profile_dir: ""
+
 runtime:
   timezone_offset_hours: 7        # WIB = UTC+7 (jam di web berbasis UTC)
   max_row_recovery: 2             # maks pemulihan sesi per baris

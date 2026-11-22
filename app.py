@@ -265,6 +265,35 @@ def create_app(cfg=None, db_path=None):
         OBS.delete(tanggal, jam)
         return jsonify({"ok": True})
 
+    @app.route("/api/atur_ulang", methods=["POST"])
+    def api_atur_ulang():
+        """Selesaikan slot yang tertahan ('berjalan' macet / gagal / dilewati). aksi: 'ulang' (bot boleh coba lagi)
+        atau 'terkirim' (pengguna SUDAH memastikan datanya ada di web BMKG Satu). Slot terkirim tidak disentuh."""
+        b = request.get_json(force=True, silent=True) or {}
+        tanggal, jam = parse_slot(b.get("tanggal", ""), b.get("jam", ""))
+        aksi = b.get("aksi", "ulang")
+        s = LOG.get(tanggal, jam)
+        if s is None:
+            return jsonify({"ok": False, "pesan": "slot ini belum punya status pengiriman"}), 404
+        if s["status"] == "sent":
+            return jsonify({"ok": False, "pesan": "slot sudah terkirim; tidak ada yang perlu diatur ulang"}), 409
+        if aksi == "terkirim":
+            LOG.tandai_terkirim_manual(tanggal, jam)
+            return jsonify({"ok": True, "pesan": "ditandai sudah terkirim"})
+        if aksi != "ulang":
+            return jsonify({"ok": False, "pesan": "aksi tidak dikenal"}), 400
+        lama = LOG.atur_ulang(tanggal, jam)
+        if lama is None:
+            return jsonify({"ok": False, "pesan": "status sudah 'menunggu'"}), 409
+        return jsonify({"ok": True, "pesan": f"status diatur ulang ke menunggu (sebelumnya: {lama})"})
+
+    def macet(waktu_mulai, batas_menit=15):
+        """'running' lebih dari batas_menit dianggap macet (satu slot normalnya selesai dalam hitungan menit)."""
+        try:
+            return (dt.datetime.now() - dt.datetime.fromisoformat(waktu_mulai)).total_seconds() > batas_menit * 60
+        except (TypeError, ValueError):
+            return True      # tanpa waktu mulai yang sah -> anggap macet agar tombol atur ulang muncul
+
     @app.route("/api/status")
     def api_status():
         tanggal = request.args.get("tanggal") or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
@@ -281,12 +310,15 @@ def create_app(cfg=None, db_path=None):
                           "kirim": s["status"] if s else None, "pesan": (s.get("pesan") if s else None),
                           "sandi": (s.get("kode_synop") if s else None),
                           "diubah_otomatis": (s.get("diubah_otomatis") if s else None),
+                          "mulai": (s.get("waktu_mulai") if s else None), "percobaan": (s.get("percobaan") if s else 0),
+                          "macet": bool(s and s["status"] == "running" and macet(s.get("waktu_mulai"))),
                           "sudah_lewat": waktu <= sekarang, "sekarang": waktu <= sekarang < waktu + dt.timedelta(hours=1)})
         ringkas = {"terkirim": sum(1 for x in baris if x["kirim"] == "sent"),
                    "gagal": sum(1 for x in baris if x["kirim"] == "failed"),
                    "dilewati": sum(1 for x in baris if x["kirim"] == "skipped"),
                    "terisi": sum(1 for x in baris if x["level"] != "kosong"),
-                   "perlu_perhatian": sum(1 for x in baris if x["level"] == "merah" or x["kirim"] in ("failed",))}
+                   "perlu_perhatian": sum(1 for x in baris if x["level"] == "merah" or x["kirim"] in ("failed",)),
+                   "berjalan": sum(1 for x in baris if x["kirim"] == "running")}
         return jsonify({"tanggal": tanggal, "baris": baris, "ringkas": ringkas,
                         "waktu_server_utc": sekarang.strftime("%Y-%m-%d %H:%M:%S")})
 

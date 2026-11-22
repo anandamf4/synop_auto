@@ -1,46 +1,74 @@
 {% extends "base.html" %}{% block judul %}Form {{ jam }}{% endblock %}
+{% block kepala %}
+<style>
+.kepala{display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:64px;z-index:20}
+.kepala h1{margin:0;font-size:19px;color:var(--judul);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.kepala h1 span{font:700 22px var(--mono)}
+.kepala h1 small{font-weight:500;font-size:14px}
+.kepala label{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--redup)}
+.alat{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dua{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
+.samping{position:sticky;top:132px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px 16px}
+.f{display:flex;flex-direction:column;gap:4px;transition:opacity var(--dur)}
+.f label{font-size:13px;color:var(--redup);font-weight:500}.f label b{color:var(--merah)}
+.f select,.f input{width:100%}
+.f.mati{opacity:.42}
+.f.err select,.f.err input{border-color:var(--merah);background:var(--merah-t)}
+.f.wrn select,.f.wrn input{border-color:var(--kuning);background:var(--kuning-t)}
+.fm{font-size:12.5px;min-height:0}.fm:empty{display:none}.fm.e{color:var(--merah)}.fm.w{color:var(--kuning)}.fm.i{color:var(--redup)}
+.sub{grid-column:1/-1;font-weight:600;font-size:13px;color:var(--biru);margin-top:6px;padding-top:12px;border-top:1px dashed var(--garis);letter-spacing:.3px;text-transform:uppercase}
+.nomor{width:24px;height:24px;border-radius:8px;background:var(--biru-t);color:var(--biru);display:grid;place-items:center;font:700 12px var(--mono)}
+.tm{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--garis2);font-size:13.5px}.tm:last-child{border:0}
+.tm svg{margin-top:2px}.tm.ERROR svg{color:var(--merah)}.tm.WARNING svg{color:var(--kuning)}.tm.INFO svg{color:var(--biru)}
+.tm .lv{font-weight:700}.tm.ERROR .lv{color:var(--merah)}.tm.WARNING .lv{color:var(--kuning)}.tm.INFO .lv{color:var(--redup)}
+.ok-t{display:flex;gap:8px;align-items:center;color:var(--hijau);font-weight:600}
+.hit{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.aksi-bawah{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:12px;z-index:20;background:color-mix(in srgb,var(--kartu) 92%,transparent);backdrop-filter:blur(8px)}
+.aksi-bawah .redup{font-size:13.5px}
+@media (max-width:1020px){.dua{grid-template-columns:1fr}.samping{position:static}.kepala{top:60px}}
+@media (max-width:640px){.kepala{position:static}.grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
 {% block isi %}
-<div class="kartu" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:5">
-  <a class="tombol" href="/?tanggal={{ tanggal }}">◀ Dashboard</a><h2 style="margin:0;font-size:17px">{{ tanggal }} &nbsp; {{ jam }} UTC</h2>
-  <span id="status-kirim"></span><span style="flex:1"></span>
+<div class="kartu kepala">
+  <a class="tombol" href="/?tanggal={{ tanggal }}"><svg class="i"><use href="#i-left"/></svg>Dashboard</a>
+  <h1><span>{{ jam }} UTC</span><small>{{ tanggal }}</small></h1>
+  <span id="status-kirim"></span><span class="sp"></span>
   <label>Observer <select id="observer"><option value="">— pilih —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select></label>
 </div>
 <div id="pesan"></div>
-<div class="kartu" id="alat" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <button id="salin">⧉ Salin dari {{ prev[1] }} UTC</button>
-  <span class="redup">Template cepat:</span><button class="t" data-t="cerah">Cerah (0 okta)</button><button class="t" data-t="hujan">Hujan ringan (cuaca saja)</button>
+<div class="kartu alat" id="alat">
+  <button id="salin" type="button"><svg class="i"><use href="#i-copy"/></svg>Salin dari {{ prev[1] }} UTC</button>
+  <span class="redup">Template cepat:</span>
+  <button class="t" data-t="cerah" type="button"><svg class="i"><use href="#i-sun"/></svg>Cerah (0 okta)</button>
+  <button class="t" data-t="hujan" type="button"><svg class="i"><use href="#i-zap"/></svg>Hujan ringan (cuaca saja)</button>
 </div>
-<div id="form"></div>
-<div class="kartu" id="temuan-box"><h2>Pemeriksaan</h2><div id="temuan" class="redup">memuat…</div></div>
-<div class="kartu" style="display:flex;gap:10px;position:sticky;bottom:0;z-index:5">
-  <button class="utama" id="simpan" disabled>Simpan</button><button class="bahaya" id="hapus">Hapus data jam ini</button>
+<div class="dua">
+ <div id="form"></div>
+ <aside class="samping"><div class="kartu" id="temuan-box"><h2><svg class="i"><use href="#i-list"/></svg>Pemeriksaan</h2><div class="hit" id="hit"></div><div id="temuan" class="redup">memuat…</div></div></aside>
+</div>
+<div class="kartu aksi-bawah">
+  <button class="utama" id="simpan" type="button" disabled><svg class="i"><use href="#i-save"/></svg>Simpan</button>
+  <button class="bahaya" id="hapus" type="button"><svg class="i"><use href="#i-trash"/></svg>Hapus data jam ini</button>
   <span id="infosimpan" class="redup"></span>
 </div>
-<style>
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px 16px}
-.f{display:flex;flex-direction:column;gap:3px}.f label{font-size:13px;color:var(--redup)}.f label b{color:var(--merah)}
-.f select,.f input{width:100%}.f.mati{opacity:.35}.f.mati select,.f.mati input{background:#eef0f3}
-.f.err select,.f.err input{border-color:var(--merah);background:#fff6f6}.f.wrn select,.f.wrn input{border-color:var(--kuning)}
-.fm{font-size:12px}.fm.e{color:var(--merah)}.fm.w{color:var(--kuning)}.fm.i{color:var(--redup)}
-.sub{grid-column:1/-1;font-weight:600;color:#0f2f57;margin-top:8px;border-top:1px dashed var(--garis);padding-top:8px}
-.tm{padding:5px 0;border-bottom:1px solid var(--garis)}.tm:last-child{border:0}.lv-ERROR{color:var(--merah);font-weight:600}.lv-WARNING{color:var(--kuning);font-weight:600}.lv-INFO{color:var(--redup)}
-</style>
 <script>
 const TANGGAL="{{ tanggal }}",JAM="{{ jam }}",PREV={tanggal:"{{ prev[0] }}",jam:"{{ prev[1] }}"};
-const $=s=>document.querySelector(s);let SKEMA,STATE={},ADA_ERROR=true,TIMER=null,DIRTY=false;const TOUCHED=new Set();
-function esc(s){return (s||"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+let SKEMA,STATE={},ADA_ERROR=true,TIMER=null,DIRTY=false;const TOUCHED=new Set();
 function bangun(){
- $("#form").innerHTML=SKEMA.bagian.map(b=>`<div class="kartu"><h2>${b.judul}</h2><div class="grid">${b.field.map(f=>{
-  const sub=f.sub?`<div class="sub">${f.sub}</div>`:"";let in_;
-  if(f.jenis==="pilih")in_=`<select data-k="${f.kolom}"><option value=""></option>${f.opsi.map(o=>`<option>${esc(o)}</option>`).join("")}</select>`;
-  else if(f.jenis==="saklar")in_=`<select data-k="${f.kolom}"><option value=""></option><option value="true">Ya</option><option value="false">Tidak</option></select>`;
-  else in_=`<input type="number" step="any" min="0" data-k="${f.kolom}" placeholder="${f.satuan||''}">`;
-  return `${sub}<div class="f" data-w="${f.kolom}"><label>${f.label}${f.satuan?` (${f.satuan})`:''}<b class="bt"></b></label>${in_}<div class="fm"></div></div>`}).join("")}</div></div>`).join("");
- document.querySelectorAll("[data-k]").forEach(e=>{e.oninput=e.onchange=()=>{DIRTY=true;TOUCHED.add(e.dataset.k);jadwal()}});
+ $("#form").innerHTML=SKEMA.bagian.map((b,n)=>`<section class="kartu"><h2><span class="nomor">${n+1}</span>${esc(b.judul)}</h2><div class="grid">${b.field.map(f=>{
+  const sub=f.sub?`<div class="sub">${esc(f.sub)}</div>`:"";let in_;
+  const id="f_"+f.kolom;
+  if(f.jenis==="pilih")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option>${f.opsi.map(o=>`<option>${esc(o)}</option>`).join("")}</select>`;
+  else if(f.jenis==="saklar")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option><option value="true">Ya</option><option value="false">Tidak</option></select>`;
+  else in_=`<input id="${id}" type="number" step="any" min="0" inputmode="decimal" data-k="${f.kolom}" placeholder="${esc(f.satuan||'')}">`;
+  return `${sub}<div class="f" data-w="${f.kolom}"><label for="${id}">${esc(f.label)}${f.satuan?` (${esc(f.satuan)})`:''}<b class="bt"></b></label>${in_}<div class="fm" aria-live="polite"></div></div>`}).join("")}</div></section>`).join("");
+ $$("[data-k]").forEach(e=>{e.oninput=e.onchange=()=>{DIRTY=true;TOUCHED.add(e.dataset.k);jadwal()}});
 }
-function ambil(){const d={};document.querySelectorAll("[data-k]").forEach(e=>{if(e.disabled)return;const v=e.value.trim();if(v==="")return;
+function ambil(){const d={};$$("[data-k]").forEach(e=>{if(e.disabled)return;const v=e.value.trim();if(v==="")return;
   d[e.dataset.k]=e.type==="number"?parseFloat(v):(v==="true"?true:v==="false"?false:v)});return d}
-function isiData(d){document.querySelectorAll("[data-k]").forEach(e=>{const v=d[e.dataset.k];e.value=(v===undefined||v===null)?"":String(v)})}
+function isiData(d){$$("[data-k]").forEach(e=>{const v=d[e.dataset.k];e.value=(v===undefined||v===null)?"":String(v)})}
 function terapkan(S,temuan){
  STATE=S;const per={};(temuan||[]).forEach(t=>{(per[t.kolom]=per[t.kolom]||[]).push(t)});
  SKEMA.bagian.forEach(b=>b.field.forEach(f=>{const k=f.kolom,s=S[k]||{aktif:true},w=document.querySelector(`[data-w="${k}"]`),el=w.querySelector("[data-k]");
@@ -49,24 +77,26 @@ function terapkan(S,temuan){
   if(f.jenis==="pilih"&&s.pilihan){const cur=el.value,ops=s.pilihan;el.innerHTML='<option value=""></option>'+ops.map(o=>`<option>${esc(o)}</option>`).join("");el.value=ops.includes(cur)?cur:""}
   else if(f.jenis==="pilih"&&el.options.length<=1){}
   const ts0=per[k]||[],ts=ts0.filter(t=>!(t.level==="ERROR"&&/wajib/i.test(t.pesan)&&!TOUCHED.has(k)));w.classList.toggle("err",ts.some(t=>t.level==="ERROR"));w.classList.toggle("wrn",!ts.some(t=>t.level==="ERROR")&&ts.some(t=>t.level==="WARNING"));
+  el.setAttribute("aria-invalid",ts.some(t=>t.level==="ERROR")?"true":"false");
   const m=w.querySelector(".fm");m.className="fm "+(ts.some(t=>t.level==="ERROR")?"e":ts.some(t=>t.level==="WARNING")?"w":"i");
   m.textContent=ts.length?ts[0].pesan:(ts0.length?"wajib diisi":(s.alasan||""))}));
- const T=(temuan||[]).filter(t=>t.level!=="INFO"||true);
- $("#temuan").innerHTML=T.length?T.map(t=>`<div class="tm"><span class="lv-${t.level}">${t.level}</span> ${t.kolom?`<small>[${t.kolom}]</small> `:''}${esc(t.pesan)} <small>(${t.rule})</small></div>`).join(""):'<span style="color:var(--hijau)">✔ Tidak ada temuan</span>';
+ const T=temuan||[];const n=l=>T.filter(t=>t.level===l).length;
+ $("#hit").innerHTML=`<span class="badge b-merah">${ico("x")}${n("ERROR")} kesalahan</span><span class="badge b-kuning">${ico("alert")}${n("WARNING")} peringatan</span><span class="badge b-running">${ico("info")}${n("INFO")} info</span>`;
+ $("#temuan").innerHTML=T.length?T.map(t=>`<div class="tm ${t.level}">${ico(t.level==="ERROR"?"x":t.level==="WARNING"?"alert":"info")}<div><span class="lv">${t.level}</span> ${t.kolom?`<small>[${esc(t.kolom)}]</small> `:''}${esc(t.pesan)} <small>(${esc(t.rule)})</small></div></div>`).join(""):`<div class="ok-t">${ico("check")}Tidak ada temuan</div>`;
 }
 function jadwal(){clearTimeout(TIMER);TIMER=setTimeout(periksa,250)}
 async function periksa(){
  const r=await fetch("/api/validasi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil()})});
  if(r.status===401){location.href="/login";return}const j=await r.json();terapkan(j.state,j.temuan);ADA_ERROR=!j.ok;
- $("#simpan").disabled=ADA_ERROR||!$("#observer").value;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":(!$("#observer").value?"Pilih observer":"");
+ $("#simpan").disabled=ADA_ERROR||!$("#observer").value;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":(!$("#observer").value?"Pilih observer dulu":"");
 }
-function pesan(t,ok){$("#pesan").innerHTML=`<div class="msg ${ok?'ok':'err'}">${esc(t)}</div>`;scrollTo(0,0)}
+function pesan(t,ok){toast(t,ok?"ok":"err")}
 $("#observer").onchange=e=>{document.cookie="observer="+encodeURIComponent(e.target.value)+";path=/;max-age=31536000";periksa()};
 async function simpan(paksa){
  const r=await fetch("/api/simpan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil(),observer:$("#observer").value,paksa:!!paksa})});
  const j=await r.json();
  if(r.status===409&&j.perlu_konfirmasi){if(confirm(j.pesan))return simpan(true);return}
- if(j.ok){DIRTY=false;pesan("Tersimpan ✔ — bot akan mengirim pada jamnya.",true)}else{pesan(j.pesan||"gagal menyimpan",false);if(j.temuan)terapkan(STATE,j.temuan)}
+ if(j.ok){DIRTY=false;pesan("Tersimpan — bot akan mengirim pada jamnya.",true)}else{pesan(j.pesan||"gagal menyimpan",false);if(j.temuan)terapkan(STATE,j.temuan)}
 }
 $("#simpan").onclick=()=>simpan(false);
 $("#hapus").onclick=async()=>{if(!confirm("Hapus data jam ini?"))return;const r=await fetch("/api/hapus",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM})});
@@ -76,10 +106,10 @@ $("#salin").onclick=async()=>{const r=await fetch(`/api/salin?tanggal=${TANGGAL}
 function kode(k,c){const f=SKEMA.bagian.flatMap(b=>b.field).find(x=>x.kolom===k);return(f.opsi||[]).find(o=>o.split(" ")[0]===c)||""}
 const TEMPLATE={cerah:()=>({cloud_cover_oktas_m:kode("cloud_cover_oktas_m","0"),visibility:10,ww:kode("ww","00"),w1:kode("w1","0"),w2:kode("w2","0"),land_cond:kode("land_cond","0")}),
  hujan:()=>({ww:kode("ww","61"),w1:kode("w1","6"),w2:kode("w2","6"),land_cond:kode("land_cond","2"),visibility:5})};
-document.querySelectorAll(".t").forEach(b=>b.onclick=async()=>{const d=Object.assign(ambil(),TEMPLATE[b.dataset.t]());isiData(d);DIRTY=true;await periksa();await periksa()});
+$$(".t").forEach(b=>b.onclick=async()=>{const d=Object.assign(ambil(),TEMPLATE[b.dataset.t]());isiData(d);DIRTY=true;await periksa();await periksa()});
 addEventListener("beforeunload",e=>{if(DIRTY){e.preventDefault();e.returnValue=""}});
 (async()=>{SKEMA=await (await fetch("/api/skema")).json();bangun();
  const r=await fetch(`/api/slot/${TANGGAL}/${JAM}`);const j=await r.json();isiData(j.data||{});
- if(j.status_kirim)$("#status-kirim").innerHTML=`<span class="badge b-${j.status_kirim}">${j.status_kirim==='sent'?'sudah terkirim':j.status_kirim}</span>`;
+ if(j.status_kirim)$("#status-kirim").innerHTML=badgeKirim(j.status_kirim,false);
  await periksa();await periksa();DIRTY=false})();
 </script>{% endblock %}

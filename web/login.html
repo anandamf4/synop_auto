@@ -1,4 +1,10 @@
 {% extends "base.html" %}{% block judul %}Masuk{% endblock %}
-{% block isi %}<div class="kartu" style="max-width:340px;margin:40px auto"><h2>Masukkan PIN</h2>
-<form method="post"><input type="password" name="pin" autofocus placeholder="PIN" style="width:100%;margin-bottom:10px">
-{% if salah %}<div class="msg err">PIN salah</div>{% endif %}<button class="utama" style="width:100%">Masuk</button></form></div>{% endblock %}
+{% block isi %}
+<div class="kartu" style="max-width:380px;margin:60px auto 0;padding:26px">
+ <div style="width:52px;height:52px;border-radius:15px;background:var(--biru-t);color:var(--biru);display:grid;place-items:center;margin-bottom:14px"><svg class="i" style="width:26px;height:26px"><use href="#i-zap"/></svg></div>
+ <h2 style="font-size:20px;margin:0 0 4px">Masukkan PIN</h2>
+ <div class="redup" style="margin-bottom:16px;font-size:14px">Dashboard SYNOP dilindungi PIN stasiun.</div>
+ <form method="post"><label for="pin" class="sr">PIN</label>
+ <input id="pin" type="password" name="pin" autofocus autocomplete="current-password" placeholder="PIN" style="width:100%;margin-bottom:12px">
+ {% if salah %}<div class="msg err" role="alert">PIN salah, coba lagi.</div>{% endif %}
+ <button class="utama" style="width:100%">Masuk</button></form></div>{% endblock %}

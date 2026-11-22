@@ -178,6 +178,41 @@ class SendLog:
         self.conn.commit()
         self.log_event(tanggal_utc, jam, "dilewati", str(alasan)[:300])
 
+    def atur_ulang(self, tanggal_utc, jam, catatan="status diatur ulang manual"):
+        """Kembalikan slot yang TERTAHAN ('running'/'failed'/'skipped') ke 'pending' agar bot boleh mencobanya lagi.
+        Slot 'sent' tidak pernah diubah. Mengembalikan status lama, atau None bila tidak ada/tidak boleh."""
+        r = self.get(tanggal_utc, jam)
+        if r is None or r["status"] in ("sent", "pending"):
+            return None
+        lama = r["status"]
+        self.conn.execute(
+            "UPDATE send_log SET status='pending', waktu_selesai=NULL, pesan=NULL, updated_at=? "
+            "WHERE tanggal_utc=? AND jam=? AND status NOT IN ('sent','pending')", (_now(), tanggal_utc, jam))
+        self.conn.commit()
+        self.log_event(tanggal_utc, jam, "diatur_ulang", f"{catatan} (dari {lama})")
+        return lama
+
+    def tandai_terkirim_manual(self, tanggal_utc, jam, catatan="dikonfirmasi manual: data sudah ada di web BMKG Satu"):
+        """Untuk slot yang ternyata SUDAH terkirim di web (mis. bot berhenti tepat setelah SEND)."""
+        r = self.get(tanggal_utc, jam)
+        if r is None or r["status"] == "sent":
+            return False
+        self.conn.execute(
+            "UPDATE send_log SET status='sent', waktu_selesai=?, pesan=?, updated_at=? WHERE tanggal_utc=? AND jam=?",
+            (_now(), catatan, _now(), tanggal_utc, jam))
+        self.conn.commit()
+        self.log_event(tanggal_utc, jam, "terkirim_manual", catatan)
+        return True
+
+    def pulihkan_terhenti(self, alasan="proses bot berhenti saat slot ini berjalan (Ctrl+C/crash/PC mati)"):
+        """Dipanggil saat bot START: tidak mungkin ada slot yang benar-benar 'running' sebelum bot jalan,
+        jadi semua 'running' adalah sisa proses yang terhenti -> jadikan 'failed' (jujur, bukan 'berjalan' selamanya).
+        should_send() tetap memberi needs_web_check=True sehingga bot memakai mode Update bila data sudah ada di web."""
+        rows = self.conn.execute("SELECT tanggal_utc, jam FROM send_log WHERE status='running'").fetchall()
+        for r in rows:
+            self.mark_failed(r["tanggal_utc"], r["jam"], alasan)
+        return [(r["tanggal_utc"], r["jam"]) for r in rows]
+
     def set_kode_synop(self, tanggal_utc, jam, kode_synop):
         self.conn.execute("UPDATE send_log SET kode_synop=?, updated_at=? WHERE tanggal_utc=? AND jam=?",
                           (kode_synop, _now(), tanggal_utc, jam))

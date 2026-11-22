@@ -4,25 +4,166 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block judul %}SYNOP{% endblock %} — {{ stasiun }}</title>
+<script>
+/* tema: ingat pilihan pengguna, bila belum ada ikuti pengaturan sistem (dipasang sebelum render agar tidak berkedip) */
+(function(){var t=null;try{t=localStorage.getItem("tema")}catch(e){}
+ if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";
+ document.documentElement.dataset.tema=t})();
+</script>
 <style>
-:root{--bg:#f5f7fa;--kartu:#fff;--garis:#dde3ea;--teks:#1d2733;--redup:#6b7785;--biru:#1766d1;--hijau:#1a8f4c;--kuning:#c98a00;--merah:#c93434;--abu:#8a94a0}
-*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--teks)}
-header{background:#0f2f57;color:#fff;padding:10px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-header a{color:#cfe2ff;text-decoration:none}header h1{font-size:17px;margin:0;font-weight:600}header .sp{flex:1}
-main{max-width:1100px;margin:16px auto;padding:0 14px}
-.kartu{background:var(--kartu);border:1px solid var(--garis);border-radius:10px;padding:14px 16px;margin-bottom:14px}
-.kartu h2{font-size:15px;margin:0 0 10px;color:#0f2f57}
-button,.tombol{font:inherit;border:1px solid var(--garis);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer;color:var(--teks);text-decoration:none;display:inline-block}
-button.utama,.tombol.utama{background:var(--biru);border-color:var(--biru);color:#fff}button.bahaya{color:var(--merah);border-color:#e6b5b5}
-button:disabled{opacity:.45;cursor:not-allowed}
-.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;color:#fff;background:var(--abu)}
-.b-hijau,.b-sent{background:var(--hijau)}.b-kuning,.b-pending,.b-running{background:var(--kuning)}.b-merah,.b-failed{background:var(--merah)}.b-skipped{background:#6c5ce7}.b-kosong{background:#b8c0ca}
-input,select{font:inherit;padding:6px 8px;border:1px solid var(--garis);border-radius:7px;background:#fff;max-width:100%}
-.msg{padding:8px 12px;border-radius:8px;margin:8px 0}.msg.ok{background:#e6f6ec;color:#146c38}.msg.err{background:#fde8e8;color:#9b2323}
+:root{
+ --font:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+ --mono:ui-monospace,"Cascadia Mono",Consolas,"SFMono-Regular",Menlo,monospace;
+ --bg:#f2f6fb;--kartu:#ffffff;--kartu2:#f7f9fc;--garis:#dbe3ee;--garis2:#e8eef5;
+ --teks:#0c1b2e;--redup:#546579;--judul:#0a2540;
+ --biru:#0b5fd0;--biru-t:#e6f0ff;--biru-h:#0a4fb0;
+ --hijau:#0f7a43;--hijau-t:#e3f6ec;--merah:#c22b2b;--merah-t:#fdeaea;
+ --kuning:#9a6200;--kuning-t:#fff3d6;--ungu:#5b46d6;--ungu-t:#eeeafe;--oren:#b45309;--oren-t:#ffedd5;--abu:#5b6b7f;--abu-t:#eef2f7;
+ --nav1:#0a2540;--nav2:#0b4f6c;--on-nav:#e8f1fb;
+ --fokus:0 0 0 3px rgba(11,95,208,.35);
+ --bayang:0 1px 2px rgba(10,37,64,.06),0 4px 14px rgba(10,37,64,.05);
+ --r:14px;--r-s:9px;--dur:180ms;color-scheme:light;
+}
+:root[data-tema=dark]{
+ color-scheme:dark;
+ --bg:#08121f;--kartu:#0f1d2e;--kartu2:#13243a;--garis:#22364f;--garis2:#1a2b42;
+ --teks:#e7eef7;--redup:#9db0c6;--judul:#f1f6fc;
+ --biru:#5aa2ff;--biru-t:#10294a;--biru-h:#8bbcff;
+ --hijau:#4cd08a;--hijau-t:#0e2c20;--merah:#ff7b7b;--merah-t:#321417;
+ --kuning:#f2b84b;--kuning-t:#33270c;--ungu:#a597ff;--ungu-t:#1f1b46;--oren:#fb9a4c;--oren-t:#3a200c;--abu:#9db0c6;--abu-t:#16273b;
+ --nav1:#06101c;--nav2:#0a3147;--on-nav:#dbe8f7;
+ --fokus:0 0 0 3px rgba(90,162,255,.45);
+ --bayang:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:15px/1.5 var(--font);background:var(--bg);color:var(--teks);min-height:100vh}
+a{color:var(--biru)}
+:focus-visible{outline:none;box-shadow:var(--fokus);border-radius:var(--r-s)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+svg.i{width:1.15em;height:1.15em;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.2em}
+
+/* ---------- bilah atas ---------- */
+.atas{position:sticky;top:0;z-index:30;background:linear-gradient(100deg,var(--nav1),var(--nav2));color:var(--on-nav);box-shadow:0 2px 14px rgba(0,0,0,.18)}
+.atas .dalam{max-width:1180px;margin:0 auto;padding:10px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.merek{display:flex;align-items:center;gap:11px;color:#fff;text-decoration:none}
+.merek .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.12);display:grid;place-items:center;border:1px solid rgba(255,255,255,.18)}
+.merek .logo svg{width:22px;height:22px}
+.merek b{display:block;font-size:16px;letter-spacing:.2px;line-height:1.15}
+.merek small{display:block;color:#a9c7e6;font-size:12px;line-height:1.2}
+.nav{display:flex;gap:4px}
+.nav a{color:var(--on-nav);text-decoration:none;padding:7px 13px;border-radius:99px;font-size:14px;transition:background var(--dur)}
+.nav a:hover{background:rgba(255,255,255,.12)}.nav a[aria-current=page]{background:rgba(255,255,255,.18);font-weight:600}
+.sp{flex:1}
+.jam{font:600 13px var(--mono);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);padding:6px 11px;border-radius:99px;color:#fff;white-space:nowrap}
+.jam i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#4ade80;margin-right:7px;animation:denyut 2s infinite}
+@keyframes denyut{0%,100%{opacity:1}50%{opacity:.3}}
+.ikon-btn{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;padding:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);color:#fff;cursor:pointer;transition:background var(--dur)}
+.ikon-btn:hover{background:rgba(255,255,255,.22)}
+:root[data-tema=dark] .ik-bulan{display:none}:root:not([data-tema=dark]) .ik-matahari{display:none}
+
+main{max-width:1180px;margin:20px auto 60px;padding:0 18px}
+
+/* ---------- komponen ---------- */
+.kartu{background:var(--kartu);border:1px solid var(--garis);border-radius:var(--r);padding:16px 18px;margin-bottom:16px;box-shadow:var(--bayang)}
+.kartu h2{font-size:15px;margin:0 0 12px;color:var(--judul);display:flex;align-items:center;gap:8px}
+button,.tombol{font:inherit;font-size:14px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:7px 15px;border:1px solid var(--garis);background:var(--kartu);color:var(--teks);border-radius:var(--r-s);cursor:pointer;text-decoration:none;transition:background var(--dur),border-color var(--dur),transform 90ms,box-shadow var(--dur)}
+button:hover,.tombol:hover{background:var(--kartu2);border-color:var(--biru)}
+button:active,.tombol:active{transform:translateY(1px)}
+button.utama,.tombol.utama{background:var(--biru);border-color:var(--biru);color:#fff}
+:root[data-tema=dark] button.utama,:root[data-tema=dark] .tombol.utama{color:#06101c}
+button.utama:hover,.tombol.utama:hover{background:var(--biru-h);border-color:var(--biru-h)}
+button.bahaya{color:var(--merah);border-color:color-mix(in srgb,var(--merah) 40%,var(--garis))}
+button.bahaya:hover{background:var(--merah-t);border-color:var(--merah)}
+button.kecil,.tombol.kecil{min-height:34px;padding:4px 11px;font-size:13px}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+input,select{font:inherit;font-size:14px;min-height:40px;padding:7px 10px;border:1px solid var(--garis);border-radius:var(--r-s);background:var(--kartu);color:var(--teks);max-width:100%;transition:border-color var(--dur),box-shadow var(--dur)}
+input:hover,select:hover{border-color:color-mix(in srgb,var(--biru) 50%,var(--garis))}
+input:focus,select:focus{border-color:var(--biru);box-shadow:var(--fokus)}
+input[type=date]{min-width:150px;cursor:pointer}
+input[type=date]::-webkit-calendar-picker-indicator{opacity:1;cursor:pointer;padding:4px;border-radius:6px}
+:root[data-tema=dark] input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1)}
+select:disabled,input:disabled{background:var(--kartu2);cursor:not-allowed}
 small,.redup{color:var(--redup)}
+
+/* lencana: warna + ikon + teks (tidak bergantung warna saja) */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 8px;border-radius:99px;font-size:12.5px;font-weight:600;line-height:1.4;background:var(--abu-t);color:var(--abu);border:1px solid color-mix(in srgb,currentColor 25%,transparent);white-space:nowrap}
+.b-hijau,.b-sent{background:var(--hijau-t);color:var(--hijau)}
+.b-kuning,.b-pending{background:var(--kuning-t);color:var(--kuning)}
+.b-merah,.b-failed{background:var(--merah-t);color:var(--merah)}
+.b-skipped{background:var(--ungu-t);color:var(--ungu)}
+.b-running{background:var(--biru-t);color:var(--biru)}
+.b-macet{background:var(--oren-t);color:var(--oren)}
+.b-kosong{background:var(--abu-t);color:var(--abu)}
+.putar{animation:putar 1s linear infinite}@keyframes putar{to{transform:rotate(360deg)}}
+
+/* toast */
+#toasts{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;flex-direction:column;gap:10px;max-width:min(420px,calc(100vw - 32px))}
+.toast{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--kartu);border:1px solid var(--garis);box-shadow:0 8px 28px rgba(0,0,0,.22);animation:masuk .22s ease-out;border-left:5px solid var(--abu)}
+.toast.ok{border-left-color:var(--hijau)}.toast.err{border-left-color:var(--merah)}.toast.info{border-left-color:var(--biru)}
+.toast.ok>svg{color:var(--hijau)}.toast.err>svg{color:var(--merah)}.toast.info>svg{color:var(--biru)}
+@keyframes masuk{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.msg{padding:10px 13px;border-radius:var(--r-s);margin:8px 0;font-size:14px;border:1px solid transparent}
+.msg.ok{background:var(--hijau-t);color:var(--hijau);border-color:color-mix(in srgb,var(--hijau) 30%,transparent)}
+.msg.err{background:var(--merah-t);color:var(--merah);border-color:color-mix(in srgb,var(--merah) 30%,transparent)}
+dialog{border:1px solid var(--garis);border-radius:18px;padding:0;background:var(--kartu);color:var(--teks);box-shadow:0 24px 70px rgba(0,0,0,.4);width:min(540px,94vw)}
+dialog::backdrop{background:rgba(5,14,26,.55);backdrop-filter:blur(3px)}
+@media (max-width:640px){.nav,.merek small{display:none}.atas .dalam{gap:10px}main{padding:0 12px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
+{% block kepala %}{% endblock %}
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>(s==null?"":s).toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ico=(n,k="")=>`<svg class="i ${k}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+/* lencana status kirim (ikon + teks) */
+const KR={sent:["terkirim","check"],failed:["GAGAL","x"],skipped:["dilewati","skip"],pending:["menunggu","clock"],running:["berjalan","loader"],macet:["macet","alert"]};
+function badgeKirim(k,macet){const key=(k==="running"&&macet)?"macet":k;const [t,i]=KR[key]||[k,"clock"];return `<span class="badge b-${key}">${ico(i,key==="running"?"putar":"")}${t}</span>`}
+function toast(teks,jenis="info",ms=5200){const t=document.createElement("div");t.className="toast "+jenis;t.setAttribute("role",jenis==="err"?"alert":"status");
+ t.innerHTML=ico(jenis==="ok"?"check":jenis==="err"?"alert":"info")+`<div>${esc(teks)}</div>`;$("#toasts").appendChild(t);setTimeout(()=>t.remove(),ms)}
+/* jam UTC berjalan (disinkronkan dengan server bila halaman mengisi window.OFFSET_MS) */
+window.OFFSET_MS=0;
+const tikJam=()=>{const e=$("#jam-server");if(e)e.innerHTML='<i></i>UTC '+new Date(Date.now()+window.OFFSET_MS).toISOString().slice(0,19).replace("T"," ")};
+setInterval(tikJam,1000);addEventListener("DOMContentLoaded",tikJam);
+addEventListener("DOMContentLoaded",()=>{
+ $("#tema").onclick=()=>{const n=document.documentElement.dataset.tema==="dark"?"light":"dark";document.documentElement.dataset.tema=n;try{localStorage.setItem("tema",n)}catch(e){}};
+});
+</script>
 </head>
 <body>
-<header><h1>SYNOP — {{ stasiun }}</h1><a href="/">Dashboard</a><span class="sp"></span><span id="jam-server" class="redup" style="color:#a9c4ea"></span></header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+<symbol id="i-skip" viewBox="0 0 24 24"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.55"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+<symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4 1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+<symbol id="i-redo" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+</defs></svg>
+<header class="atas"><div class="dalam">
+ <a class="merek" href="/" aria-label="Beranda SYNOP"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 7.8 4.2 4.2 0 0 1 17.5 18z"/><path d="m11 21 1.5-3M15 21l1.5-3" stroke="#7dd3fc"/></svg></span>
+  <span><b>SYNOP Otomatis</b><small>{{ stasiun }}</small></span></a>
+ <nav class="nav" aria-label="Navigasi utama"><a href="/" {% block navdash %}{% endblock %}>Dashboard</a></nav>
+ <span class="sp"></span>
+ <span id="jam-server" class="jam" aria-live="off"></span>
+ <button class="ikon-btn" id="tema" type="button" aria-label="Ganti tema terang/gelap" title="Ganti tema"><svg class="i ik-matahari"><use href="#i-sun"/></svg><svg class="i ik-bulan"><use href="#i-moon"/></svg></button>
+</div></header>
 <main>{% block isi %}{% endblock %}</main>
+<div id="toasts" aria-live="polite"></div>
 </body></html>

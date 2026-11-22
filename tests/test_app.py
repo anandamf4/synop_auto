@@ -150,6 +150,42 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     check("format tanggal salah -> 400", salin(dari_tanggal="2026-13-99").status_code == 400)
     check("mode tak dikenal -> 400", salin(mode="hapus").status_code == 400)
 
+print("\n== status tertahan: berjalan macet / atur ulang (rev 23) ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    _cfg = load_config()
+    os.environ.pop("WEB_PIN", None)
+    app3 = create_app(_cfg, db_path=str(Path(d) / "c.db"))
+    c3 = app3.test_client()
+    L = app3.log
+    L.register(T, "01:00")
+    L.start_attempt(T, "01:00", observer="Tester")          # meniru bot yang mati saat slot berjalan
+    b = {x["jam"]: x for x in c3.get(f"/api/status?tanggal={T}").get_json()["baris"]}["01:00"]
+    check("baru mulai: status berjalan, BELUM macet", b["kirim"] == "running" and b["macet"] is False, b)
+    L.conn.execute("UPDATE send_log SET waktu_mulai='2020-01-01T00:00:00' WHERE tanggal_utc=? AND jam='01:00'", (T,))
+    L.conn.commit()
+    b = {x["jam"]: x for x in c3.get(f"/api/status?tanggal={T}").get_json()["baris"]}["01:00"]
+    check("berjalan > 15 menit: ditandai macet", b["kirim"] == "running" and b["macet"] is True, b)
+    r = c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "01:00", "aksi": "ulang"})
+    check("atur ulang -> pending + tercatat di events", r.status_code == 200 and L.get(T, "01:00")["status"] == "pending"
+          and any(e["event"] == "diatur_ulang" for e in L.events(T, "01:00")), r.get_json())
+    check("sesudah diatur ulang bot boleh kirim lagi", L.should_send(T, "01:00")["send"] is True)
+    check("atur ulang saat sudah 'menunggu' -> 409", c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "01:00"}).status_code == 409)
+    L.register(T, "02:00"); L.start_attempt(T, "02:00"); L.mark_failed(T, "02:00", "contoh gagal")
+    r = c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "02:00", "aksi": "terkirim"})
+    check("tandai 'sudah terkirim' manual (setelah pengguna cek web)", r.status_code == 200 and L.get(T, "02:00")["status"] == "sent")
+    check("slot terkirim tidak bisa diatur ulang (409)", c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "02:00"}).status_code == 409)
+    check("slot tanpa status -> 404", c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "05:00"}).status_code == 404)
+    check("aksi asing ditolak 400", (L.register(T, "03:00"), L.start_attempt(T, "03:00"),
+          c3.post("/api/atur_ulang", json={"tanggal": T, "jam": "03:00", "aksi": "hapus"}).status_code)[2] == 400)
+    L.register(T, "04:00"); L.start_attempt(T, "04:00")
+    hasil = L.pulihkan_terhenti("uji")
+    check("start bot: semua 'berjalan' sisa jadi gagal (jujur), 'sent' tak tersentuh",
+          sorted(hasil) == [(T, "03:00"), (T, "04:00")] and L.get(T, "04:00")["status"] == "failed" and L.get(T, "02:00")["status"] == "sent", hasil)
+    check("slot gagal hasil pemulihan tetap boleh dicoba ulang (mode Update bila ada di web)",
+          L.should_send(T, "04:00")["send"] and L.should_send(T, "04:00")["needs_web_check"])
+    check("dashboard memuat ringkasan 'berjalan' & halaman dirender", "berjalan" in c3.get(f"/api/status?tanggal={T}").get_json()["ringkas"]
+          and c3.get("/").status_code == 200 and c3.get(f"/form/{T}/01:00").status_code == 200)
+
 print("\n== PIN ==")
 os.environ["WEB_PIN"] = "4321"
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:

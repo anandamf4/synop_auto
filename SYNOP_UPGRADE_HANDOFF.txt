@@ -54,7 +54,7 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 22
+  Revisi catatan      : 26
   Terakhir diperbarui : 2026-11-21
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
@@ -102,6 +102,84 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 26 (2026-11-22) - F3.2 SELESAI (menunggu uji nyata) + F3.3 SEBAGIAN (aman, opsional):
+    * TEMUAN: popup 'Change your password' = dialog Chrome (Google Password Manager), BUKAN elemen web -> Selenium tidak bisa
+      melihatnya. Cara andal = MENCEGAH muncul (sudah dari F1.1: prefs password manager/leak detection + --disable-features).
+      Tombol OK kini murni CADANGAN (pengguna mengonfirmasi popup sudah tertangani). Urutan di klik_tombol_oke_popup tidak diubah:
+      Selenium (swal/modal) -> gambar ok.PNG (pyautogui) -> Enter (opsional, features.popup_press_enter).
+    * F3.2 (V7SATU.py): `import pyautogui` kini OPSIONAL (try/except). Tanpa pyautogui/ok.PNG/layar bot tetap jalan; cadangan gambar &
+      Enter otomatis nonaktif (pesan jelas di log). DoD 'berjalan tanpa gambar & tanpa bergantung resolusi' terpenuhi.
+    * F3.3 (V7SATU.py + config.yaml): (a) PROFIL CHROME TETAP opsional: config.yaml -> chrome.profile_dir (default "" = perilaku lama).
+      Bila diisi (mis. "chrome_profile"), Chrome memakai --user-data-dir tsb (juga saat recovery sesi) sehingga login BMKG Satu
+      tersimpan. JANGAN arahkan ke profil Chrome harian; folder berisi cookie sesi (sudah masuk .gitignore). (b) login(): time.sleep(2)
+      tetap diganti WebDriverWait (kolom email ATAU redirect ke /dashboard); bila web langsung ke /dashboard (sesi tersimpan) langkah
+      login dilewati; sleep(2) setelah ENTER dihapus (sudah ada WebDriverWait url '/dashboard'); _buka_sinoptik() menunggu form
+      sinoptik siap (menggantikan sleep(2)). Selenium Manager sudah dipakai (Service() tanpa path).
+    * SENGAJA BELUM: ~50 titik _jeda/time.sleep lain di fungsi pengisian form TIDAK diganti (sudah diskalakan speed.scale=0.5;
+      mengganti buta tanpa web asli berisiko merusak pengisian). Lanjutan F3.3 hanya berdasarkan ukuran waktu nyata (_catat_waktu)
+      dari dry-run pengguna: kirim log '⏱' per langkah, lalu titik terlambat diganti satu per satu.
+    * Tes: pip install --break-system-packages selenium di sandbox -> SEMUA tes bot kini bisa dijalankan AI: popup 13, bot_fill 31,
+      layers 17, continue 11, koreksi_qc 26, bot_flow 37 (menutup catatan rev 23: pemulihan 'berjalan' saat start lolos), + tes baru
+      tests/test_f32_f33.py 9 lulus. Web/DB: app 69, obsdb 15, form 21, validator 45, sandi 32.
+    * Berkas diubah: V7SATU.py, config.yaml, .gitignore, tests/test_f32_f33.py (BARU).
+    * CARA UJI DI PC: (1) tanpa fitur profil: jalankan seperti biasa (perilaku sama). (2) coba profil: isi chrome.profile_dir:
+      "chrome_profile" -> jalankan bot dry-run; run pertama login manual otomatis, run kedua harus mencetak
+      'Sesi login tersimpan masih berlaku'. Bila web justru error/aneh, kosongkan lagi profile_dir.
+
+  REV 25 (2026-11-22) - F4.2 RIWAYAT & AUDIT (langkah berikutnya yang bisa dikerjakan tanpa web BMKG Satu/selenium):
+    * Halaman baru /riwayat (menu 'Riwayat' + tombol 'Riwayat jam ini' di form): filter rentang tanggal (UTC), jam, jenis kejadian,
+      cari kata (mis. nama observer); terbaru dulu; ekspor Excel (/ekspor_riwayat.xlsx, memuat SEMUA hasil filter).
+      API: GET /api/riwayat. db.cari_events() baru.
+    * AUDIT 'SIAPA MENGUBAH APA': perubahan lewat web kini dicatat di tabel events: form_simpan (observer + kolom yang berubah
+      lama -> baru, atau 'data baru'; menandai bila jam sudah terkirim), form_hapus, form_salin (salin tanggal lain), impor_excel
+      (per slot). Digabung dengan kejadian bot yang sudah ada (mulai/terkirim/gagal/dilewati/mode_update/koreksi_qc/diatur_ulang).
+    * Catatan: 'waktu' di riwayat = jam PC server (bukan UTC); kolom slot memakai UTC. Riwayat sebelum rev 25 tidak memuat
+      jejak perubahan form (belum dicatat saat itu).
+    * Berkas diubah: core/db.py, app.py, web/base.html, web/form.html, web/riwayat.html (BARU), tests/test_app.py (+14 tes).
+    * Tes sandbox AI: app 69, obsdb 15, form 21, validator 45 lulus. Tampilan /riwayat belum dilihat di browser pengguna.
+    * SISA F4.2: tidak ada fitur wajib; opsional: lihat perbedaan isi data per versi (saat ini hanya ringkasan kolom).
+    * LANGKAH BERIKUTNYA (perlu PC pengguna): jalankan tests/test_bot_flow.py; F2.7 uji kirim 1 jam sungguhan (data_source=db);
+      lalu F3.5 gerbang persetujuan, F3.9 health check selector, F4.4 autostart, F4.5 SOP, F4.6 uji paralel.
+
+  REV 24 (2026-11-22) - DATEPICKER HILANG DIPERBAIKI (web/base.html, web/dashboard.html saja):
+    * Penyebab: ikon kalender bawaan browser memakai warna menurut tema SISTEM; tema gelap/terang pilihan manual (tombol
+      bulan/matahari) tidak ikut, sehingga ikon bisa hitam-di-atas-gelap (tak terlihat). Perbaikan: color-scheme per tema,
+      ikon dibalik di tema gelap, klik di kolom tanggal membuka kalender (showPicker), dan ada tombol kalender sendiri
+      di sebelah kolom tanggal (juga untuk kolom 'Salin DARI'). Belum diuji di browser pengguna.
+
+  REV 23 (2026-11-21) - STATUS 'BERJALAN' MENGGANTUNG DIPERBAIKI + TAMPILAN BARU (F4.1 dimulai):
+    * MASALAH (laporan pengguna): jam 01:00 tanggal 14 Nov tampil 'berjalan' terus. AKAR: bot menulis status 'running' saat
+      mulai (db.start_attempt) dan baru menggantinya ke sent/failed/skipped saat selesai. Bila proses bot dihentikan di tengah
+      jalan (Ctrl+C, jendela terminal ditutup, PC mati, crash; mis. tes yang diinterupsi), status 'running' tertinggal selamanya.
+      Bukan kesalahan data/validasi. (Dugaan penyebab pastinya: proses bot untuk jam itu terputus; tidak bisa dipastikan dari log.)
+    * PERBAIKAN (3 lapis):
+      (1) Dashboard: 'running' > 15 menit ditandai MACET (oranye) + tombol 'Atur ulang' per jam (running/failed/skipped).
+          Dialog 2 pilihan: 'Coba kirim lagi' (-> pending; bot memakai mode Update bila data sudah ada di web) atau
+          'Saya sudah cek: SUDAH ada di BMKG Satu' (-> sent manual, dengan konfirmasi). API baru: POST /api/atur_ulang.
+          Jam yang sudah 'sent' tidak pernah disentuh. Semua aksi tercatat di tabel events (diatur_ulang / terkirim_manual).
+      (2) Bot (V7SATU.py, 2 sisipan kecil): saat START, semua sisa 'running' dijadikan 'failed' (pesan jelas) lewat
+          db.pulihkan_terhenti(); dan saat Ctrl+C, slot yang sedang berjalan langsung dicatat 'failed (dihentikan manual)'.
+      (3) core/db.py: metode baru atur_ulang(), tandai_terkirim_manual(), pulihkan_terhenti().
+    * CARA MEMULIHKAN SLOT YANG SUDAH TERLANJUR MACET: buka dashboard -> tanggal 14 Nov -> jam 01:00 -> 'Atur ulang' ->
+      pilih 'Coba kirim lagi' (atau 'sudah terkirim' bila di BMKG Satu datanya memang sudah ada). Alternatif tanpa dashboard:
+      jalankan bot sekali; pemulihan saat start otomatis mengubahnya menjadi 'gagal' lalu bisa dicoba ulang.
+    * TAMPILAN BARU (web/base.html, dashboard.html, form.html, login.html) berdasarkan panduan ui-ux-pro-max:
+      tema terang/gelap (tombol di pojok kanan atas, diingat browser); palet biru-teal 'konsol cuaca'; font sistem (tanpa
+      unduhan eksternal, aman untuk jaringan stasiun); ikon SVG (bukan emoji); status selalu = warna + ikon + teks;
+      LINI MASA 24 JAM berwarna (klik jam -> form); kartu ringkas bisa diklik sebagai filter + chip filter (Semua/Belum
+      diisi/Perlu perhatian/Terkirim/Gagal/Dilewati); tombol salin sandi; jam UTC berdenyut; toast pengganti pesan inline;
+      segarkan otomatis 15 dtk TANPA kedip (hanya gambar ulang bila data berubah; berhenti saat tab tersembunyi/dialog terbuka);
+      tabel menjadi kartu di layar HP; form: kolom pemeriksaan di samping (sticky), jumlah kesalahan/peringatan, label terhubung
+      ke input (aksesibilitas), fokus keyboard terlihat, hormati 'reduced motion'.
+      ZERO-LOSS: semua tombol/ID/fitur lama tetap (salin jam sebelumnya, template cepat, simpan/hapus, impor/ekspor Excel,
+      salin dari tanggal lain, PIN, observer, konfirmasi jam terkirim). Logika form (validasi langsung) tidak diubah.
+    * Berkas diubah: core/db.py, app.py (+/api/atur_ulang, field macet/mulai/berjalan di /api/status), V7SATU.py (2 sisipan),
+      web/base.html, web/dashboard.html, web/form.html, web/login.html, tests/test_app.py (+12 tes).
+    * Tes sandbox AI: app 56, obsdb 15, form 21, validator 45 lulus; V7SATU.py lolos kompilasi. tests/test_bot_flow.py TIDAK
+      bisa dijalankan di sandbox (tanpa selenium) -> MOHON dijalankan di PC pengguna (python tests/test_bot_flow.py;
+      perhatikan: tes ini memanggil Telegram sungguhan bila TELEGRAM_* terisi di .env; macet di handshake = tanpa internet).
+    * BELUM diuji di browser pengguna: tampilan baru (diuji di Chromium sandbox: tanpa galat JS; terang/gelap/HP/dialog).
+
   REV 22 (2026-11-21) - UJI NYATA F2 DI PC PENGGUNA: 3 MASALAH DIPERBAIKI + FITUR 'SALIN DARI TANGGAL LAIN' (F2.8):
     * HASIL UJI PENGGUNA: dashboard & form berjalan baik dan tampilannya dinilai simpel/mudah dipahami; impor Excel,
       form, dry-run bot data_source=db sudah dicoba. Temuan pengguna: (a) setelah impor Excel, form jam itu KOSONG
@@ -1483,11 +1561,11 @@ FASE 3 - BOT LEBIH TAHAN BANTING
     DoD    : tabel pemetaan fungsi lama -> baru lengkap; hasil isi form sama
              dengan versi lama pada data uji.
 
-[ ] F3.2  Hapus ketergantungan pyautogui/ok.PNG
+[~] F3.2  Hapus ketergantungan pyautogui/ok.PNG  (rev 26: pyautogui opsional; popup dicegah sejak F1.1; menunggu uji nyata)
     Cara   : tangani popup awal dengan Selenium (inspeksi DOM popup).
     DoD    : berjalan tanpa gambar dan tanpa bergantung resolusi.
 
-[ ] F3.3  Explicit wait & Chrome profile
+[~] F3.3  Explicit wait & Chrome profile  (rev 26: profil tetap opsional + explicit wait di login/sinoptik; sleep di pengisian form sengaja belum diganti)
     Cara   : ganti time.sleep dengan WebDriverWait; profile Chrome tetap agar
              login tidak berulang; Selenium Manager untuk driver.
     DoD    : waktu proses per jam turun & stabil.
@@ -1542,10 +1620,11 @@ FASE 3 - BOT LEBIH TAHAN BANTING
 --------------------------------------------------------------------------------
 FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
 --------------------------------------------------------------------------------
-[ ] F4.1  Dashboard hari ini
+[~] F4.1  Dashboard hari ini  (rev 23: lini masa 24 jam, kartu/filter, sandi + salin, atur ulang slot macet, tema gelap; MENUNGGU uji pengguna)
     Timeline 24 jam, status per jam (Menunggu/Siap/Terkirim/Gagal), klik untuk
     detail + kode SYNOP + screenshot. Desain kreatif.
-[ ] F4.2  Riwayat & audit
+    Sisa: screenshot kegagalan belum ditampilkan di dashboard; halaman detail per jam (event/audit) menyusul di F4.2.
+[~] F4.2  Riwayat & audit  (rev 25: halaman /riwayat, filter, ekspor Excel, audit siapa-mengubah-apa; MENUNGGU uji pengguna)
     Pencarian per tanggal, siapa mengubah apa, ekspor.
 [ ] F4.3  Paket .exe (PyInstaller) atau shortcut desktop
 [ ] F4.4  Autostart (Windows Task Scheduler) + pemulihan otomatis saat PC
@@ -1781,6 +1860,18 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                hook kanonik), app.py (kanonik, /api/salin_rentang, daftar observer di dashboard), web/dashboard.html
                (dialog salin dari tanggal lain), tests/test_app.py (+20), test_obsdb.py & test_bot_flow.py (cleanup).
                F2.8 baru. Ukuran data diukur (17 MB / 2 tahun; 8 ms). Berikutnya: uji nyata pengguna (lihat REV 22).
+
+  [2026-11-21] Rev 23 - Status 'berjalan' macet (jam 01:00, 14 Nov) dijelaskan & diperbaiki 3 lapis (dashboard atur-ulang,
+               pemulihan saat bot start, Ctrl+C aman; core/db.py, app.py, V7SATU.py). Tampilan dashboard+form dirombak
+               (web/*.html; F4.1 dimulai). tests/test_app.py +12 tes. Berikutnya: pengguna uji tampilan baru + jalankan
+               tests/test_bot_flow.py di PC; lalu F2.7 uji nyata bot data_source=db (kirim 1 slot), F4.2, F4.4, F4.5, F4.6.
+
+  [2026-11-22] Rev 24 - Datepicker dashboard diperbaiki (base.html, dashboard.html). Berikutnya: sama seperti Rev 23.
+
+  [2026-11-22] Rev 25 - F4.2 Riwayat & audit selesai di kode (/riwayat, ekspor, jejak perubahan form). Berikutnya: uji pengguna + F2.7.
+
+  [2026-11-22] Rev 26 - F3.2 selesai di kode (pyautogui opsional), F3.3 sebagian (profil Chrome tetap opsional, explicit wait login).
+               Semua tes bot kini lolos di sandbox AI. Berikutnya: uji nyata PC (dry-run + profil), lalu F2.7, F3.1 (opsional).
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

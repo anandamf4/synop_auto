@@ -5,3 +5,4 @@ web_info_*/
 rules_*/
 *.xlsx
 __pycache__/
+chrome_profile/

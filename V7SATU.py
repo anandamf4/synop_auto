@@ -32,7 +32,10 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 from datetime import datetime, timezone, timedelta
 import time
 import pandas as pd
-import pyautogui
+try:
+    import pyautogui   # [F3.2] OPSIONAL: hanya dipakai sebagai cadangan klik gambar/Enter; bot tetap jalan tanpanya
+except Exception:      # tidak terpasang / tidak ada layar -> fitur cadangan dinonaktifkan, bukan crash
+    pyautogui = None
 import os
 import traceback
 import argparse
@@ -84,6 +87,22 @@ def _terapkan_opsi_anti_popup(opts):
     opts.add_argument("--disable-save-password-bubble")
     opts.add_argument("--disable-notifications")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    # [F3.3] Profil Chrome TETAP (opsional; config.yaml -> chrome.profile_dir). Kosong = perilaku lama (profil sementara).
+    folder = _profil_chrome_dir()
+    if folder is not None:
+        folder.mkdir(parents=True, exist_ok=True)
+        opts.add_argument(f"--user-data-dir={folder}")
+        opts.add_argument("--profile-directory=Default")
+        opts.add_argument("--hide-crash-restore-bubble")
+
+
+def _profil_chrome_dir():
+    """[F3.3] Folder profil Chrome khusus bot (BUKAN profil Chrome harian Anda), atau None bila fitur nonaktif."""
+    p = str((CFG.get("chrome", {}) or {}).get("profile_dir", "") or "").strip()
+    if not p:
+        return None
+    folder = Path(p)
+    return folder if folder.is_absolute() else ROOT / folder
 
 
 # === BACA DATA (Excel atau database form web) ===
@@ -1474,7 +1493,15 @@ def login(driver):
 
     print("🌐 Membuka halaman login...")
     driver.get("https://bmkgsatu.bmkg.go.id/login")
-    time.sleep(2)
+    # [F3.3] tunggu sampai kolom email muncul ATAU web langsung mengarahkan ke dashboard (sesi profil tetap masih berlaku)
+    try:
+        WebDriverWait(driver, 15).until(lambda d: d.find_elements(By.ID, "login-email") or "/dashboard" in d.current_url)
+    except TimeoutException:
+        pass
+    if "/dashboard" in driver.current_url:
+        print("✅ Sesi login tersimpan masih berlaku — langkah login dilewati")
+        _buka_sinoptik(driver)
+        return
 
     try:
         print("⏳ Menunggu email field...")
@@ -1514,7 +1541,6 @@ def login(driver):
         print("⏳ Mencari tombol login atau menekan ENTER...")
         password_input.send_keys(Keys.RETURN)
         print("✅ ENTER ditekan")
-        time.sleep(2)
     except Exception as e:
         print(f"⚠️ ENTER tidak berhasil: {e}")
         try:
@@ -1532,9 +1558,18 @@ def login(driver):
     WebDriverWait(driver, 20).until(EC.url_contains("/dashboard"))
     print("✅ Login berhasil")
 
+    _buka_sinoptik(driver)
+
+
+def _buka_sinoptik(driver):
+    """[F3.3] Buka halaman sinoptik lalu TUNGGU form-nya siap (menggantikan time.sleep(2) tetap)."""
     print("🌐 Membuka halaman sinoptik...")
     driver.get("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik")
-    time.sleep(2)
+    try:
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located((
+            By.XPATH, "//label[contains(text(), 'Stasiun')]/following-sibling::div//div[contains(@class,'ant-select-selection__rendered')]")))
+    except TimeoutException:
+        print("⚠️ Form sinoptik belum terlihat setelah 15 detik; proses dilanjutkan (langkah berikutnya punya tunggu sendiri)")
 
 
 def has_opencv():
@@ -1572,9 +1607,11 @@ def klik_tombol_oke_popup(image_path=None, max_wait=None, drv=None):
     drv = drv if drv is not None else driver
     if image_path is None:
         image_path = OK_IMAGE_PATH          # dari config.yaml (paths.ok_image)
-    pakai_gambar = os.path.exists(image_path)
+    pakai_gambar = pyautogui is not None and os.path.exists(image_path)
     print("🔍 Mendeteksi tombol Oke pada popup...")
-    if not pakai_gambar:
+    if pyautogui is None:
+        print("ℹ️ pyautogui tidak terpasang (opsional): cadangan klik gambar & Enter dinonaktifkan; hanya Selenium.")
+    elif not pakai_gambar:
         print(f"ℹ️ Gambar tombol OK tidak ditemukan ({image_path}); hanya memakai Selenium.")
     use_confidence = has_opencv() if pakai_gambar else False
     if pakai_gambar and not use_confidence:
@@ -1604,7 +1641,7 @@ def klik_tombol_oke_popup(image_path=None, max_wait=None, drv=None):
                 return True
         print(f"⏳ Menunggu tombol OK muncul... ({i+1}/{max_wait})")
         time.sleep(1)
-    if CFG["features"].get("popup_press_enter", False):
+    if CFG["features"].get("popup_press_enter", False) and pyautogui is not None:
         try:
             pyautogui.press("enter")
             print("⌨️ Enter ditekan untuk menutup dialog Chrome (features.popup_press_enter=true)")
@@ -2536,6 +2573,8 @@ def main():
 
     validator = Validator.from_config(CFG, ROOT)
     db = SendLog(resolve_path(CFG, "db"))
+    for _t, _j in db.pulihkan_terhenti():   # [rev 23] sisa status 'berjalan' dari proses yang terhenti -> 'gagal' (jujur)
+        print(f"🩹 Slot {_t} {_j} UTC tertinggal 'berjalan' (proses sebelumnya berhenti) -> dicatat GAGAL; bisa dicoba ulang")
 
     # [F1.3] validasi seluruh Excel saat start (laporan; baris ERROR dilewati saat waktunya)
     df_cek = baca_data_terbaru(silent=True)
@@ -2965,6 +3004,11 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
+        try:   # [rev 23] Ctrl+C saat slot berjalan: jangan biarkan status 'berjalan' menggantung di dashboard
+            _db_stop = SendLog(resolve_path(CFG, "db"))
+            _db_stop.pulihkan_terhenti("dihentikan manual (Ctrl+C) saat slot ini berjalan")
+        except Exception:
+            pass
         raise
     except Exception as _e_fatal:   # [F3.7] skrip berhenti karena error tak tertangani -> beri tahu
         try:
