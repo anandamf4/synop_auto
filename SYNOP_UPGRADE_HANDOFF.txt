@@ -54,7 +54,7 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 26
+  Revisi catatan      : 27
   Terakhir diperbarui : 2026-11-21
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
@@ -102,6 +102,41 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 27 (2026-11-22) - FITUR JAM 00 UTC (penguapan/radiasi/lama penyinaran/iE) + SKRIP PEMANTAU WEB:
+    * LATAR: di web BMKG Satu, pada jam 00 UTC bagian bawah form terbuka: PENGUAPAN (Penguapan mm, Pengenal Data Penguapan iE),
+      MATAHARI (Radiasi Matahari Joule/cm2, Lama Penyinaran jam), TANAH (Keadaan Tanah [sudah ditangani sbg land_cond], Catatan).
+      Nilainya terisi otomatis dari AWS Digi dan biasanya perlu diganti. Sebelum rev 27 fitur ini TERTINGGAL (bot membiarkan nilai AWS).
+    * ATURAN PENGGUNA: penguapan = ganti nilai; radiasi = biasanya DIKOSONGKAN (nilai AWS tidak relevan), boleh juga diganti nilai;
+      iE biasanya tetap (opsional); lama penyinaran = ganti nilai. Kosong = biarkan nilai AWS.
+    * IMPLEMENTASI: kolom baru (Excel/DB/form): penguapan_mm, penguapan_ie (kode 0-9), radiasi_kosongkan (saklar), radiasi_matahari,
+      lama_penyinaran_jam. Validator R25-R27: jam selain 00 -> WARNING & diabaikan; iE harus bulat 0-9; kosongkan+nilai radiasi
+      bersamaan = ERROR; lama penyinaran >24 jam ERROR (>13 WARNING); penguapan >30 mm WARNING. Form: bagian baru 'Penguapan &
+      matahari (khusus jam 00 UTC)' (nonaktif di jam lain); pada slot 00:00 baru, saklar 'kosongkan radiasi' otomatis Ya.
+      Salin dari jam sebelumnya TIDAK membawa isian ini. Bot: isi_penguapan_00() dipanggil di isi_data setelah override hujan;
+      kolom dicari lewat TEKS LABEL (atau ID dari config.yaml web_ids.*), nilai AWS asli dicatat (PENGUAPAN_LOG), setiap nilai
+      dibaca ulang & diverifikasi; features.penguapan_strict=true (default): gagal -> jam TIDAK dikirim.
+    * PENTING / BELUM TERBUKTI: ID asli kolom di web belum diketahui; pencarian label teruji di Chromium pada HTML tiruan,
+      BELUM di web asli. Langkah wajib berikutnya = jalankan skrip pemantau mode jelajah untuk jam 00:00 (lihat bawah), kirim
+      hasilnya; lalu ID/selector disesuaikan. Sebelum itu, isi kolom ini lewat bot hanya diuji dry-run (strict mencegah kirim salah).
+    * SKRIP PEMANTAU tools/pantau_web.py (membungkus fungsi V7SATU tanpa mengubah perilakunya): merekam durasi tiap langkah, total
+      time.sleep per langkah (kandidat explicit wait), tunggu yang habis waktu, potret semua kolom form (label, id, nilai AWS,
+      aktif/nonaktif, bagian) + screenshot + HTML, keluaran konsol -> folder pantau_out/<waktu>_<mode>/ + zip untuk diunggah.
+      Mode: (1) jelajah = hanya membaca, tidak mengisi/mengirim:
+              python tools/pantau_web.py --mode jelajah --tanggal 2026-11-22 --jam 00:00,03:00,07:00
+            (2) dryrun = bot asli sampai Preview + pemantauan:
+              python tools/pantau_web.py --mode dryrun --observer "NAMA" --no-gui -- --jam 00:00 --process-past
+            (3) kirim = kasus nyata (wajib --izinkan-kirim):
+              python tools/pantau_web.py --mode kirim --izinkan-kirim --observer "NAMA" --no-gui -- --jam 00:00 --process-past
+      Untuk menguji profil Chrome tetap: jalankan mode jelajah DUA kali dengan chrome.profile_dir terisi, lalu bandingkan
+      laporan (langkah login, 'Sesi login tersimpan', durasi). Kolom password tidak direkam; HTML halaman login tidak disimpan.
+    * Tes: penguapan 30, pantau 16, form 21 (generator acak diperbarui), app 69, validator 45, obsdb 15, bot_flow 37, bot_fill 31,
+      popup 13, layers 17, continue 11, koreksi_qc 26, f32_f33 9 - semua lulus di sandbox AI.
+    * Berkas diubah/baru: core/validator.py, core/obsdb.py, core/formschema.py, app.py, web/form.html, V7SATU.py, config.yaml,
+      tools/pantau_web.py (BARU), tests/test_penguapan.py (BARU), tests/test_pantau.py (BARU), tests/test_form.py.
+    * LANGKAH BERIKUTNYA: (1) jalankan pantau mode jelajah jam 00:00 (+03:00 sbg pembanding) -> unggah zip; (2) saya sesuaikan
+      selector kolom penguapan dari hasilnya; (3) dry-run jam 00:00 dengan isian penguapan; (4) F2.7 kirim nyata; (5) keputusan
+      penggantian sleep & profil Chrome dari laporan pemantau (dryrun/kirim).
+
   REV 26 (2026-11-22) - F3.2 SELESAI (menunggu uji nyata) + F3.3 SEBAGIAN (aman, opsional):
     * TEMUAN: popup 'Change your password' = dialog Chrome (Google Password Manager), BUKAN elemen web -> Selenium tidak bisa
       melihatnya. Cara andal = MENCEGAH muncul (sudah dari F1.1: prefs password manager/leak detection + --disable-features).
@@ -1872,6 +1907,9 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
 
   [2026-11-22] Rev 26 - F3.2 selesai di kode (pyautogui opsional), F3.3 sebagian (profil Chrome tetap opsional, explicit wait login).
                Semua tes bot kini lolos di sandbox AI. Berikutnya: uji nyata PC (dry-run + profil), lalu F2.7, F3.1 (opsional).
+
+  [2026-11-22] Rev 27 - Fitur penguapan/radiasi/lama penyinaran jam 00 UTC (form+validator+bot, strict) + skrip pemantau web
+               tools/pantau_web.py. Berikutnya: jalankan pantau jelajah jam 00:00 di PC, unggah zip -> sesuaikan selector.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

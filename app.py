@@ -81,7 +81,7 @@ def create_app(cfg=None, db_path=None):
                 except Exception:
                     m = None
                 out[k] = m.text if (m is not None and m.ok and m.text) else v
-            elif k == "hujan_override_aktif" and not isinstance(v, bool) and v is not None:
+            elif k in ("hujan_override_aktif", "radiasi_kosongkan") and not isinstance(v, bool) and v is not None:
                 t = str(v).strip().lower()
                 out[k] = True if t in YA else (False if t in TIDAK else v)
             else:
@@ -118,6 +118,24 @@ def create_app(cfg=None, db_path=None):
         if request.path.startswith("/api/"):
             return jsonify({"error": "PIN diperlukan"}), 401
         return redirect(url_for("login", next=request.path))
+
+    def catat(tanggal, jam, event, detail):
+        """[F4.2] Jejak audit perubahan data lewat web (siapa & apa); tidak boleh menggagalkan aksi utama."""
+        try:
+            LOG.log_event(tanggal, jam, event, str(detail)[:500])
+        except Exception:
+            pass
+
+    def ringkas_diff(lama, baru, maks=6):
+        lama, baru = lama or {}, baru or {}
+        out = []
+        for k in sorted(set(lama) | set(baru)):
+            a_, b_ = lama.get(k), baru.get(k)
+            if str(a_) != str(b_):
+                out.append(f"{k}: {'-' if a_ is None else str(a_)[:18]} -> {'-' if b_ is None else str(b_)[:18]}")
+        if not out:
+            return "tanpa perubahan isi"
+        return "; ".join(out[:maks]) + (f"; +{len(out) - maks} kolom lain" if len(out) > maks else "")
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -186,7 +204,10 @@ def create_app(cfg=None, db_path=None):
             return jsonify({"ok": False, "perlu_konfirmasi": True,
                             "pesan": "jam ini SUDAH terkirim ke BMKG Satu. Perubahan hanya tersimpan di sini dan "
                                      "tidak dikirim ulang otomatis. Tetap simpan?"}), 409
+        sebelum = OBS.get(tanggal, jam)
         OBS.upsert(tanggal, jam, d, oleh)
+        catat(tanggal, jam, "form_simpan", f"{oleh}: " + ("data baru" if sebelum is None else ringkas_diff(kanonik(sebelum), kanonik(d)))
+              + (" [jam sudah terkirim; tidak dikirim ulang]" if s and s["status"] == "sent" else ""))
         return jsonify({"ok": True, "pesan": "tersimpan", "temuan": temuan})
 
     @app.route("/api/salin")
@@ -196,7 +217,8 @@ def create_app(cfg=None, db_path=None):
         if data is None:
             return jsonify({"ada": False}), 404
         data = kanonik(data)
-        for k in ("hujan_override_aktif", "hujan_override_mm"):     # override hujan tidak ikut disalin
+        for k in ("hujan_override_aktif", "hujan_override_mm", "penguapan_mm", "penguapan_ie", "radiasi_kosongkan",
+                  "radiasi_matahari", "lama_penyinaran_jam"):     # override hujan & penguapan tidak ikut disalin
             data.pop(k, None)
         return jsonify({"ada": True, "data": data, "dari": OBS.slot_sebelumnya(tanggal, jam)})
 
@@ -240,7 +262,8 @@ def create_app(cfg=None, db_path=None):
                 hasil["lewati_terisi"].append(jam)
                 continue
             d = kanonik(src)
-            for k in ("hujan_override_aktif", "hujan_override_mm"):     # override hujan tidak ikut disalin
+            for k in ("hujan_override_aktif", "hujan_override_mm", "penguapan_mm", "penguapan_ie", "radiasi_kosongkan",
+                  "radiasi_matahari", "lama_penyinaran_jam"):     # override hujan & penguapan tidak ikut disalin
                 d.pop(k, None)
             d, rr, temuan, S = hasil_validasi(ke, jam, d)
             d = {k: v for k, v in d.items() if k not in S or S[k]["aktif"]}
@@ -251,6 +274,7 @@ def create_app(cfg=None, db_path=None):
                 continue
             if not pratinjau:
                 OBS.upsert(ke, jam, d, oleh)
+                catat(ke, jam, "form_salin", f"{oleh}: disalin dari {dari} {jam}" + (" (menimpa data lama)" if ada else ""))
             waktu = dt.datetime.strptime(f"{ke} {jam}", "%Y-%m-%d %H:%M").replace(tzinfo=dt.timezone.utc)
             hasil["disalin"].append({"jam": jam, "menimpa": ada, "sudah_lewat": waktu <= sekarang})
         return jsonify({"ok": True, "pratinjau": pratinjau, **hasil})
@@ -263,6 +287,7 @@ def create_app(cfg=None, db_path=None):
         if s and s["status"] == "sent":
             return jsonify({"ok": False, "pesan": "jam yang sudah terkirim tidak dapat dihapus"}), 409
         OBS.delete(tanggal, jam)
+        catat(tanggal, jam, "form_hapus", f"{request.cookies.get('observer', '') or '?'}: data jam ini dihapus")
         return jsonify({"ok": True})
 
     @app.route("/api/atur_ulang", methods=["POST"])
@@ -359,7 +384,54 @@ def create_app(cfg=None, db_path=None):
                 continue
             n, _ = OBS.import_dataframe(df.loc[[r.name]], tz_hours=V.tz, oleh=oleh)
             masuk += n
+            if n:
+                catat(rr.slot[0], rr.slot[1], "impor_excel", f"{oleh}: dari baris Excel {rr.row_no}")
         return jsonify({"ok": True, "masuk": masuk, "ditolak": ditolak})
+
+    # ------------------------------------------------------ [F4.2] riwayat & audit
+    def filter_riwayat():
+        a = request.args
+        def tgl(k):
+            v = (a.get(k) or "").strip()
+            if not v:
+                return None
+            parse_slot(v, "00:00")
+            return v
+        jam = (a.get("jam") or "").strip() or None
+        if jam:
+            parse_slot("2000-01-01", jam)
+        return dict(dari=tgl("dari"), sampai=tgl("sampai"), jam=jam, event=(a.get("event") or "").strip() or None,
+                    q=(a.get("q") or "").strip() or None)
+
+    @app.route("/riwayat")
+    def riwayat():
+        hari = dt.datetime.now(dt.timezone.utc).date()
+        return render_template("riwayat.html", stasiun=nama_stasiun, tanggal=hari.isoformat(),
+                               dari=request.args.get("dari") or (hari - dt.timedelta(days=7)).isoformat(),
+                               sampai=request.args.get("sampai") or hari.isoformat(),
+                               jam=request.args.get("jam", ""), event=request.args.get("event", ""), q=request.args.get("q", ""))
+
+    @app.route("/api/riwayat")
+    def api_riwayat():
+        f = filter_riwayat()
+        try:
+            limit = int(request.args.get("limit", 300))
+        except ValueError:
+            limit = 300
+        baris, total = LOG.cari_events(limit=limit, **f)
+        return jsonify({"total": total, "baris": baris})
+
+    @app.route("/ekspor_riwayat.xlsx")
+    def ekspor_riwayat():
+        import pandas as pd
+        baris, _ = LOG.cari_events(limit=50000, **filter_riwayat())
+        df = pd.DataFrame(baris, columns=["id", "ts", "tanggal_utc", "jam", "event", "detail"]).rename(
+            columns={"ts": "waktu_server", "tanggal_utc": "tanggal_slot_utc", "jam": "jam_slot_utc", "event": "kejadian"})
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, sheet_name="riwayat")
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name="riwayat_synop.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     app.obs, app.log, app.validator = OBS, LOG, V
     return app

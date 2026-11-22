@@ -42,6 +42,7 @@ URUTAN_KOLOM = [
     "cloud_high_cover_oktas", "awan_tinggi_jenis", "awan_tinggi_jumlah", "cloud_high_base_1", "cloud_arah_tinggi",
     "awan_tinggi_2_jenis", "awan_tinggi_2_jumlah", "cloud_high_base_2", "cloud_arah_tinggi_2", "land_cond",
     "vertical_visibility", "hujan_override_aktif", "hujan_override_mm",
+    "penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam",
 ]
 TIDAK_DISIMPAN = ("waktu_eksekusi", "jam_input")
 

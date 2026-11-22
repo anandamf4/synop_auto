@@ -104,10 +104,12 @@ def isi(jam):
             if c in COLUMN_FIELD:
                 pil = s["pilihan"] if s["pilihan"] is not None else opsi_kolom(V, c)
                 d[c] = rnd.choice(pil)
-            elif c == "hujan_override_aktif":
+            elif c in ("hujan_override_aktif", "radiasi_kosongkan"):
                 d[c] = rnd.random() < 0.5
             else:
-                d[c] = {"visibility": rnd.choice([0.5, 3, 8, 10]), "vertical_visibility": rnd.choice([30, 60, 90])}.get(
+                d[c] = {"visibility": rnd.choice([0.5, 3, 8, 10]), "vertical_visibility": rnd.choice([30, 60, 90]),
+                        "penguapan_mm": rnd.choice([0, 3.5, 10]), "penguapan_ie": rnd.choice([0, 1, 2]),
+                        "radiasi_matahari": rnd.choice([100, 500]), "lama_penyinaran_jam": rnd.choice([0, 2.4, 8, 12])}.get(
                     c, rnd.choice([300, 450, 900, 1500, 3000]))
         if not berubah:
             break

@@ -22,6 +22,14 @@ paths:
   # V7SATU mencoba mengklik popup lewat Selenium. Sesuaikan dengan lokasi ok.PNG Anda.
   ok_image: "legacy/ok.PNG"
 
+web_ids:
+  # [rev 27] ID elemen web untuk kolom bagian bawah jam 00 UTC. KOSONG = dicari otomatis lewat teks label.
+  # Isi bila hasil skrip pemantau (tools/pantau_web.py) menunjukkan ID aslinya.
+  penguapan_mm: ""
+  penguapan_ie: ""
+  penguapan_radiasi: ""
+  penguapan_sinar_jam: ""
+
 chrome:
   # [F3.3] Profil Chrome TETAP khusus bot, agar sesi login BMKG Satu tersimpan (login tidak berulang tiap bot dibuka).
   # Kosong = perilaku lama (profil sementara, login tiap kali). Contoh: "chrome_profile" (di folder proyek).
@@ -41,6 +49,7 @@ observers:
   allowed: []
 
 features:
+  penguapan_strict: true          # rev 27: isian penguapan/radiasi jam 00 UTC diminta tapi gagal -> jam TIDAK dikirim (false = tetap kirim)
   extra_layers: true              # F3.10: isi lapisan tambahan (rendah-3, menengah-2, tinggi-2); false = dilewati
   verify_sandi: true              # F3.4: bandingkan sandi hasil Preview dengan data Excel (peringatan + log)
   sandi_block_on_mismatch: false  # true = batalkan KIRIM bila verifikasi sandi menemukan ERROR (data utama beda)

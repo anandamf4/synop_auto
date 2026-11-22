@@ -73,10 +73,13 @@ NUMERIC_COLS = [
     "cloud_med_base_1", "cloud_med_base_2", "cloud_high_base_1",
     "cloud_low_base_3", "cloud_high_base_2",
     "vertical_visibility", "hujan_override_mm",
+    "penguapan_mm", "radiasi_matahari", "lama_penyinaran_jam", "penguapan_ie",
 ]
+# [rev 27] bagian bawah form jam 00 UTC (penguapan, radiasi, lama penyinaran, pengenal data penguapan)
+PENGUAPAN_COLS = ["penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam"]
 REQUIRED_COLUMNS = ["waktu_eksekusi", "jam_input", "visibility", "ww", "w1", "w2",
                     "cloud_cover_oktas_m", "land_cond"]
-OPTIONAL_NEW_COLUMNS = ["vertical_visibility", "hujan_override_aktif", "hujan_override_mm"]
+OPTIONAL_NEW_COLUMNS = ["vertical_visibility", "hujan_override_aktif", "hujan_override_mm"] + PENGUAPAN_COLS
 
 # kolom detail per lapisan (untuk cek "harus kosong" saat lapisan nonaktif)
 LAYERS = {
@@ -348,7 +351,7 @@ class Validator:
         res = RowResult(row_no=row_no)
         add = lambda lvl, rule, col, msg: res.issues.append(Issue(lvl, rule, col, msg))
         plan = res.plan = {"skip_clouds": False, "vertical_visibility": None, "total": None,
-                           "layers": {}, "rain_override": None, "ww_code": None, "notes": [],
+                           "layers": {}, "rain_override": None, "penguapan": None, "ww_code": None, "notes": [],
                            "extra": [], "extra_off": []}
 
         # ---- waktu & slot ------------------------------------------------
@@ -466,6 +469,10 @@ class Validator:
         # ---- hujan override -------------------------------------------------
         if val(row, "hujan_override_aktif") is not None or val(row, "hujan_override_mm") is not None:
             self._check_rain(row, res, nums, jam_for_rules)
+
+        # ---- [rev 27] penguapan / radiasi / lama penyinaran (jam 00 UTC) -----
+        if any(val(row, c) is not None for c in PENGUAPAN_COLS):
+            self._check_penguapan(row, res, nums, jam_for_rules)
 
         # ---- land_cond: sudah divalidasi lewat pencocokan ------------------
 
@@ -660,6 +667,46 @@ class Validator:
                 f"kolom hujan di web hanya terbuka tiap 3 jam UTC (00,03,06,..); jam {jam:02d}:00 -> override DIABAIKAN")
             return
         res.plan["rain_override"] = {"mm": mm}
+
+    def _check_penguapan(self, row, res, nums, jam):
+        """[rev 27] Kolom bawah form web yang terbuka pada jam 00 UTC. Kosong = biarkan nilai AWS Digi apa adanya.
+        radiasi: 'kosongkan' (hapus nilai AWS yang tak relevan) ATAU 'nilai' baru, tidak keduanya."""
+        add = lambda lvl, rule, col, msg: res.issues.append(Issue(lvl, rule, col, msg))
+        mm, rad, sinar = nums.get("penguapan_mm"), nums.get("radiasi_matahari"), nums.get("lama_penyinaran_jam")
+        ie_raw, ie = val(row, "penguapan_ie"), nums.get("penguapan_ie")
+        kosongkan = truthy(row.get("radiasi_kosongkan"))
+        for c in ("penguapan_mm", "radiasi_matahari", "lama_penyinaran_jam", "penguapan_ie"):
+            if val(row, c) is not None and nums.get(c) is None:
+                return          # sudah ditandai R-NUM (bukan angka / negatif)
+        if ie is not None and (ie != int(ie) or not 0 <= ie <= 9):
+            add(ERROR, "R25", "penguapan_ie", f"pengenal data penguapan (iE) harus bilangan bulat 0-9 (kode di web), bukan {ie_raw!r}")
+            return
+        if kosongkan and rad is not None:
+            add(ERROR, "R26", "radiasi_matahari", "pilih salah satu: kosongkan radiasi ATAU isi nilai radiasi, bukan keduanya")
+            return
+        if sinar is not None and sinar > 24:
+            add(ERROR, "R27", "lama_penyinaran_jam", f"lama penyinaran {sinar:g} jam tidak mungkin (maks 24 jam)")
+            return
+        if sinar is not None and sinar > 13:
+            add(WARNING, "R27", "lama_penyinaran_jam", f"lama penyinaran {sinar:g} jam > 13 jam: tidak lazim untuk Jambi; pastikan benar")
+        if mm is not None and mm > 30:
+            add(WARNING, "R27", "penguapan_mm", f"penguapan {mm:g} mm per hari tidak lazim (umumnya 0-15 mm); pastikan benar")
+        if jam is not None and jam != 0:
+            add(WARNING, "R25", "penguapan_mm",
+                f"bagian penguapan/matahari di web hanya terbuka pada jam 00 UTC; jam {jam:02d}:00 -> semua isian bagian ini DIABAIKAN")
+            return
+        rencana = {}
+        if mm is not None:
+            rencana["mm"] = mm
+        if ie is not None:
+            rencana["ie"] = int(ie)
+        if kosongkan:
+            rencana["radiasi"] = {"kosongkan": True}
+        elif rad is not None:
+            rencana["radiasi"] = {"nilai": rad}
+        if sinar is not None:
+            rencana["sinar_jam"] = sinar
+        res.plan["penguapan"] = rencana or None
 
     # ------------------------------------------------------------------ #
     #  Seluruh DataFrame                                                 #

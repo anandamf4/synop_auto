@@ -1860,6 +1860,143 @@ def isi_hujan_override(driver, mm):
         return not CFG["features"].get("rain_override_strict", False)
 
 
+# ---- [rev 27] bagian bawah form jam 00 UTC: penguapan, radiasi, lama penyinaran, pengenal data penguapan (iE) ----
+PENGUAPAN_LOG = {}
+# label persis di web (diawali teks ini, tak peka huruf besar/kecil). ID bisa dipaksa lewat config.yaml -> web_ids.
+LABEL_PENGUAPAN = {"mm": "penguapan (mm)", "ie": "pengenal data penguapan", "radiasi": "radiasi matahari",
+                   "sinar_jam": "lama penyinaran matahari"}
+_JS_CARI_LABEL = r"""
+const t = arguments[0];
+const norm = x => (x || '').replace(/\s+/g, ' ').trim().toLowerCase();
+for (const l of document.querySelectorAll('label')) {
+  if (!norm(l.textContent).startsWith(t)) continue;
+  if (l.htmlFor) { const e = document.getElementById(l.htmlFor); if (e) return e; }
+  let box = l.parentElement;
+  for (let i = 0; i < 4 && box; i++, box = box.parentElement) {
+    const sel = box.querySelector('.ant-select[id], .ant-select');
+    const inp = [...box.querySelectorAll('input, textarea')].find(x => !x.classList.contains('ant-select-search__field')
+        && (l.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
+    if (sel && (l.compareDocumentPosition(sel) & Node.DOCUMENT_POSITION_FOLLOWING)) return sel;
+    if (inp) return inp;
+  }
+}
+return null;
+"""
+
+
+def _cari_kolom_penguapan(driver, kunci):
+    """Cari elemen kolom lewat ID dari config (web_ids) atau lewat teks label di web."""
+    id_cfg = ((CFG.get("web_ids", {}) or {}).get(f"penguapan_{kunci}") or "").strip()
+    try:
+        if id_cfg:
+            return driver.find_element(By.ID, id_cfg)
+        return driver.execute_script(_JS_CARI_LABEL, LABEL_PENGUAPAN[kunci])
+    except Exception:
+        return None
+
+
+def _set_input_vue(driver, el, nilai):
+    """Kosongkan/isi <input> dan beri tahu framework (Vue) lewat event input+change."""
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+    el.click()
+    el.send_keys(Keys.CONTROL, "a")
+    el.send_keys(Keys.BACKSPACE)
+    if nilai != "":
+        el.send_keys(nilai)
+    driver.execute_script(
+        "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));arguments[0].dispatchEvent(new Event('change',{bubbles:true}));", el)
+    el.send_keys(Keys.TAB)
+
+
+def _angka_sama(teks_web, nilai):
+    try:
+        return abs(float(str(teks_web).replace(",", ".")) - float(nilai)) < 1e-9
+    except ValueError:
+        return False
+
+
+def isi_penguapan_00(driver, rencana):
+    """
+    Terapkan isian bagian bawah form jam 00 UTC. Nilai kosong di rencana = biarkan hasil Fill AWS Digi.
+      rencana = {mm, ie, radiasi:{kosongkan|nilai}, sinar_jam}
+    STRICT (default, features.penguapan_strict): kolom diminta tapi gagal diisi/diverifikasi -> return False (jam TIDAK dikirim).
+    Setiap kolom dibaca ulang dari web setelah diisi; nilai AWS asli dan nilai akhir dicatat di PENGUAPAN_LOG.
+    """
+    PENGUAPAN_LOG.clear()
+    strict = CFG["features"].get("penguapan_strict", True)
+    semua_ok = True
+
+    def gagal(kunci, alasan):
+        nonlocal semua_ok
+        PENGUAPAN_LOG.setdefault(kunci, {})["applied"] = False
+        PENGUAPAN_LOG[kunci]["reason"] = alasan
+        print(f"❌ Penguapan/matahari [{kunci}]: {alasan}")
+        semua_ok = False
+
+    for kunci in ("mm", "radiasi", "sinar_jam", "ie"):
+        if kunci not in rencana:
+            continue
+        log = PENGUAPAN_LOG.setdefault(kunci, {"applied": False})
+        el = _cari_kolom_penguapan(driver, kunci)
+        if el is None:
+            gagal(kunci, f"kolom '{LABEL_PENGUAPAN[kunci]}' tidak ditemukan di web (jam ini mungkin tidak membukanya)")
+            continue
+        try:
+            if kunci == "ie":
+                kode = str(rencana["ie"])
+                eid = el.get_attribute("id") or ""
+                if "ant-select" not in (el.get_attribute("class") or "") or not eid:
+                    gagal(kunci, "kolom iE bukan dropdown ant-select ber-ID; isi ID-nya di config.yaml (web_ids.penguapan_ie)")
+                    continue
+                log["aws"] = (driver.execute_script("return (arguments[0].innerText||'').trim();", el) or "")[:60]
+                if not pilih_dropdown_ant_select(driver, eid, f"{kode} -"):
+                    gagal(kunci, f"pilihan '{kode} -' tidak bisa dipilih")
+                    continue
+                akhir = (driver.execute_script("return (arguments[0].innerText||'').trim();", el) or "").strip()
+                log["nilai_akhir"] = akhir[:60]
+                if akhir.startswith(f"{kode} -") or akhir.startswith(kode):
+                    log["applied"] = True
+                    print(f"✅ iE: {log['aws'] or '(kosong)'} (AWS) → {akhir}")
+                else:
+                    gagal(kunci, f"nilai akhir '{akhir}' tidak diawali kode {kode}")
+                continue
+
+            if not el.is_enabled():
+                gagal(kunci, "kolom NONAKTIF di web pada jam ini")
+                continue
+            log["aws"] = (el.get_attribute("value") or "").strip()
+            if kunci == "radiasi" and rencana["radiasi"].get("kosongkan"):
+                _set_input_vue(driver, el, "")
+                akhir = (el.get_attribute("value") or "").strip()
+                log["nilai_akhir"] = akhir
+                if akhir == "":
+                    log["applied"] = True
+                    print(f"✅ Radiasi matahari dikosongkan (AWS: {log['aws'] or '(sudah kosong)'})")
+                else:
+                    gagal(kunci, f"radiasi tidak berhasil dikosongkan (masih '{akhir}')")
+                continue
+            nilai = rencana["radiasi"]["nilai"] if kunci == "radiasi" else rencana[kunci]
+            teks = _fmt_angka(nilai)
+            _set_input_vue(driver, el, teks)
+            akhir = (el.get_attribute("value") or "").strip()
+            log["nilai_akhir"] = akhir
+            if _angka_sama(akhir, nilai):
+                log["applied"] = True
+                print(f"✅ {LABEL_PENGUAPAN[kunci]}: {log['aws'] or '(kosong)'} (AWS) → {teks}")
+            else:
+                gagal(kunci, f"nilai akhir '{akhir}' tidak sama dengan {teks}")
+        except Exception as e:
+            gagal(kunci, f"error: {e}")
+            try:
+                save_debug_snapshot(driver, f"penguapan_{kunci}")
+            except Exception:
+                pass
+    if not semua_ok and not strict:
+        print("⚠️ penguapan_strict=false: pengiriman dilanjutkan meski ada isian penguapan/matahari yang gagal")
+        return True
+    return semua_ok
+
+
 def buat_driver():
     """[F1.6] Buka Chrome (dipanggil di main setelah launcher)."""
     return webdriver.Chrome(service=Service(), options=chrome_options)
@@ -2163,6 +2300,12 @@ def isi_data(driver, row, plan=None):
         # [F1.8] override curah hujan (hanya bila diminta di Excel & lolos validasi)
         if plan and plan.get("rain_override"):
             if not isi_hujan_override(driver, plan["rain_override"]["mm"]):
+                return False
+
+        # [rev 27] jam 00 UTC: ganti nilai penguapan / kosongkan radiasi / lama penyinaran / iE (hanya bila diminta)
+        PENGUAPAN_LOG.clear()
+        if plan and plan.get("penguapan"):
+            if not isi_penguapan_00(driver, plan["penguapan"]):
                 return False
 
         # [F1.9] total tutupan 0 / 9 / "/" : web mengisi CL/CM/CH otomatis & menonaktifkan detail awan
@@ -2732,6 +2875,7 @@ def main():
                 db.start_attempt(*slot, observer=nama_observer)
             PERUBAHAN_OTOMATIS.clear()
             HUJAN_OVERRIDE_LOG.clear()
+            PENGUAPAN_LOG.clear()
             GAGAL_OPSIONAL.clear()
             GAGAL_WAJIB.clear()
 

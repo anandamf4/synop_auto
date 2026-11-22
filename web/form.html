@@ -34,7 +34,7 @@
 <div class="kartu kepala">
   <a class="tombol" href="/?tanggal={{ tanggal }}"><svg class="i"><use href="#i-left"/></svg>Dashboard</a>
   <h1><span>{{ jam }} UTC</span><small>{{ tanggal }}</small></h1>
-  <span id="status-kirim"></span><span class="sp"></span>
+  <span id="status-kirim"></span><a class="tombol kecil" href="/riwayat?dari={{ tanggal }}&sampai={{ tanggal }}&jam={{ jam }}" title="Riwayat perubahan & pengiriman jam ini"><svg class="i"><use href="#i-list"/></svg>Riwayat jam ini</a><span class="sp"></span>
   <label>Observer <select id="observer"><option value="">— pilih —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select></label>
 </div>
 <div id="pesan"></div>
@@ -110,6 +110,7 @@ $$(".t").forEach(b=>b.onclick=async()=>{const d=Object.assign(ambil(),TEMPLATE[b
 addEventListener("beforeunload",e=>{if(DIRTY){e.preventDefault();e.returnValue=""}});
 (async()=>{SKEMA=await (await fetch("/api/skema")).json();bangun();
  const r=await fetch(`/api/slot/${TANGGAL}/${JAM}`);const j=await r.json();isiData(j.data||{});
+ if(JAM==="00:00"&&!Object.keys(j.data||{}).length){const e=$("#f_radiasi_kosongkan");if(e)e.value="true"}   // biasanya radiasi AWS dikosongkan
  if(j.status_kirim)$("#status-kirim").innerHTML=badgeKirim(j.status_kirim,false);
  await periksa();await periksa();DIRTY=false})();
 </script>{% endblock %}

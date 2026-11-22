@@ -6,3 +6,4 @@ rules_*/
 *.xlsx
 __pycache__/
 chrome_profile/
+pantau_out/
