@@ -64,7 +64,7 @@ class Recorder:
 
 
 def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_data_result=True,
-             allow_update=True, start_wib=None, pasca_fn=None, db_rows=None, hook_isi=None):
+             allow_update=True, start_wib=None, pasca_fn=None, db_rows=None, hook_isi=None, pra=None):
     """Jalankan V7.main() dengan semua interaksi browser dipalsukan. Return Recorder."""
     rec = Recorder()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
@@ -160,6 +160,8 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
         V7.recover_session = f_recover
 
         sys.argv = ["V7SATU.py"] + argv
+        if pra:
+            pra(rec)    # [rev 28] tiruan tambahan (mis. pemeriksaan sesi) yang perlu mencatat ke Recorder yang sama
         try:
             V7.main()
         except StopMain:
@@ -338,6 +340,45 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     check("DB: jam 08 yang baru diisi tidak hilang (menunggu pass berikutnya)", slots(dbB).get(("2026-11-14", "09:00"), {}).get("status") == "sent")
     V7.SUMBER_DATA = "excel"
     V7._OBS_STORE = None
+
+print("== [rev 28] sesi BMKG Satu diperiksa menjelang eksekusi & logout di tengah baris ==")
+_seg_asli, _habis_asli = V7.segarkan_sesi, V7.sesi_habis
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    V7.SESI_TERAKHIR_OK = 0.0
+    def pra_seg(rec):
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), True)[1]       # meniru: tadinya ter-logout, kini login ulang
+    dbS = Path(d) / "s.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbS, pra=pra_seg)
+    nama = [c[0] for c in rec.calls]
+    check("sesi diperiksa tepat sekali untuk slot ini", nama.count("segarkan") == 1, nama)
+    check("pemeriksaan sesi terjadi SEBELUM halaman jam diisi", nama.index("segarkan") < nama.index("jam"), nama)
+    check("setelah halaman dimuat ulang, tanggal slot dipilih ulang", "tanggal" in nama[nama.index("segarkan"):], nama)
+    check("slot tetap terkirim", slots(dbS)[("2026-11-14", "07:00")]["status"] == "sent")
+
+    V7.SESI_TERAKHIR_OK = V7.time.time()       # sesi baru saja terbukti hidup -> pemeriksaan dilewati (hemat waktu)
+    dbT = Path(d) / "t.db"
+    def pra_seg2(rec):
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), True)[1]
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbT, pra=pra_seg2)
+    check("sesi baru terbukti hidup -> tidak diperiksa ulang", rec.names("segarkan") == [], rec.names("segarkan"))
+
+    dbU = Path(d) / "u.db"
+    def pra_logout(rec):
+        V7.segarkan_sesi = lambda drv: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.sesi_habis = lambda drv=None: True                              # meniru: BMKG Satu ter-logout saat baris diisi
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbU, isi_data_result=False, pra=pra_logout)
+    check("gagal isi data + halaman login terdeteksi -> recovery sesi dijalankan", len(rec.names("recover")) >= 1, rec.calls[-6:])
+    V7.sesi_habis = _habis_asli
+    dbV = Path(d) / "v.db"
+    def pra_normal(rec):
+        V7.segarkan_sesi = lambda drv: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.sesi_habis = lambda drv=None: False
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbV, isi_data_result=False, pra=pra_normal)
+    check("gagal isi data tanpa logout -> TIDAK ada recovery (perilaku lama tetap)", rec.names("recover") == [], rec.names("recover"))
+V7.segarkan_sesi, V7.sesi_habis = _seg_asli, _habis_asli
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

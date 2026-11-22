@@ -23,6 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 from flask import (Flask, Response, abort, jsonify, make_response, redirect, render_template, request,
                    send_file, url_for)
@@ -51,6 +52,18 @@ def create_app(cfg=None, db_path=None):
     nama_stasiun = (cfg.get("notify", {}) or {}).get("nama_stasiun", "Stasiun")
 
     # ------------------------------------------------------------------ util
+    def observer_cookie():
+        """Nama observer yang diingat browser. Nilai cookie dikodekan-persen oleh JavaScript (spasi -> %20), jadi harus
+        di-decode; tanpa itu nama berspasi tak pernah cocok dengan opsi dropdown sehingga selalu tampil '— pilih —'."""
+        return unquote(request.cookies.get("observer", "") or "").strip()
+
+    def nama_pengubah(body_observer, tanggal=None, jam=None):
+        """[rev 28] Observer OPSIONAL. Urutan: isian formulir -> cookie browser -> pengubah sebelumnya pada jam itu -> kosong."""
+        oleh = (body_observer or "").strip() or observer_cookie()
+        if not oleh and tanggal and jam:
+            oleh = ((OBS.info(tanggal, jam) or {}).get("diubah_oleh") or "").strip()
+        return oleh
+
     def daftar_observer():
         boleh = (cfg.get("observers", {}) or {}).get("allowed") or []
         obs = [o["name"] for o in json.load(open(ROOT / "core" / "options.json", encoding="utf-8")).get("observer", [])
@@ -153,13 +166,13 @@ def create_app(cfg=None, db_path=None):
     def dashboard():
         tgl = request.args.get("tanggal") or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
         return render_template("dashboard.html", tanggal=tgl, stasiun=nama_stasiun, observers=daftar_observer(),
-                               observer=request.cookies.get("observer", ""))
+                               observer=observer_cookie())
 
     @app.route("/form/<tanggal>/<jam>")
     def form(tanggal, jam):
         parse_slot(tanggal, jam)
         return render_template("form.html", tanggal=tanggal, jam=jam, stasiun=nama_stasiun,
-                               observers=daftar_observer(), observer=request.cookies.get("observer", ""),
+                               observers=daftar_observer(), observer=observer_cookie(),
                                prev=OBS.slot_sebelumnya(tanggal, jam))
 
     # ----------------------------------------------------------------- API
@@ -189,9 +202,7 @@ def create_app(cfg=None, db_path=None):
     def api_simpan():
         b = request.get_json(force=True, silent=True) or {}
         tanggal, jam = parse_slot(b.get("tanggal", ""), b.get("jam", ""))
-        oleh = (b.get("observer") or "").strip()
-        if not oleh:
-            return jsonify({"ok": False, "pesan": "pilih nama observer dulu"}), 422
+        oleh = nama_pengubah(b.get("observer"), tanggal, jam)     # [rev 28] opsional; tidak lagi menolak simpan
         d, rr, temuan, S = hasil_validasi(tanggal, jam, b.get("data") or {})
         # kolom nonaktif menurut aturan tidak ikut disimpan (web mengabaikannya)
         d = {k: v for k, v in d.items() if k not in S or S[k]["aktif"]}
@@ -205,8 +216,8 @@ def create_app(cfg=None, db_path=None):
                             "pesan": "jam ini SUDAH terkirim ke BMKG Satu. Perubahan hanya tersimpan di sini dan "
                                      "tidak dikirim ulang otomatis. Tetap simpan?"}), 409
         sebelum = OBS.get(tanggal, jam)
-        OBS.upsert(tanggal, jam, d, oleh)
-        catat(tanggal, jam, "form_simpan", f"{oleh}: " + ("data baru" if sebelum is None else ringkas_diff(kanonik(sebelum), kanonik(d)))
+        OBS.upsert(tanggal, jam, d, oleh or None)
+        catat(tanggal, jam, "form_simpan", f"{oleh or 'tanpa nama'}: " + ("data baru" if sebelum is None else ringkas_diff(kanonik(sebelum), kanonik(d)))
               + (" [jam sudah terkirim; tidak dikirim ulang]" if s and s["status"] == "sent" else ""))
         return jsonify({"ok": True, "pesan": "tersimpan", "temuan": temuan})
 
@@ -242,9 +253,7 @@ def create_app(cfg=None, db_path=None):
         if mode not in ("lewati", "timpa"):
             return jsonify({"ok": False, "pesan": "mode harus 'lewati' atau 'timpa'"}), 400
         pratinjau = bool(b.get("pratinjau"))
-        oleh = (b.get("observer") or "").strip()
-        if not pratinjau and not oleh:
-            return jsonify({"ok": False, "pesan": "pilih nama observer dulu"}), 422
+        oleh = nama_pengubah(b.get("observer"))                   # [rev 28] opsional
         sekarang = dt.datetime.now(dt.timezone.utc)
         hasil = {"disalin": [], "lewati_terisi": [], "lewati_terkirim": [], "tanpa_sumber": [], "ditolak": []}
         for h in range(j1, j2 + 1):
@@ -273,8 +282,8 @@ def create_app(cfg=None, db_path=None):
                 hasil["ditolak"].append({"jam": jam, "alasan": galat[:2]})
                 continue
             if not pratinjau:
-                OBS.upsert(ke, jam, d, oleh)
-                catat(ke, jam, "form_salin", f"{oleh}: disalin dari {dari} {jam}" + (" (menimpa data lama)" if ada else ""))
+                OBS.upsert(ke, jam, d, oleh or None)
+                catat(ke, jam, "form_salin", f"{oleh or 'tanpa nama'}: disalin dari {dari} {jam}" + (" (menimpa data lama)" if ada else ""))
             waktu = dt.datetime.strptime(f"{ke} {jam}", "%Y-%m-%d %H:%M").replace(tzinfo=dt.timezone.utc)
             hasil["disalin"].append({"jam": jam, "menimpa": ada, "sudah_lewat": waktu <= sekarang})
         return jsonify({"ok": True, "pratinjau": pratinjau, **hasil})
@@ -287,7 +296,7 @@ def create_app(cfg=None, db_path=None):
         if s and s["status"] == "sent":
             return jsonify({"ok": False, "pesan": "jam yang sudah terkirim tidak dapat dihapus"}), 409
         OBS.delete(tanggal, jam)
-        catat(tanggal, jam, "form_hapus", f"{request.cookies.get('observer', '') or '?'}: data jam ini dihapus")
+        catat(tanggal, jam, "form_hapus", f"{observer_cookie() or 'tanpa nama'}: data jam ini dihapus")
         return jsonify({"ok": True})
 
     @app.route("/api/atur_ulang", methods=["POST"])
@@ -419,7 +428,7 @@ def create_app(cfg=None, db_path=None):
         except ValueError:
             limit = 300
         baris, total = LOG.cari_events(limit=limit, **f)
-        return jsonify({"total": total, "baris": baris})
+        return jsonify({"total": total, "baris": baris, "jenis": LOG.daftar_event()})
 
     @app.route("/ekspor_riwayat.xlsx")
     def ekspor_riwayat():

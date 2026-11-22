@@ -22,8 +22,8 @@ LABEL_ANGKA = {
     "cloud_low_base_3": ("Tinggi dasar (lapisan 3)", "m"), "cloud_med_base_1": ("Tinggi dasar", "m"),
     "cloud_med_base_2": ("Tinggi dasar (lapisan 2)", "m"), "cloud_high_base_1": ("Tinggi dasar", "m"),
     "cloud_high_base_2": ("Tinggi dasar (lapisan 2)", "m"), "hujan_override_mm": ("Curah hujan", "mm"),
-    "penguapan_mm": ("Penguapan", "mm"), "penguapan_ie": ("Pengenal data penguapan (iE)", "kode 0-9"),
-    "radiasi_matahari": ("Radiasi matahari (nilai baru)", "Joule/cm2"), "lama_penyinaran_jam": ("Lama penyinaran matahari", "jam"),
+    "penguapan_mm": ("Penguapan", "mm"), "penguapan_ie": ("Pengenal data penguapan", "iE, kode 0-9"),
+    "radiasi_matahari": ("Radiasi matahari", "Joule/cm2"), "lama_penyinaran_jam": ("Lama penyinaran matahari", "jam"),
 }
 SAKLAR = ("hujan_override_aktif", "radiasi_kosongkan")
 LABEL_LAIN = {
@@ -32,7 +32,7 @@ LABEL_LAIN = {
     "cloud_low_type_cl": "CL", "cloud_low_cover_oktas": "NCL (okta)", "cloud_med_type_cm": "CM",
     "cloud_med_cover_oktas": "NCM (okta)", "cloud_high_type_ch": "CH", "cloud_high_cover_oktas": "NCH (okta)",
     "hujan_override_aktif": "Ganti curah hujan dari AWS",
-    "radiasi_kosongkan": "Kosongkan radiasi matahari (hapus nilai AWS)",
+    "radiasi_kosongkan": "Kosongkan radiasi (hapus nilai AWS)",
 }
 SUFFIKS = {"jenis": "Jenis", "jumlah": "Jumlah", "arah": "Arah gerak"}
 
@@ -54,7 +54,10 @@ BAGIAN = [
         "cloud_arah_tinggi", "awan_tinggi_2_jenis", "awan_tinggi_2_jumlah", "cloud_high_base_2",
         "cloud_arah_tinggi_2"]},
     {"id": "hujan", "judul": "Curah hujan", "kolom": ["hujan_override_aktif", "hujan_override_mm"]},
-    {"id": "penguapan", "judul": "Penguapan & matahari (khusus jam 00 UTC)", "kolom": [
+    {"id": "penguapan", "judul": "Penguapan & matahari (khusus jam 00 UTC)",
+     "catatan": "Kosongkan kolom yang tidak ingin diganti: nilainya tetap memakai data AWS Digi. "
+                "Radiasi matahari biasanya dikosongkan karena nilai AWS tidak relevan.",
+     "kolom": [
         "penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam"]},
 ]
 SEMUA_KOLOM = [c for b in BAGIAN for c in b["kolom"]]
@@ -62,6 +65,7 @@ SEMUA_KOLOM = [c for b in BAGIAN for c in b["kolom"]]
 SUB = {
     "cloud_low_type_cl": "", "awan_rendah_2_jenis": "Lapisan 2 (opsional)", "awan_rendah_3_jenis": "Lapisan 3 (opsional)",
     "awan_menengah_jenis_2": "Lapisan 2 (opsional)", "awan_tinggi_2_jenis": "Lapisan 2 (opsional)",
+    "penguapan_mm": "Penguapan", "radiasi_kosongkan": "Matahari",     # rev 28: dua kelompok rapi pada jam 00 UTC
 }
 
 
@@ -91,11 +95,11 @@ def build_schema(v):
                 fl.append({"kolom": col, "label": _label(v, col), "jenis": "pilih", "opsi": opsi_kolom(v, col) or [],
                            "sub": SUB.get(col)})
             elif col in SAKLAR:
-                fl.append({"kolom": col, "label": _label(v, col), "jenis": "saklar", "sub": None})
+                fl.append({"kolom": col, "label": _label(v, col), "jenis": "saklar", "sub": SUB.get(col)})
             else:
                 fl.append({"kolom": col, "label": _label(v, col), "jenis": "angka",
                            "satuan": LABEL_ANGKA.get(col, ("", ""))[1], "sub": SUB.get(col)})
-        bagian.append({"id": b["id"], "judul": b["judul"], "field": fl})
+        bagian.append({"id": b["id"], "judul": b["judul"], "catatan": b.get("catatan"), "field": fl})
     return {"bagian": bagian}
 
 
@@ -200,9 +204,7 @@ def field_state(v, data, jam_utc=None):
     if jam_utc is not None and jam_utc != 0:
         mati(pc, f"hanya jam 00 UTC (jam ini {jam_utc:02d}:00)")
     else:
-        for c in pc:
-            S[c]["alasan"] = "kosong = pakai nilai AWS"
+        # [rev 28] "kosong = pakai nilai AWS" kini satu catatan di judul bagian (bukan diulang di tiap kolom)
         if str(data.get("radiasi_kosongkan", "")).strip().lower() in ("1", "true", "ya", "yes", "y", "v"):
             mati(["radiasi_matahari"], "radiasi akan dikosongkan")
-        S["radiasi_kosongkan"]["alasan"] = "biasanya Ya: nilai AWS tidak relevan"
     return S

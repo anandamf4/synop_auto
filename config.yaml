@@ -35,6 +35,17 @@ chrome:
   # Kosong = perilaku lama (profil sementara, login tiap kali). Contoh: "chrome_profile" (di folder proyek).
   # JANGAN diarahkan ke profil Chrome harian Anda. Folder ini berisi cookie sesi; jangan dibagikan / di-commit.
   profile_dir: ""
+  # [rev 28] Chrome kadang terbuka tetapi tidak menuju BMKG Satu (profil terkunci oleh Chrome yatim). Bot kini memastikan
+  # halaman benar-benar terbuka; bila gagal: tutup Chrome yatim yang memakai profil bot, hapus berkas kunci, coba lagi.
+  retry_buka: 3                   # berapa kali Chrome dicoba dibuka sebelum menyerah
+  fallback_profil_sementara: true # profil tetap gagal terus -> pakai profil sementara (login dari awal) daripada berhenti
+
+# [rev 28] BMKG Satu bisa logout sendiri (sekitar tiap 1 jam, bahkan saat dipakai). Sebelum tiap eksekusi bot memeriksa
+# sesi: bila sudah habis, login ulang otomatis (berlaku juga TANPA profil Chrome). Juga dideteksi bila logout terjadi di tengah pengisian.
+session:
+  aktif: true
+  cek_sebelum_detik: 180          # periksa sesi sekian detik sebelum waktu eksekusi
+  cek_ulang_menit: 10             # lewati pemeriksaan bila sesi terbukti hidup < sekian menit lalu
 
 runtime:
   timezone_offset_hours: 7        # WIB = UTC+7 (jam di web berbasis UTC)

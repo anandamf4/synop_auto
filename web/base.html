@@ -121,6 +121,12 @@ const KR={sent:["terkirim","check"],failed:["GAGAL","x"],skipped:["dilewati","sk
 function badgeKirim(k,macet){const key=(k==="running"&&macet)?"macet":k;const [t,i]=KR[key]||[k,"clock"];return `<span class="badge b-${key}">${ico(i,key==="running"?"putar":"")}${t}</span>`}
 function toast(teks,jenis="info",ms=5200){const t=document.createElement("div");t.className="toast "+jenis;t.setAttribute("role",jenis==="err"?"alert":"status");
  t.innerHTML=ico(jenis==="ok"?"check":jenis==="err"?"alert":"info")+`<div>${esc(teks)}</div>`;$("#toasts").appendChild(t);setTimeout(()=>t.remove(),ms)}
+/* [rev 28] observer OPSIONAL & diingat: localStorage + cookie (cookie dibaca server untuk jejak audit) */
+function observerTersimpan(){let v="";try{v=localStorage.getItem("observer")||""}catch(e){}
+ if(!v){const m=document.cookie.match(/(?:^|; )observer=([^;]*)/);if(m){try{v=decodeURIComponent(m[1])}catch(e){}}}return v}
+function simpanObserver(v){try{localStorage.setItem("observer",v)}catch(e){}document.cookie="observer="+encodeURIComponent(v)+";path=/;max-age=31536000;SameSite=Lax"}
+function pasangObserver(sel){if(!sel)return;if(!sel.value){const v=observerTersimpan();if(v&&[...sel.options].some(o=>o.value===v))sel.value=v}
+ sel.addEventListener("change",()=>simpanObserver(sel.value))}
 /* jam UTC berjalan (disinkronkan dengan server bila halaman mengisi window.OFFSET_MS) */
 window.OFFSET_MS=0;
 const tikJam=()=>{const e=$("#jam-server");if(e)e.innerHTML='<i></i>UTC '+new Date(Date.now()+window.OFFSET_MS).toISOString().slice(0,19).replace("T"," ")};
@@ -159,7 +165,7 @@ addEventListener("DOMContentLoaded",()=>{
 <header class="atas"><div class="dalam">
  <a class="merek" href="/" aria-label="Beranda SYNOP"><span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18 7.8 4.2 4.2 0 0 1 17.5 18z"/><path d="m11 21 1.5-3M15 21l1.5-3" stroke="#7dd3fc"/></svg></span>
   <span><b>SYNOP Otomatis</b><small>{{ stasiun }}</small></span></a>
- <nav class="nav" aria-label="Navigasi utama"><a href="/" {% block navdash %}{% endblock %}>Dashboard</a></nav>
+ <nav class="nav" aria-label="Navigasi utama"><a href="/" {% block navdash %}{% endblock %}>Dashboard</a><a href="/riwayat" {% block navriwayat %}{% endblock %}>Riwayat</a></nav>
  <span class="sp"></span>
  <span id="jam-server" class="jam" aria-live="off"></span>
  <button class="ikon-btn" id="tema" type="button" aria-label="Ganti tema terang/gelap" title="Ganti tema"><svg class="i ik-matahari"><use href="#i-sun"/></svg><svg class="i ik-bulan"><use href="#i-moon"/></svg></button>

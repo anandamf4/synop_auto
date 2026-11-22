@@ -49,6 +49,16 @@ DEFAULTS = {
         "retry_past_minutes": 0,
     },
     "observers": {"allowed": []},
+    "chrome": {
+        "profile_dir": "",                    # F3.3: kosong = profil sementara; isi (mis. \"chrome_profile\") = sesi login disimpan
+        "retry_buka": 3,                      # rev 28: berapa kali Chrome dicoba dibuka (profil dibebaskan di antara percobaan)
+        "fallback_profil_sementara": True,    # rev 28: bila profil tetap terus gagal, pakai profil sementara (login dari awal)
+    },
+    "session": {                              # rev 28: BMKG Satu bisa logout sendiri tiap beberapa jam
+        "aktif": True,
+        "cek_sebelum_detik": 180,             # periksa sesi (login ulang bila perlu) sekian detik sebelum tiap eksekusi
+        "cek_ulang_menit": 10,                # lewati pemeriksaan bila sesi terbukti hidup < sekian menit lalu
+    },
     "features": {
         "extra_layers": True,          # F3.10: isi lapisan tambahan (rendah-3, menengah-2, tinggi-2)
         "send_despite_detail_fail": False,  # True: tetap kirim walau Jenis/Jumlah/Arah wajib gagal diisi

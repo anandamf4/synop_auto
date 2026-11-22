@@ -225,6 +225,35 @@ class SendLog:
             (_now(), tanggal_utc, jam, event, detail))
         self.conn.commit()
 
+    def cari_events(self, dari=None, sampai=None, jam=None, event=None, q=None, limit=300):
+        """[F4.2] Cari jejak kejadian (riwayat & audit). Terbaru dulu. Mengembalikan (baris, total_cocok)."""
+        w, a = [], []
+        if dari:
+            w.append("tanggal_utc >= ?"); a.append(dari)
+        if sampai:
+            w.append("tanggal_utc <= ?"); a.append(sampai)
+        if jam:
+            w.append("jam = ?"); a.append(jam)
+        if event:
+            w.append("event = ?"); a.append(event)
+        if q:
+            esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            w.append("(detail LIKE ? ESCAPE '\\' OR event LIKE ? ESCAPE '\\')"); a += [f"%{esc}%", f"%{esc}%"]
+        where = (" WHERE " + " AND ".join(w)) if w else ""
+        try:
+            limit = max(1, min(int(limit), 50000))
+        except (TypeError, ValueError):
+            limit = 300
+        total = self.conn.execute("SELECT COUNT(*) FROM events" + where, a).fetchone()[0]
+        rows = self.conn.execute(
+            "SELECT id, ts, tanggal_utc, jam, event, detail FROM events" + where + " ORDER BY id DESC LIMIT ?",
+            a + [limit]).fetchall()
+        return [dict(r) for r in rows], total
+
+    def daftar_event(self):
+        """Jenis kejadian yang pernah tercatat (untuk pilihan filter)."""
+        return [r[0] for r in self.conn.execute("SELECT DISTINCT event FROM events ORDER BY event").fetchall()]
+
     def history(self, tanggal_utc=None, limit=50):
         q = "SELECT * FROM send_log"
         args = []

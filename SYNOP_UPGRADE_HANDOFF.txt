@@ -54,8 +54,8 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 27
-  Terakhir diperbarui : 2026-11-21
+  Revisi catatan      : 28
+  Terakhir diperbarui : 2026-11-22
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
                         F1.10 (rev 19: aturan QC konsistensi di core/qc.py; 39 tes lulus),
@@ -102,6 +102,43 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 28 (2026-11-22) - BUG LOGIN JELAJAH, CHROME/SESI TANGGUH, OBSERVER OPSIONAL, RIWAYAT HILANG, TATA LETAK JAM 00:
+    * BUG 1 (pantau_web --mode jelajah: "Error saat mengisi email: 'NoneType' object is not iterable"): STATION_ID/PASSWORD
+      baru diisi di main(); jalur jelajah memanggil login() langsung -> send_keys(None). PERBAIKAN: V7SATU._muat_kredensial()
+      dipanggil di awal login() (dan di mode_jelajah). Kredensial kosong -> RuntimeError berpesan jelas. (Tes lama tak menangkapnya
+      karena driver tiruan menerima None; kini tes memakai kredensial nyata-tiruan.)
+    * BUG 2 (Chrome terbuka tetapi tidak menuju BMKG Satu, kadang-kadang): penyebab paling mungkin profil tetap masih dipakai Chrome
+      yatim (sisa run/crash) atau tab lama dipulihkan sehingga driver mengendalikan tab yang salah. PERBAIKAN (V7SATU.py):
+      buat_driver() baru: membuka Chrome lalu MEMASTIKAN benar-benar sampai ke host BMKG Satu (_navigasi_aman: get -> window.stop ->
+      window.location -> ulang; tab ekstra ditutup lewat _jendela_aktif). Gagal -> tutup, _bebaskan_profil (matikan chrome.exe yang
+      baris perintahnya memuat folder profil bot SAJA + hapus Singleton*/lockfile), coba lagi (chrome.retry_buka=3); terakhir
+      cadangan PROFIL SEMENTARA (chrome.fallback_profil_sementara). Flag Chrome baru: --no-first-run, --no-default-browser-check,
+      --disable-session-crashed-bubble. recover_session kini memakai buat_driver() yang sama. psutil ditambahkan (opsional;
+      tanpa psutil dipakai PowerShell di Windows). BELUM TERBUKTI di PC pengguna: penyebab sebenarnya perlu dikonfirmasi dari log.
+    * SESI HABIS SENDIRI (BMKG Satu logout ~tiap 1 jam; berlaku juga tanpa profil): (a) pastikan_sesi() dipanggil 180 dtk sebelum tiap
+      eksekusi (session.cek_sebelum_detik) -> segarkan_sesi(): login() membuka /login (sesi hidup -> web mengarahkan ke dalam; habis ->
+      form login diisi ulang) + popup + stasiun; observer & tanggal dipilih ulang. Dilewati bila sesi terbukti hidup < 10 menit
+      (session.cek_ulang_menit). (b) login() dicoba 2x. (c) Gagal di tengah baris + halaman login terdeteksi (sesi_habis) -> diperlakukan
+      sebagai masalah sesi -> recover_session (sebelumnya hanya bila form tidak muncul). (d) Telegram diberi tahu bila login ulang
+      otomatis terjadi. Heuristik logout = URL memuat /login atau kolom login-email muncul; BILA web menampilkan modal "sesi
+      berakhir" tanpa pindah halaman, belum terdeteksi (perlu bukti dari pantau_web).
+    * OBSERVER OPSIONAL (app.py, form.html, dashboard.html, base.html): simpan & salin rentang tidak lagi menolak tanpa observer.
+      Urutan nama pengubah: isian -> cookie -> pengubah sebelumnya pada jam itu -> kosong. AKAR "harus pilih lagi": cookie dikodekan
+      persen oleh JS (Nama%20Lengkap) tetapi server tidak men-decode, sehingga nama berspasi tak pernah cocok dengan dropdown;
+      dashboard juga tidak pernah menyimpan cookie. Kini keduanya menyimpan ke localStorage+cookie dan server memakai unquote.
+      Observer di bot tetap dari launcher (--observer); kolom observer di form hanya jejak audit.
+    * RIWAYAT JAM INI -> Internal Server Error: web/riwayat.html dan LOG.cari_events() TIDAK PERNAH ada di repo (rev 25 mencatat F4.2
+      selesai, tetapi dua berkas itu tidak ikut ter-commit). Dibuat: core/db.py (cari_events, daftar_event), web/riwayat.html (filter
+      tanggal/jam/jenis/teks, label kejadian, kartu status jam terpilih, ekspor Excel), menu "Riwayat" di bilah atas.
+      Tombol itu = daftar kejadian (disimpan/dihapus/dikirim/gagal/dsb.) untuk jam yang sedang dibuka.
+    * TATA LETAK JAM 00: bagian "Penguapan & matahari" kini 2 kelompok (Penguapan | Matahari), 3 kolom sejajar (label tinggi minimum),
+      satu catatan di judul (bukan "kosong = pakai nilai AWS" diulang), label tanpa kurung ganda, disembunyikan di jam selain 00:00.
+      BELUM dilihat di browser nyata oleh AI (sandbox tanpa Chrome); struktur/JS diuji di jsdom. Mohon screenshot bila masih janggal.
+    * Config baru: chrome.retry_buka, chrome.fallback_profil_sementara, session.{aktif,cek_sebelum_detik,cek_ulang_menit}.
+    * Tes: tests/test_sesi_chrome.py BARU (33), test_bot_flow +7 (44), test_app +26 (80); test_popup & test_f32_f33 disesuaikan. Semua
+      16 berkas tes lulus di sandbox AI.
+    * Berikutnya: pengguna menjalankan `python tools/pantau_web.py --mode jelajah --tanggal 2026-11-22 --jam 00:00,03:00` (tanpa lalu
+      dengan chrome.profile_dir) dan unggah zip; lalu dry-run; lalu amati beberapa jam apakah login ulang otomatis terjadi.
   REV 27 (2026-11-22) - FITUR JAM 00 UTC (penguapan/radiasi/lama penyinaran/iE) + SKRIP PEMANTAU WEB:
     * LATAR: di web BMKG Satu, pada jam 00 UTC bagian bawah form terbuka: PENGUAPAN (Penguapan mm, Pengenal Data Penguapan iE),
       MATAHARI (Radiasi Matahari Joule/cm2, Lama Penyinaran jam), TANAH (Keadaan Tanah [sudah ditangani sbg land_cond], Catatan).
@@ -1600,7 +1637,7 @@ FASE 3 - BOT LEBIH TAHAN BANTING
     Cara   : tangani popup awal dengan Selenium (inspeksi DOM popup).
     DoD    : berjalan tanpa gambar dan tanpa bergantung resolusi.
 
-[~] F3.3  Explicit wait & Chrome profile  (rev 26: profil tetap opsional + explicit wait di login/sinoptik; sleep di pengisian form sengaja belum diganti)
+[~] F3.3  Explicit wait & Chrome profile  (rev 28: buka Chrome tangguh + bebaskan profil + fallback + login ulang saat sesi habis; rev 26: profil tetap opsional + explicit wait; menunggu uji nyata; sleep di pengisian form sengaja belum diganti)
     Cara   : ganti time.sleep dengan WebDriverWait; profile Chrome tetap agar
              login tidak berulang; Selenium Manager untuk driver.
     DoD    : waktu proses per jam turun & stabil.
@@ -1659,7 +1696,7 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
     Timeline 24 jam, status per jam (Menunggu/Siap/Terkirim/Gagal), klik untuk
     detail + kode SYNOP + screenshot. Desain kreatif.
     Sisa: screenshot kegagalan belum ditampilkan di dashboard; halaman detail per jam (event/audit) menyusul di F4.2.
-[~] F4.2  Riwayat & audit  (rev 25: halaman /riwayat, filter, ekspor Excel, audit siapa-mengubah-apa; MENUNGGU uji pengguna)
+[~] F4.2  Riwayat & audit  (rev 28: riwayat.html & cari_events yang HILANG dari rev 25 dibuat; rev 25: filter, ekspor Excel, audit; MENUNGGU uji pengguna)
     Pencarian per tanggal, siapa mengubah apa, ekspor.
 [ ] F4.3  Paket .exe (PyInstaller) atau shortcut desktop
 [ ] F4.4  Autostart (Windows Task Scheduler) + pemulihan otomatis saat PC
@@ -1699,6 +1736,9 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
   K10 (2026-11-21, pengguna) Form harus terisi otomatis dari data impor Excel agar tinggal diedit; tombol
       salin dari jam sebelumnya harus mengisi form (bukan sekadar status). Dashboard jangan bergantung pada
       pengeditan Excel -> ada penyalinan antar tanggal (F2.8).
+  K12 (2026-11-22, pengguna) Observer di form/dashboard OPSIONAL dan diingat; tidak boleh memaksa memilih ulang tiap edit.
+  K13 (2026-11-22, AI) Sesi BMKG Satu diperiksa sebelum tiap eksekusi (bukan menunggu gagal); kegagalan membuka profil Chrome tetap
+      -> bebaskan profil lalu coba lagi, terakhir profil sementara agar slot tidak terlewat.
   K11 (2026-11-21, AI) Nilai dropdown disimpan & ditampilkan sebagai TEKS OPSI web (kanonik), bukan kode mentah
       Excel. Jam yang sudah terkirim tidak pernah diubah oleh penyalinan massal.
   K8  (2026-11-15) Syarat 'total 9 hanya dengan visibilitas < 1 km' menjadi
@@ -1910,6 +1950,12 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
 
   [2026-11-22] Rev 27 - Fitur penguapan/radiasi/lama penyinaran jam 00 UTC (form+validator+bot, strict) + skrip pemantau web
                tools/pantau_web.py. Berikutnya: jalankan pantau jelajah jam 00:00 di PC, unggah zip -> sesuaikan selector.
+
+  [2026-11-22] Rev 28 - Perbaikan: login jelajah (kredensial None), Chrome/profil tangguh, login ulang saat sesi habis, observer opsional
+               (+cookie ber-spasi), Riwayat (riwayat.html & cari_events hilang dari repo), tata letak jam 00. Berkas berubah: V7SATU.py,
+               tools/pantau_web.py, app.py, core/db.py, core/config.py, core/formschema.py, config.yaml, requirements.txt, web/base.html,
+               web/form.html, web/dashboard.html, web/riwayat.html (BARU), tests/test_sesi_chrome.py (BARU), test_app/test_bot_flow/test_popup/
+               test_f32_f33. Berikutnya: pengguna jalankan pantau jelajah (tanpa & dengan profil) + dry-run, unggah zip; amati login ulang otomatis.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

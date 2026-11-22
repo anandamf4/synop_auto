@@ -30,6 +30,7 @@ import importlib
 import json
 import sys
 import time as _real_time
+import traceback
 import zipfile
 from pathlib import Path
 
@@ -272,7 +273,8 @@ class Tee:
 #  Mode                                                                         #
 # --------------------------------------------------------------------------- #
 def mode_jelajah(V, rek, a):
-    drv = V.buat_driver()
+    V._muat_kredensial()      # [rev 28] jalur jelajah tidak melewati main(); tanpa ini STATION_ID=None -> galat "'NoneType' object is not iterable"
+    drv = V.buat_driver()     # [rev 28] pembukaan tangguh (memastikan Chrome benar-benar sampai ke BMKG Satu)
     rek.info["profil_chrome"] = str(V._profil_chrome_dir() or "(sementara)")
     try:
         rek.info["versi_chrome"] = drv.capabilities.get("browserVersion", "?")
@@ -335,6 +337,10 @@ def main():
             mode_bot(V, rek, a, lanjut, a.mode == "kirim")
     except KeyboardInterrupt:
         print("\n⏹️ Dihentikan pengguna; laporan tetap dibuat dari data yang sudah terekam")
+    except Exception as e:     # [rev 28] galat fatal dicatat ke laporan agar ikut terunggah di zip
+        traceback.print_exc()
+        rek.info["GALAT_FATAL"] = f"{type(e).__name__}: {str(e)[:300]}"
+        print(f"\n❌ Berhenti karena galat: {rek.info['GALAT_FATAL']}")
     finally:
         zp = tulis_laporan(rek, a.mode, argv, sys.stdout)
         sys.stdout = sys.stdout.asli

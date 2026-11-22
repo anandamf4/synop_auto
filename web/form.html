@@ -17,6 +17,12 @@
 .f.err select,.f.err input{border-color:var(--merah);background:var(--merah-t)}
 .f.wrn select,.f.wrn input{border-color:var(--kuning);background:var(--kuning-t)}
 .fm{font-size:12.5px;min-height:0}.fm:empty{display:none}.fm.e{color:var(--merah)}.fm.w{color:var(--kuning)}.fm.i{color:var(--redup)}
+.grid>.sub:first-child{border-top:0;margin-top:0;padding-top:0}
+.catatan{margin:-4px 0 14px;font-size:13px;color:var(--redup);display:flex;gap:8px;align-items:flex-start}
+.catatan svg{margin-top:2px;color:var(--biru)}
+/* [rev 28] bagian jam 00 UTC: tiga kolom sejajar; label diberi tinggi minimum agar kolom input rata walau label membungkus */
+.bag-penguapan .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.bag-penguapan .f label{min-height:2.7em}
 .sub{grid-column:1/-1;font-weight:600;font-size:13px;color:var(--biru);margin-top:6px;padding-top:12px;border-top:1px dashed var(--garis);letter-spacing:.3px;text-transform:uppercase}
 .nomor{width:24px;height:24px;border-radius:8px;background:var(--biru-t);color:var(--biru);display:grid;place-items:center;font:700 12px var(--mono)}
 .tm{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--garis2);font-size:13.5px}.tm:last-child{border:0}
@@ -27,6 +33,7 @@
 .aksi-bawah{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:12px;z-index:20;background:color-mix(in srgb,var(--kartu) 92%,transparent);backdrop-filter:blur(8px)}
 .aksi-bawah .redup{font-size:13.5px}
 @media (max-width:1020px){.dua{grid-template-columns:1fr}.samping{position:static}.kepala{top:60px}}
+@media (max-width:760px){.bag-penguapan .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}.bag-penguapan .f label{min-height:0}}
 @media (max-width:640px){.kepala{position:static}.grid{grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -35,7 +42,7 @@
   <a class="tombol" href="/?tanggal={{ tanggal }}"><svg class="i"><use href="#i-left"/></svg>Dashboard</a>
   <h1><span>{{ jam }} UTC</span><small>{{ tanggal }}</small></h1>
   <span id="status-kirim"></span><a class="tombol kecil" href="/riwayat?dari={{ tanggal }}&sampai={{ tanggal }}&jam={{ jam }}" title="Riwayat perubahan & pengiriman jam ini"><svg class="i"><use href="#i-list"/></svg>Riwayat jam ini</a><span class="sp"></span>
-  <label>Observer <select id="observer"><option value="">— pilih —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select></label>
+  <label>Observer <small>(opsional)</small> <select id="observer"><option value="">— tanpa nama —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select></label>
 </div>
 <div id="pesan"></div>
 <div class="kartu alat" id="alat">
@@ -57,7 +64,7 @@
 const TANGGAL="{{ tanggal }}",JAM="{{ jam }}",PREV={tanggal:"{{ prev[0] }}",jam:"{{ prev[1] }}"};
 let SKEMA,STATE={},ADA_ERROR=true,TIMER=null,DIRTY=false;const TOUCHED=new Set();
 function bangun(){
- $("#form").innerHTML=SKEMA.bagian.map((b,n)=>`<section class="kartu"><h2><span class="nomor">${n+1}</span>${esc(b.judul)}</h2><div class="grid">${b.field.map(f=>{
+ $("#form").innerHTML=SKEMA.bagian.map((b,n)=>`<section class="kartu bag-${esc(b.id)}"${b.id==="penguapan"&&JAM!=="00:00"?" hidden":""}><h2><span class="nomor">${n+1}</span>${esc(b.judul)}</h2>${b.catatan?`<div class="catatan">${ico("info")}<span>${esc(b.catatan)}</span></div>`:""}<div class="grid">${b.field.map(f=>{
   const sub=f.sub?`<div class="sub">${esc(f.sub)}</div>`:"";let in_;
   const id="f_"+f.kolom;
   if(f.jenis==="pilih")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option>${f.opsi.map(o=>`<option>${esc(o)}</option>`).join("")}</select>`;
@@ -88,10 +95,10 @@ function jadwal(){clearTimeout(TIMER);TIMER=setTimeout(periksa,250)}
 async function periksa(){
  const r=await fetch("/api/validasi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil()})});
  if(r.status===401){location.href="/login";return}const j=await r.json();terapkan(j.state,j.temuan);ADA_ERROR=!j.ok;
- $("#simpan").disabled=ADA_ERROR||!$("#observer").value;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":(!$("#observer").value?"Pilih observer dulu":"");
+ $("#simpan").disabled=ADA_ERROR;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":"";   // observer opsional (rev 28)
 }
 function pesan(t,ok){toast(t,ok?"ok":"err")}
-$("#observer").onchange=e=>{document.cookie="observer="+encodeURIComponent(e.target.value)+";path=/;max-age=31536000";periksa()};
+pasangObserver($("#observer"));
 async function simpan(paksa){
  const r=await fetch("/api/simpan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil(),observer:$("#observer").value,paksa:!!paksa})});
  const j=await r.json();

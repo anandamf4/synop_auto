@@ -112,8 +112,9 @@ check("prefs mematikan password manager & deteksi kebocoran",
 check("argumen Chrome menonaktifkan fitur cek password",
       "--disable-features=PasswordLeakDetection,PasswordCheck" in M.chrome_options.arguments, M.chrome_options.arguments)
 src = (ROOT / "V7SATU.py").read_text(encoding="utf-8")
+# [rev 28] recovery membuka browser lewat buat_driver() -> _opsi_chrome_baru() -> _terapkan_opsi_anti_popup()
 check("opsi yang sama dipakai saat recovery sesi (browser baru)",
-      "_terapkan_opsi_anti_popup(chrome_options_new)" in src)
+      "new_driver = buat_driver()" in src and "_terapkan_opsi_anti_popup(o, pakai_profil=pakai_profil)" in src)
 
 print("== waktu tunggu dari config & cadangan tekan Enter ==")
 sleeps = []

@@ -92,6 +92,7 @@ class DrvLogin:
     def execute_script(self, *a, **k): pass
 
 
+M.STATION_ID, M.PASSWORD = "uji_id", "uji_pw"      # [rev 28] login() kini memuat kredensial sendiri; tes tak boleh meminta input
 M.WebDriverWait = lambda drv, t: types.SimpleNamespace(until=lambda fn: fn(drv) or (_ for _ in ()).throw(M.TimeoutException("x")))
 M._buka_sinoptik = lambda drv: drv.urls.append("SINOPTIK")
 d1 = DrvLogin(True); M.login(d1)

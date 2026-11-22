@@ -41,6 +41,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
     print("== halaman & status ==")
     check("dashboard, form, skema terbuka", all(c.get(u).status_code == 200 for u in ("/", f"/form/{T}/{J}", "/api/skema")))
+    dash = c.get("/").get_data(as_text=True)
+    check("picker tanggal hanya satu: ikon kalender ekstra tidak ada", 'id="buka-tgl"' not in dash)
     check("slot dengan format salah -> 400", c.get("/form/2026-13-99/07:00").status_code == 400 and c.get(f"/form/{T}/07:30").status_code == 400)
     j = c.get(f"/api/status?tanggal={T}").get_json()
     check("status: 24 jam, semua 'kosong' di awal", len(j["baris"]) == 24 and all(b["level"] == "kosong" for b in j["baris"]))
@@ -51,7 +53,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     r = c.post("/api/validasi", json={"tanggal": T, "jam": J, "data": {"visibility": 10}}).get_json()
     check("data belum lengkap: ok=false (wajib diisi)", not r["ok"])
     r = c.post("/api/simpan", json={"tanggal": T, "jam": J, "data": cerah})
-    check("simpan tanpa observer -> 422", r.status_code == 422)
+    check("[rev 28] simpan tanpa observer BERHASIL (observer opsional)", r.status_code == 200 and r.get_json()["ok"], r.get_json())
+    check("tanpa observer: pengubah kosong (bukan teks 'None')", app.obs.info(T, J)["diubah_oleh"] in (None, ""), app.obs.info(T, J))
+    app.obs.delete(T, J)      # bersihkan agar pengujian berikutnya (penolakan data buruk) mulai dari slot kosong
     bad = dict(cerah, cloud_cover_oktas_m=op(app, "cloud_cover_oktas_m", "9"))
     r = c.post("/api/simpan", json={"tanggal": T, "jam": J, "data": bad, "observer": "Tester"})
     check("kombinasi melanggar aturan (N=9 tanpa vertical visibility, vis 10 km) DITOLAK 422 dan tidak tersimpan",
@@ -142,7 +146,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     r = salin(mode="timpa").get_json()
     check("jam yang sudah TERKIRIM tidak diubah sama sekali", r["lewati_terkirim"] == ["07:00"] and len(r["disalin"]) == 2
           and app.obs.get(K, "07:00")["visibility"] == 2, r)
-    check("tanpa observer (bukan pratinjau) -> 422", salin(observer="").status_code == 422)
+    check("[rev 28] salin tanpa observer diterima (opsional)", salin(observer="").status_code == 200)
     check("pratinjau tanpa observer boleh", salin(observer="", pratinjau=True).status_code == 200)
     check("tanggal sumber = tujuan -> 400", salin(ke_tanggal=S).status_code == 400)
     check("rentang terbalik -> 400", salin(seharian=False, jam_dari=9, jam_sampai=3).status_code == 400)
@@ -195,6 +199,81 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     check("PIN salah ditolak", c2.post("/login", data={"pin": "0000"}).status_code == 401)
     check("PIN benar: akses terbuka", c2.post("/login", data={"pin": "4321"}).status_code == 302 and c2.get("/").status_code == 200)
 os.environ.pop("WEB_PIN", None)
+
+print("\n== [rev 28] observer opsional & diingat ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    os.environ.pop("WEB_PIN", None)
+    app4 = create_app(load_config(), db_path=str(Path(d) / "o.db"))
+    c4 = app4.test_client()
+    cer = {"cloud_cover_oktas_m": op(app4, "cloud_cover_oktas_m", "0"), "visibility": 10, "ww": op(app4, "ww", "00"),
+           "w1": op(app4, "w1", "0"), "w2": op(app4, "w2", "0"), "land_cond": op(app4, "land_cond", "0")}
+    nama = next((o for o in __import__("json").load(open(ROOT / "core" / "options.json", encoding="utf-8")).get("observer", [])
+                 if " " in o.get("name", "")), {}).get("name")
+    check("ada nama observer berspasi di options.json untuk uji cookie", bool(nama))
+    # 1) simpan pertama dengan nama; 2) ubah lagi TANPA nama -> pengubah sebelumnya dipertahankan (tidak dihapus)
+    r = c4.post("/api/simpan", json={"tanggal": T, "jam": J, "data": cer, "observer": nama})
+    check("simpan dengan nama -> tercatat", r.status_code == 200 and app4.obs.info(T, J)["diubah_oleh"] == nama, r.get_json())
+    r = c4.post("/api/simpan", json={"tanggal": T, "jam": J, "data": dict(cer, visibility=8), "observer": ""})
+    check("edit berikutnya TANPA mengisi nama: berhasil & nama pengubah sebelumnya tetap", r.status_code == 200
+          and app4.obs.info(T, J)["diubah_oleh"] == nama and app4.obs.get(T, J)["visibility"] == 8, r.get_json())
+    # cookie dikodekan-persen oleh JS ("Nama%20Lengkap"): server harus men-decode agar cocok dengan opsi dropdown
+    from urllib.parse import quote
+    c5 = app4.test_client()
+    c5.set_cookie("observer", quote(nama), domain="localhost")
+    html = c5.get(f"/form/{T}/{J}").get_data(as_text=True)
+    check("cookie ber-spasi (%20) di-decode: opsi observer terpilih di form", f"<option selected>{nama}</option>" in html, nama)
+    check("dashboard juga memilih observer dari cookie", f"<option selected>{nama}</option>" in c5.get("/").get_data(as_text=True))
+    r = c5.post("/api/simpan", json={"tanggal": T, "jam": "08:00", "data": cer})
+    check("tanpa nama di isian, cookie dipakai sebagai pengubah", r.status_code == 200 and app4.obs.info(T, "08:00")["diubah_oleh"] == nama, r.get_json())
+    ev = [e["detail"] for e in app4.log.events(T, "08:00", limit=10)]
+    check("jejak audit memuat nama dari cookie", any(nama in x for x in ev), ev)
+    f = c4.get(f"/form/{T}/{J}").get_data(as_text=True)
+    check("form: label Observer bertanda (opsional) & tombol Simpan tidak lagi diwajibkan observer",
+          "(opsional)" in f and "!$(\"#observer\").value" not in f and "Pilih observer dulu" not in f)
+
+print("\n== [rev 28] Riwayat jam ini (sebelumnya Internal Server Error) ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    app5 = create_app(load_config(), db_path=str(Path(d) / "r.db"))
+    c6 = app5.test_client()
+    app5.log.log_event(T, "07:00", "form_simpan", "Tester: data baru")
+    app5.log.log_event(T, "07:00", "terkirim", "sandi AAXX")
+    app5.log.log_event(T, "08:00", "gagal", "form tidak muncul_100%")
+    app5.log.log_event("2026-11-13", "07:00", "form_hapus", "lama")
+    r = c6.get(f"/riwayat?dari={T}&sampai={T}&jam=07:00")
+    check("/riwayat terbuka (200), bukan 500", r.status_code == 200, r.status_code)
+    check("halaman riwayat memuat filter & tabel", "Riwayat" in r.get_data(as_text=True) and "id=\"isi\"" in r.get_data(as_text=True))
+    check("link 'Riwayat jam ini' dari form mengarah ke /riwayat dengan tanggal & jam",
+          f"/riwayat?dari={T}&sampai={T}&jam=07:00" in c6.get(f"/form/{T}/07:00").get_data(as_text=True))
+    check("menu Riwayat ada di bilah atas", 'href="/riwayat"' in c6.get("/").get_data(as_text=True))
+    j = c6.get(f"/api/riwayat?dari={T}&sampai={T}&jam=07:00").get_json()
+    check("filter jam: 2 kejadian jam 07:00 hari itu, terbaru dulu", j["total"] == 2 and [b["event"] for b in j["baris"]] == ["terkirim", "form_simpan"], j)
+    j = c6.get("/api/riwayat").get_json()
+    check("tanpa filter: semua (4) & daftar jenis kejadian untuk dropdown", j["total"] == 4 and "form_hapus" in j["jenis"], j)
+    check("filter rentang tanggal", c6.get(f"/api/riwayat?dari={T}").get_json()["total"] == 3)
+    check("filter jenis kejadian", c6.get("/api/riwayat?event=gagal").get_json()["total"] == 1)
+    check("cari teks; karakter % dan _ dianggap huruf biasa", c6.get("/api/riwayat?q=100%25").get_json()["total"] == 1
+          and c6.get("/api/riwayat?q=%25").get_json()["total"] == 1 and c6.get("/api/riwayat?q=xyz").get_json()["total"] == 0)
+    check("limit membatasi baris tetapi total tetap jumlah cocok", (lambda x: len(x["baris"]) == 1 and x["total"] == 4)(c6.get("/api/riwayat?limit=1").get_json()))
+    check("format tanggal salah -> 400 (bukan 500)", c6.get("/api/riwayat?dari=2026-13-99").status_code == 400)
+    xr = c6.get(f"/ekspor_riwayat.xlsx?dari={T}&sampai={T}")
+    check("ekspor Excel riwayat berfungsi", xr.status_code == 200 and xr.data[:2] == b"PK", xr.status_code)
+
+print("\n== [rev 28] tata letak bagian jam 00 UTC ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    app5 = create_app(load_config(), db_path=str(Path(d) / "l.db"))
+    sk = app5.test_client().get("/api/skema").get_json()
+    pg = next(b for b in sk["bagian"] if b["id"] == "penguapan")
+    check("bagian penguapan punya catatan tunggal (kosong = pakai nilai AWS)", pg.get("catatan") and "AWS" in pg["catatan"], pg.get("catatan"))
+    check("dua kelompok: Penguapan | Matahari, urutan kolom rapi",
+          [f["kolom"] for f in pg["field"]] == ["penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam"]
+          and [f["sub"] for f in pg["field"] if f["sub"]] == ["Penguapan", "Matahari"], [(f["kolom"], f["sub"]) for f in pg["field"]])
+    check("label tidak ada tanda kurung ganda", all(not (f.get("satuan") and "(" in f["label"]) for f in pg["field"]), [f["label"] for f in pg["field"]])
+    S0 = app5.test_client().get("/api/slot/%s/00:00" % T).get_json()["state"]
+    check("jam 00: tidak ada teks alasan berulang 'kosong = pakai nilai AWS' di tiap kolom",
+          not any("pakai nilai AWS" in (S0[k]["alasan"] or "") for k in ("penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam")))
+    fh = app5.test_client().get(f"/form/{T}/00:00").get_data(as_text=True)
+    check("form memakai kelas bag-<id> & catatan bagian & menyembunyikan bagian ini di jam lain",
+          "bag-${esc(b.id)}" in fh and "b.catatan" in fh and 'JAM!=="00:00"?" hidden"' in fh)
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

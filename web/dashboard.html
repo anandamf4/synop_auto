@@ -87,7 +87,6 @@
   <div class="tgl">
     <button id="prev" type="button" aria-label="Hari sebelumnya"><svg class="i"><use href="#i-left"/></svg></button>
     <input type="date" id="tgl" value="{{ tanggal }}" aria-label="Tanggal (UTC)">
-    <button id="buka-tgl" type="button" aria-label="Buka kalender" title="Pilih tanggal"><svg class="i"><use href="#i-cal"/></svg></button>
     <button id="next" type="button" aria-label="Hari berikutnya"><svg class="i"><use href="#i-right"/></svg></button>
   </div>
   <button id="hariini" type="button"><svg class="i"><use href="#i-cal"/></svg>Hari ini (UTC)</button>
@@ -144,8 +143,8 @@
     <label><input type="radio" name="s-mode" value="lewati" checked> Lewati (jangan ubah)</label>
     <label><input type="radio" name="s-mode" value="timpa"> Timpa dengan data salinan</label>
    </div>
-   <label for="s-obs">Observer</label>
-   <select id="s-obs"><option value="">— pilih —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select>
+   <label for="s-obs">Observer <small>(opsional)</small></label>
+   <select id="s-obs"><option value="">— tanpa nama —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select>
   </div>
   <div class="redup" style="margin-top:12px;font-size:13px">Jam yang sudah <b>terkirim</b> tidak pernah diubah. Isian curah hujan (override AWS) tidak ikut disalin.</div>
   <div id="s-hasil" style="margin-top:10px"></div>
@@ -168,9 +167,7 @@ function geser(n){const d=new Date(tanggal+"T00:00:00Z");d.setUTCDate(d.getUTCDa
 $("#prev").onclick=()=>geser(-1);$("#next").onclick=()=>geser(1);
 $("#hariini").onclick=()=>{tanggal=new Date().toISOString().slice(0,10);$("#tgl").value=tanggal;muat(true)};
 $("#tgl").onchange=e=>{if(e.target.value){tanggal=e.target.value;muat(true)}};
-const bukaKalender=el=>{try{el.showPicker()}catch(e){el.focus()}};   // showPicker: kalender terbuka walau ikon bawaan browser tak terlihat
-$("#tgl").addEventListener("click",e=>bukaKalender(e.target));
-$("#buka-tgl").onclick=()=>bukaKalender($("#tgl"));
+const bukaKalender=el=>{try{el.showPicker()}catch(e){el.focus()}};
 $("#s-dari").addEventListener("click",e=>bukaKalender(e.target));
 $("#impor").onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append("berkas",f);
  const r=await fetch("/api/impor",{method:"POST",body:fd});const j=await r.json();
@@ -263,7 +260,7 @@ async function jalankanSalin(pratinjau){
  if(!pratinjau&&j.disalin.length)muat(true);
 }
 $("#s-cek").onclick=()=>jalankanSalin(true);
-$("#s-go").onclick=()=>{if(!$("#s-obs").value){$("#s-hasil").innerHTML='<div class="msg err">Pilih nama observer dulu</div>';return}jalankanSalin(false)};
+$("#s-go").onclick=()=>jalankanSalin(false);pasangObserver($("#s-obs"));
 muat(true);
 setInterval(()=>{if(!document.hidden&&!$("#dlg").open&&!$("#dlg-reset").open)muat(false)},15000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)muat(false)});

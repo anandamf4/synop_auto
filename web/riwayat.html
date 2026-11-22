@@ -1,0 +1,121 @@
+{% extends "base.html" %}{% block judul %}Riwayat{% endblock %}
+{% block navriwayat %}aria-current="page"{% endblock %}
+{% block kepala %}
+<style>
+.filter{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}
+.filter label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--redup);font-weight:500}
+.filter input,.filter select{width:100%}
+.filter .q{grid-column:span 2}
+.baris-aksi{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+.slot-info{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.slot-info h2{margin:0}
+.slot-info .jam-besar{font:700 20px var(--mono);color:var(--judul)}
+.tabel{width:100%;border-collapse:collapse;font-size:13.5px}
+.tabel th{position:sticky;top:64px;background:var(--kartu2);text-align:left;padding:9px 10px;font-size:12.5px;color:var(--redup);border-bottom:1px solid var(--garis);white-space:nowrap}
+.tabel td{padding:9px 10px;border-bottom:1px solid var(--garis2);vertical-align:top}
+.tabel tr:hover td{background:var(--kartu2)}
+.tabel .w{font:12.5px var(--mono);white-space:nowrap;color:var(--redup)}
+.tabel .s{font:600 13px var(--mono);white-space:nowrap}
+.tabel .d{word-break:break-word;max-width:640px}
+.gulir{overflow-x:auto}
+.kosong{padding:28px 10px;text-align:center;color:var(--redup)}
+.kosong svg{width:30px;height:30px;display:block;margin:0 auto 8px;opacity:.6}
+.b-form{background:var(--biru-t);color:var(--biru)}
+.b-kirim{background:var(--hijau-t);color:var(--hijau)}
+.b-warn{background:var(--kuning-t);color:var(--kuning)}
+.b-gagal{background:var(--merah-t);color:var(--merah)}
+.b-netral{background:var(--abu-t);color:var(--abu)}
+.b-info2{background:var(--ungu-t);color:var(--ungu)}
+@media (max-width:640px){.filter .q{grid-column:auto}.tabel th{position:static}}
+</style>
+{% endblock %}
+{% block isi %}
+<div class="kartu" id="info-slot" hidden></div>
+
+<form class="kartu" id="f" autocomplete="off">
+  <h2><svg class="i"><use href="#i-list"/></svg>Riwayat &amp; audit</h2>
+  <div class="filter">
+    <label for="dari">Dari tanggal (UTC)<input type="date" id="dari" value="{{ dari }}"></label>
+    <label for="sampai">Sampai tanggal (UTC)<input type="date" id="sampai" value="{{ sampai }}"></label>
+    <label for="jam">Jam (UTC)<select id="jam"><option value="">Semua jam</option></select></label>
+    <label for="event">Jenis kejadian<select id="event"><option value="">Semua</option></select></label>
+    <label class="q" for="q">Cari di keterangan<input type="search" id="q" value="{{ q }}" placeholder="mis. nama observer, kolom, pesan galat"></label>
+  </div>
+  <div class="baris-aksi">
+    <button class="utama" type="submit"><svg class="i"><use href="#i-redo"/></svg>Terapkan</button>
+    <button type="button" id="reset">Atur ulang</button>
+    <a class="tombol" id="ekspor" href="/ekspor_riwayat.xlsx"><svg class="i"><use href="#i-down"/></svg>Ekspor Excel</a>
+    <span class="redup" id="ringkas" aria-live="polite"></span>
+  </div>
+</form>
+
+<div class="kartu">
+  <div class="gulir">
+    <table class="tabel">
+      <thead><tr><th>Waktu server</th><th>Slot (UTC)</th><th>Kejadian</th><th>Keterangan</th></tr></thead>
+      <tbody id="isi"><tr><td colspan="4" class="kosong">memuat…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+/* label & warna jenis kejadian; jenis yang tidak dikenal tetap tampil apa adanya */
+const EV={
+ form_simpan:["Disimpan lewat form","form","edit"],form_salin:["Disalin","form","copy"],form_hapus:["Data dihapus","gagal","trash"],
+ impor_excel:["Impor Excel","form","up"],mulai:["Bot mulai mengisi","netral","clock"],terkirim:["Terkirim","kirim","check"],
+ terkirim_manual:["Ditandai terkirim manual","kirim","check"],gagal:["Gagal","gagal","x"],dilewati:["Dilewati","info2","skip"],
+ diatur_ulang:["Status diatur ulang","info2","redo"],mode_update:["Mode Update (sudah ada di web)","warn","info"],
+ verifikasi_sandi:["Verifikasi sandi","netral","check"],gagal_opsional:["Kolom opsional gagal","warn","alert"],
+ koreksi_qc:["Koreksi QC dikonfirmasi","warn","alert"],rekap_terkirim:["Rekap harian terkirim","netral","info"]
+};
+const lab=e=>(EV[e]||[e,"netral","info"]);
+const tampilEv=e=>{const [t,k,i]=lab(e);return `<span class="badge b-${k}">${ico(i)}${esc(t)}</span>`};
+
+const F={dari:$("#dari"),sampai:$("#sampai"),jam:$("#jam"),event:$("#event"),q:$("#q")};
+for(let h=0;h<24;h++){const j=String(h).padStart(2,"0")+":00";F.jam.insertAdjacentHTML("beforeend",`<option>${j}</option>`)}
+F.jam.value="{{ jam }}";
+const AWAL_EVENT="{{ event }}";
+
+const param=()=>{const p=new URLSearchParams();for(const k in F)if(F[k].value)p.set(k,F[k].value);return p};
+
+async function muatInfoSlot(){
+ const box=$("#info-slot");
+ if(!(F.jam.value&&F.dari.value&&F.dari.value===F.sampai.value)){box.hidden=true;return}
+ try{
+  const r=await fetch(`/api/slot/${F.dari.value}/${F.jam.value}`);if(!r.ok){box.hidden=true;return}
+  const j=await r.json(),o=j.info||{};
+  box.hidden=false;
+  box.innerHTML=`<div class="slot-info"><span class="jam-besar">${esc(F.jam.value)} UTC</span><span class="redup">${esc(F.dari.value)}</span>
+   ${j.status_kirim?badgeKirim(j.status_kirim,false):'<span class="badge b-kosong">belum ada status kirim</span>'}
+   <span class="redup">${j.ada?`Data form: terakhir diubah ${esc(o.updated_at||"-")}${o.diubah_oleh?" oleh "+esc(o.diubah_oleh):""}`:"Belum ada data form untuk jam ini"}</span>
+   <span class="sp"></span><a class="tombol kecil" href="/form/${esc(F.dari.value)}/${esc(F.jam.value)}">${ico("edit")}Buka form jam ini</a></div>`;
+ }catch(e){box.hidden=true}
+}
+
+async function muat(){
+ const p=param();
+ history.replaceState(null,"","/riwayat?"+p.toString());
+ $("#ekspor").href="/ekspor_riwayat.xlsx?"+p.toString();
+ $("#isi").innerHTML='<tr><td colspan="4" class="kosong">memuat…</td></tr>';
+ let j;
+ try{
+  const r=await fetch("/api/riwayat?"+p.toString());
+  if(r.status===401){location.href="/login";return}
+  if(!r.ok){throw new Error("HTTP "+r.status)}
+  j=await r.json();
+ }catch(e){
+  $("#isi").innerHTML=`<tr><td colspan="4" class="kosong">${ico("alert")}Gagal memuat riwayat (${esc(e.message)})</td></tr>`;return}
+ /* pilihan jenis kejadian: isi sekali dari server, pertahankan pilihan */
+ if(F.event.options.length<=1){(j.jenis||[]).forEach(e=>F.event.insertAdjacentHTML("beforeend",`<option value="${esc(e)}">${esc(lab(e)[0])}</option>`));F.event.value=AWAL_EVENT||F.event.value}
+ const B=j.baris||[];
+ $("#ringkas").textContent=j.total?`Menampilkan ${B.length} dari ${j.total} kejadian (terbaru dulu)`:"";
+ $("#isi").innerHTML=B.length?B.map(b=>`<tr><td class="w">${esc(b.ts)}</td><td class="s">${esc(b.tanggal_utc||"-")} ${esc(b.jam||"")}</td><td>${tampilEv(b.event)}</td><td class="d">${esc(b.detail||"")}</td></tr>`).join("")
+  :`<tr><td colspan="4" class="kosong">${ico("list")}Tidak ada kejadian yang cocok dengan filter ini.</td></tr>`;
+ muatInfoSlot();
+}
+$("#f").onsubmit=e=>{e.preventDefault();muat()};
+for(const k of ["jam","event"])F[k].onchange=muat;
+$("#reset").onclick=()=>{F.dari.value=F.sampai.value="";F.jam.value=F.event.value=F.q.value="";muat()};
+muat();
+</script>
+{% endblock %}

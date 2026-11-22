@@ -28,7 +28,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, WebDriverException
 from datetime import datetime, timezone, timedelta
 import time
 import pandas as pd
@@ -42,6 +42,8 @@ import argparse
 import json
 import re
 import sys
+import subprocess
+from urllib.parse import urlparse
 from pathlib import Path
 
 # [F1.x] modul proyek: konfigurasi, validator, log status
@@ -74,7 +76,7 @@ GAGAL_OPSIONAL = []   # field opsional yang gagal diisi pada baris berjalan (dic
 GAGAL_WAJIB = []      # [rev 14] field WAJIB (Jenis/Jumlah/Arah dst.) yang gagal: pengisian tetap DILANJUTKAN, baris dibatalkan di akhir
 
 
-def _terapkan_opsi_anti_popup(opts):
+def _terapkan_opsi_anti_popup(opts, pakai_profil=True):
     # [F1.1] Popup "Change your password" (Google Password Manager: password ditemukan di data breach)
     # adalah JENDELA CHROME, bukan bagian halaman web -> tidak terlihat Selenium/snapshot dan gambar
     # ok.PNG mudah meleset karena skala layar. Cara andal: cegah munculnya.
@@ -88,7 +90,11 @@ def _terapkan_opsi_anti_popup(opts):
     opts.add_argument("--disable-notifications")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     # [F3.3] Profil Chrome TETAP (opsional; config.yaml -> chrome.profile_dir). Kosong = perilaku lama (profil sementara).
-    folder = _profil_chrome_dir()
+    # [rev 28] cegah Chrome memulihkan tab lama / menampilkan halaman sambutan (penyebab "Chrome terbuka tapi tidak ke BMKG Satu")
+    opts.add_argument("--no-first-run")
+    opts.add_argument("--no-default-browser-check")
+    opts.add_argument("--disable-session-crashed-bubble")
+    folder = _profil_chrome_dir() if pakai_profil else None
     if folder is not None:
         folder.mkdir(parents=True, exist_ok=True)
         opts.add_argument(f"--user-data-dir={folder}")
@@ -103,6 +109,132 @@ def _profil_chrome_dir():
         return None
     folder = Path(p)
     return folder if folder.is_absolute() else ROOT / folder
+
+
+# ============================================================================================================
+#  [rev 28] Chrome tangguh: buka + pastikan benar-benar menuju BMKG Satu, bebaskan profil yang terkunci,
+#           cadangan profil sementara. (Keluhan: kadang Chrome terbuka tetapi kosong / tidak ke link BMKG Satu.)
+# ============================================================================================================
+def _cfg_chrome():
+    return CFG.get("chrome", {}) or {}
+
+
+def _opsi_chrome_baru(pakai_profil=True):
+    """Opsi Chrome siap pakai (dipakai buat_driver & recover_session)."""
+    o = Options()
+    o.add_argument("--start-maximized")
+    _terapkan_opsi_anti_popup(o, pakai_profil=pakai_profil)
+    return o
+
+
+def _matikan_proses_profil(folder):
+    """Tutup proses chrome.exe yang MASIH memakai folder profil bot ini (sisa run sebelumnya / crash). Mengembalikan jumlahnya.
+    Hanya proses yang baris perintahnya memuat folder profil bot; Chrome harian Anda tidak disentuh."""
+    kunci = str(Path(folder).resolve()).lower()
+    jumlah = 0
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+    try:
+        if psutil is not None:
+            for pr in psutil.process_iter(["name", "cmdline"]):
+                try:
+                    if "chrome" not in (pr.info.get("name") or "").lower():
+                        continue
+                    if kunci in " ".join(pr.info.get("cmdline") or []).lower():
+                        pr.kill()
+                        jumlah += 1
+                except Exception:
+                    continue
+        elif os.name == "nt":
+            ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+                  "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('" + kunci.replace("'", "''") + "') } | "
+                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=25)
+            jumlah = len([x for x in (r.stdout or "").split() if x.strip().isdigit()])
+    except Exception as e:
+        print(f"⚠️ Gagal memeriksa proses Chrome yatim: {type(e).__name__}: {e}")
+    return jumlah
+
+
+def _bebaskan_profil(folder):
+    """Bebaskan profil bot: tutup Chrome yatim lalu hapus berkas kunci sisa."""
+    n = _matikan_proses_profil(folder)
+    print(f"🧹 Membebaskan profil Chrome bot ({n} proses Chrome yatim ditutup)")
+    time.sleep(1.5)
+    for nama in ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"):
+        f = Path(folder) / nama
+        try:
+            if f.exists() or f.is_symlink():
+                f.unlink()
+        except OSError:
+            pass
+
+
+def _jendela_aktif(driver):
+    """Profil tetap bisa memulihkan tab lama; pakai SATU jendela saja agar driver tidak mengendalikan tab yang salah."""
+    try:
+        h = list(driver.window_handles)
+    except Exception:
+        return
+    for x in h[1:]:
+        try:
+            driver.switch_to.window(x)
+            driver.close()
+        except Exception:
+            pass
+    try:
+        driver.switch_to.window(h[0])
+    except Exception:
+        pass
+
+
+def _navigasi_aman(driver, url, percobaan=3):
+    """Buka url dan PASTIKAN browser benar-benar sampai ke situsnya (bukan about:blank/halaman sambutan Chrome).
+    Urutan: driver.get -> bila macet/tersasar: hentikan muat -> window.location -> ulangi. Gagal semua -> RuntimeError."""
+    host = urlparse(url).netloc
+    for ke in range(1, percobaan + 1):
+        _jendela_aktif(driver)
+        try:
+            driver.get(url)
+        except TimeoutException:
+            print(f"⚠️ Halaman {host} lambat dimuat (percobaan {ke}/{percobaan}); memuat dihentikan lalu diperiksa")
+            try:
+                driver.execute_script("window.stop();")
+            except Exception:
+                pass
+        except WebDriverException as e:
+            print(f"⚠️ driver.get gagal (percobaan {ke}/{percobaan}): {type(e).__name__}: {str(e)[:120]}")
+        try:
+            sekarang = driver.current_url or ""
+        except Exception:
+            sekarang = ""
+        if host in sekarang:
+            return True
+        print(f"⚠️ Chrome terbuka tetapi belum di {host} (sekarang: {sekarang[:70]!r}); mencoba lagi {ke}/{percobaan}")
+        try:
+            driver.execute_script("window.location.href = arguments[0];", url)
+        except Exception:
+            pass
+        time.sleep(3)
+        try:
+            if host in (driver.current_url or ""):
+                return True
+        except Exception:
+            pass
+    raise RuntimeError(f"Chrome tidak berhasil membuka {url} setelah {percobaan} percobaan")
+
+
+def _muat_kredensial():
+    """Isi STATION_ID/PASSWORD dari .env bila belum (sebelumnya hanya diisi di main(), sehingga alat lain yang
+    memanggil login() langsung -- mis. tools/pantau_web.py -- mengirim None ke kolom email)."""
+    global STATION_ID, PASSWORD
+    if not STATION_ID or not PASSWORD:
+        STATION_ID, PASSWORD = get_credentials()
+    if not STATION_ID or not PASSWORD:
+        raise RuntimeError("Kredensial kosong: isi BMKG_STATION_ID dan BMKG_PASSWORD di file .env")
+    return STATION_ID, PASSWORD
 
 
 # === BACA DATA (Excel atau database form web) ===
@@ -1486,21 +1618,55 @@ def SEND_GTS_OK(driver):
 
 
 #=================================================Main Browser=======================================================#
-def login(driver):
-    print("\n" + "="*60)
-    print("🌐 MEMULAI PROSES LOGIN")
-    print("="*60)
+SESI_TERAKHIR_OK = 0.0   # [rev 28] waktu (time.time) terakhir sesi BMKG Satu terbukti masih berlaku
 
-    print("🌐 Membuka halaman login...")
-    driver.get("https://bmkgsatu.bmkg.go.id/login")
-    # [F3.3] tunggu sampai kolom email muncul ATAU web langsung mengarahkan ke dashboard (sesi profil tetap masih berlaku)
+
+def _tandai_sesi_ok():
+    global SESI_TERAKHIR_OK
+    SESI_TERAKHIR_OK = time.time()
+
+
+def _di_halaman_login(driver):
     try:
-        WebDriverWait(driver, 15).until(lambda d: d.find_elements(By.ID, "login-email") or "/dashboard" in d.current_url)
+        if "/login" in (driver.current_url or ""):
+            return True
+        return bool(driver.find_elements(By.ID, "login-email"))
+    except Exception:
+        return False
+
+
+def _sudah_masuk(driver):
+    """Sudah di dalam BMKG Satu (bukan halaman login, bukan about:blank)."""
+    try:
+        u = driver.current_url or ""
+    except Exception:
+        return False
+    return urlparse(CFG["urls"]["login"]).netloc in u and "/login" not in u
+
+
+def sesi_habis(drv=None):
+    """[rev 28] True = tampak ter-logout (di halaman login); False = tampak masih masuk; None = tak bisa dipastikan (browser mati)."""
+    drv = drv if drv is not None else driver
+    if drv is None:
+        return None
+    try:
+        if "/login" in (drv.current_url or ""):
+            return True
+        return bool(drv.find_elements(By.ID, "login-email"))
+    except Exception:
+        return None
+
+
+def _login_sekali(driver):
+    print("🌐 Membuka halaman login...")
+    _navigasi_aman(driver, CFG["urls"]["login"])
+    # [F3.3] tunggu sampai kolom email muncul ATAU web langsung mengarahkan ke dalam (sesi profil tetap masih berlaku)
+    try:
+        WebDriverWait(driver, 15).until(lambda d: d.find_elements(By.ID, "login-email") or _sudah_masuk(d))
     except TimeoutException:
         pass
-    if "/dashboard" in driver.current_url:
+    if _sudah_masuk(driver) and not driver.find_elements(By.ID, "login-email"):
         print("✅ Sesi login tersimpan masih berlaku — langkah login dilewati")
-        _buka_sinoptik(driver)
         return
 
     try:
@@ -1555,10 +1721,75 @@ def login(driver):
             print(f"❌ Gagal klik tombol login: {e2}")
             raise
 
-    WebDriverWait(driver, 20).until(EC.url_contains("/dashboard"))
+    WebDriverWait(driver, 20).until(lambda d: _sudah_masuk(d))
     print("✅ Login berhasil")
 
+
+def login(driver, percobaan=2):
+    """Login ke BMKG Satu. [rev 28] kredensial dimuat otomatis; dicoba ulang bila gagal (mis. form belum siap)."""
+    print("\n" + "="*60)
+    print("🌐 MEMULAI PROSES LOGIN")
+    print("="*60)
+    _muat_kredensial()
+    for ke in range(1, percobaan + 1):
+        try:
+            _login_sekali(driver)
+            break
+        except Exception as e:
+            if ke >= percobaan:
+                raise
+            print(f"🔁 Login gagal ({type(e).__name__}: {str(e)[:100]}); mengulang {ke + 1}/{percobaan}...")
+            time.sleep(3)
+    _tandai_sesi_ok()
     _buka_sinoptik(driver)
+
+
+def segarkan_sesi(drv):
+    """[rev 28] Pastikan sesi masih berlaku SEBELUM eksekusi. login() membuka /login: sesi masih berlaku -> web mengarahkan
+    ke dalam (dilewati); sesi sudah habis (BMKG Satu logout sendiri) -> form login diisi ulang. Lalu popup + stasiun.
+    Mengembalikan True bila tadinya ter-logout."""
+    habis = sesi_habis(drv)
+    print("🔐 Memeriksa sesi BMKG Satu" + (" (tampak ter-logout!)" if habis else "") + "...")
+    login(drv)
+    klik_tombol_oke_popup(drv=drv)
+    memilih_stasiun(drv)
+    return bool(habis)
+
+
+def pastikan_sesi(notifier=None, slot=None, paksa=False):
+    """[rev 28] Dipanggil main() beberapa menit sebelum tiap slot. Mengembalikan (ok, dimuat_ulang).
+    dimuat_ulang=True -> halaman dimuat ulang: pemanggil harus memilih ulang observer & tanggal.
+    Gagal total (mis. Chrome mati) -> recover_session (buka browser baru)."""
+    global driver
+    sesi_cfg = CFG.get("session", {}) or {}
+    if not sesi_cfg.get("aktif", True):
+        return True, False
+    batas = float(sesi_cfg.get("cek_ulang_menit", 10)) * 60
+    if not paksa and SESI_TERAKHIR_OK and (time.time() - SESI_TERAKHIR_OK) < batas:
+        return True, False
+    try:
+        habis = segarkan_sesi(driver)
+        if habis and notifier is not None and slot is not None:
+            try:
+                notifier.kirim(f"🔐 Sesi BMKG Satu habis sendiri — login ulang otomatis berhasil (slot {slot[0]} {slot[1]} UTC).", "recovery")
+            except Exception:
+                pass
+        return True, True
+    except Exception as e:
+        print(f"⚠️ Pemeriksaan sesi gagal ({type(e).__name__}: {str(e)[:120]}); memulihkan dengan browser baru...")
+        try:
+            save_debug_snapshot(driver, "pastikan_sesi_gagal")
+        except Exception:
+            pass
+        baru, ok = recover_session(driver, tanggal_utc=(slot[0] if slot else None))
+        if notifier is not None and slot is not None:
+            try:
+                notifier.recovery(slot, ok)
+            except Exception:
+                pass
+        if ok:
+            driver = baru
+        return ok, True
 
 
 def _buka_sinoptik(driver):
@@ -1998,8 +2229,39 @@ def isi_penguapan_00(driver, rencana):
 
 
 def buat_driver():
-    """[F1.6] Buka Chrome (dipanggil di main setelah launcher)."""
-    return webdriver.Chrome(service=Service(), options=chrome_options)
+    """[F1.6] Buka Chrome (dipanggil di main setelah launcher).
+    [rev 28] Tangguh: setelah Chrome terbuka, dipastikan benar-benar sampai ke BMKG Satu. Bila gagal: tutup, bebaskan profil
+    (Chrome yatim + berkas kunci), coba lagi; terakhir -- bila chrome.fallback_profil_sementara -- pakai profil sementara."""
+    folder = _profil_chrome_dir()
+    maks = max(1, int(_cfg_chrome().get("retry_buka", 3)))
+    rencana = [True] * maks if folder is not None else [False] * maks
+    if folder is not None and _cfg_chrome().get("fallback_profil_sementara", True):
+        rencana.append(False)
+    terakhir = None
+    for no, pakai_profil in enumerate(rencana, 1):
+        drv = None
+        try:
+            if pakai_profil and no > 1:
+                _bebaskan_profil(folder)
+            if folder is not None and not pakai_profil:
+                print("⚠️ Profil Chrome tetap gagal terus -> memakai PROFIL SEMENTARA (login akan dilakukan dari awal)")
+            drv = webdriver.Chrome(service=Service(), options=_opsi_chrome_baru(pakai_profil))
+            try:
+                drv.set_page_load_timeout(60)
+            except Exception:
+                pass
+            _navigasi_aman(drv, CFG["urls"]["login"])
+            return drv
+        except Exception as e:
+            terakhir = e
+            print(f"❌ Gagal membuka Chrome (percobaan {no}/{len(rencana)}): {type(e).__name__}: {str(e)[:160]}")
+            try:
+                if drv is not None:
+                    drv.quit()
+            except Exception:
+                pass
+            time.sleep(2 * no)
+    raise RuntimeError(f"Chrome tidak bisa dibuka/menuju BMKG Satu setelah {len(rencana)} percobaan: {terakhir}")
 
 
 def parse_args():
@@ -2606,11 +2868,7 @@ def recover_session(current_driver, max_attempts=3, tanggal_utc=None):
         new_driver = None
         try:
             # Buka browser baru
-            chrome_options_new = Options()
-            chrome_options_new.add_argument("--start-maximized")
-            _terapkan_opsi_anti_popup(chrome_options_new)   # [F1.1]
-            service_new = Service()
-            new_driver = webdriver.Chrome(service=service_new, options=chrome_options_new)
+            new_driver = buat_driver()   # [rev 28] pembukaan tangguh yang sama dengan awal (profil dibebaskan bila terkunci)
             print("✅ Browser baru berhasil dibuka")
 
             # Login, popup, stasiun, tanggal
@@ -2823,6 +3081,8 @@ def main():
 
             waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
             print(f"\n⏳ Menunggu sampai {waktu_eksekusi} untuk eksekusi baris {index+1}...")
+            sesi_dicek = False   # [rev 28] sesi BMKG Satu diperiksa sekali per slot, menjelang eksekusi
+            pra_cek = float((CFG.get("session", {}) or {}).get("cek_sebelum_detik", 180))
 
             # Countdown + monitoring perubahan Excel
             while waktu_tunggu > 0:
@@ -2848,9 +3108,25 @@ def main():
                     notifier.rekap_jika_waktunya(db)   # [F3.7] rekap harian (sekali/hari, dibatasi 1x/menit)
                     last_check_time = time.time()
 
+                if not sesi_dicek and waktu_tunggu <= pra_cek:
+                    sesi_dicek = True
+                    print()
+                    _ok_s, _muat = pastikan_sesi(notifier, slot0)
+                    if _muat:
+                        observer_selected = False   # halaman dimuat ulang: observer & tanggal dipilih ulang di langkah baris
+                        tanggal_aktif = None
+                    sekarang = datetime.now()
+                    waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
+
                 mins, secs = divmod(max(0, waktu_tunggu), 60)
                 print(f"\r⏳ Akan dieksekusi dalam: {int(mins):02d}:{int(secs):02d}", end="", flush=True)
                 time.sleep(1)
+
+            if not sesi_dicek:   # tidak ada waktu tunggu (mis. --process-past): periksa sesi sekarang bila sudah lama tidak dipastikan
+                _ok_s, _muat = pastikan_sesi(notifier, slot0)
+                if _muat:
+                    observer_selected = False
+                    tanggal_aktif = None
 
             print("\n🚀 Eksekusi dimulai...")
 
@@ -3086,6 +3362,7 @@ def main():
                                      hujan_override=dict(HUJAN_OVERRIDE_LOG) or None)
                     notifier.sukses(slot, sandi, dict(PERUBAHAN_OTOMATIS) or None)   # [F3.7]
                     row_processed = True  # tandai sukses, keluar dari loop recovery
+                    _tandai_sesi_ok()
 
                 except Exception as e:
                     error_msg = str(e)
@@ -3100,7 +3377,10 @@ def main():
                         gagal_terakhir[1] = png
 
                     # ── Cek apakah perlu recovery sesi ──────────────────────
-                    if SESSION_RECOVERY_NEEDED in error_msg:
+                    sesi_mati = SESSION_RECOVERY_NEEDED not in error_msg and sesi_habis(driver) is True   # [rev 28] ter-logout di tengah baris
+                    if sesi_mati:
+                        print("🔓 Terdeteksi ter-logout dari BMKG Satu di tengah pengisian -> diperlakukan sebagai masalah sesi")
+                    if SESSION_RECOVERY_NEEDED in error_msg or sesi_mati:
                         if row_recovery_count < MAX_ROW_RECOVERY:
                             row_recovery_count += 1
                             print(f"\n⚠️ DETEKSI MASALAH SESI/WEB — memulai recovery "
