@@ -51,7 +51,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from core.config import load_config, resolve_path, get_credentials  # noqa: E402
 from core.validator import Validator, load_excel, format_report  # noqa: E402
-from core.db import SendLog  # noqa: E402
+from core.db import SendLog, TANDA_CEK_MANUAL  # noqa: E402
 from core.notify import Notifier  # noqa: E402   [F3.7] notifikasi Telegram
 from core.obsdb import ObsStore  # noqa: E402   [F2.7] data dari form web
 from core.synop_check import verifikasi as verifikasi_sandi, format_hasil as format_hasil_sandi  # noqa: E402
@@ -85,7 +85,15 @@ def _terapkan_opsi_anti_popup(opts, pakai_profil=True):
         "profile.password_manager_enabled": False,
         "profile.password_manager_leak_detection": False,
     })
-    opts.add_argument("--disable-features=PasswordLeakDetection,PasswordCheck")
+    # [rev 29] Windows menurunkan prioritas render/timer jendela yang tertutup jendela lain (mis. saat bot jalan di belakang VS Code):
+    # halaman Vue/Ant Design jadi lambat merespons, tiap kolom 1-3 dtk. Flag di bawah mematikan penurunan itu (chrome.anti_throttle).
+    anti = bool((CFG.get("chrome", {}) or {}).get("anti_throttle", True))
+    fitur = "PasswordLeakDetection,PasswordCheck" + (",CalculateNativeWinOcclusion" if anti else "")
+    opts.add_argument(f"--disable-features={fitur}")
+    if anti:
+        opts.add_argument("--disable-background-timer-throttling")
+        opts.add_argument("--disable-renderer-backgrounding")
+        opts.add_argument("--disable-backgrounding-occluded-windows")
     opts.add_argument("--disable-save-password-bubble")
     opts.add_argument("--disable-notifications")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -331,6 +339,28 @@ def wait_for_clickable(driver, locator, timeout=10):
         return None
 
 
+SLOT_AKTIF = None   # [rev 30] (tanggal_utc, jam) slot yang sedang diproses; dipakai untuk menamai snapshot
+
+
+def set_slot_aktif(slot):
+    global SLOT_AKTIF
+    SLOT_AKTIF = (slot[0], slot[1]) if slot and slot[0] else None
+
+
+def _nama_snapshot(tag):
+    """[rev 30] <TANGGAL>_<JAM>UTC__<keterangan>__<waktu lokal>, mis. 20261122_2200UTC__gagal-percobaan1__20261123-050117WIB.
+    Slot (jam observasi UTC) ada DI DEPAN sehingga terurut per jam & langsung terlihat jam berapa yang bermasalah; waktu di
+    belakang = kapan snapshot direkam (zona lokal PC)."""
+    zona = "WIB" if int(CFG["runtime"].get("timezone_offset_hours", 7)) == 7 else "LOKAL"
+    waktu = datetime.now().strftime("%Y%m%d-%H%M%S") + zona
+    if SLOT_AKTIF and SLOT_AKTIF[0]:
+        awal = f"{SLOT_AKTIF[0].replace('-', '')}_{SLOT_AKTIF[1].replace(':', '')}UTC"
+    else:
+        awal = "tanpa-slot"
+    ket = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(tag)).strip("-") or "debug"
+    return f"{awal}__{ket}__{waktu}"
+
+
 def save_debug_snapshot(driver, tag="debug"):
     png = None   # [F1.4] dikembalikan agar bisa dicatat di log status
     if not SNAPSHOT_OPTIONAL and str(tag).startswith(("isi_input_", "pilih_arah_")):
@@ -338,9 +368,9 @@ def save_debug_snapshot(driver, tag="debug"):
     try:
         base = str(SNAPSHOT_DIR)
         os.makedirs(base, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        png = os.path.join(base, f"{ts}_{tag}.png")
-        html = os.path.join(base, f"{ts}_{tag}.html")
+        nama = _nama_snapshot(tag)
+        png = os.path.join(base, f"{nama}.png")
+        html = os.path.join(base, f"{nama}.html")
         try:
             driver.save_screenshot(png)
             print(f"📸 Screenshot saved: {png}")
@@ -363,8 +393,12 @@ def pilih_opsi_unsur(driver, unsur):
             EC.presence_of_all_elements_located((By.XPATH, f"//li[contains(text(), '{unsur}')]"))
         )
         if opsi_list:
-            safe_click(driver, opsi_list[0])
-            print(f"✅ Opsi dipilih (mengandung '{unsur}'): {opsi_list[0].text}")
+            # [rev 29] XPath //li[...] bisa mengenai <li> tersembunyi (jelajah 230249: nama opsi jam 00:00 tercatat kosong);
+            # utamakan yang tampak, baru cadangan elemen pertama.
+            terlihat = [o for o in opsi_list if _tampak(o)]
+            pilih = (terlihat or opsi_list)[0]
+            safe_click(driver, pilih)
+            print(f"✅ Opsi dipilih (mengandung '{unsur}'): {pilih.text}")
             return True
         print(f"❌ Tidak ada opsi mengandung '{unsur}' ditemukan")
         return False
@@ -391,7 +425,8 @@ def pilih_dropdown_ant_select(driver, id_div, nilai, timeout=12, max_attempts=2)
                 _jeda(0.6)
                 continue
             safe_click(driver, dropdown)
-            _jeda(0.5)
+            if not _tunggu_dropdown_terbuka(driver, id_div):   # [rev 29] eksplisit; cadangan jeda lama bila status tak terbaca
+                _jeda(0.5)
 
             search_input = wait_for_presence(driver, (By.XPATH, f"//div[@id='{id_div}']//input[contains(@class,'ant-select-search__field')]"), timeout=timeout)
             if search_input:
@@ -801,6 +836,9 @@ def _popup_swal_lain(driver):
     return None
 
 
+BERHASIL_TERLIHAT = False   # [rev 30] True bila popup web berisi "berhasil" terlihat pada pemeriksaan pasca-kirim terakhir
+
+
 def selesaikan_pasca_kirim(driver):
     """
     Dipanggil SETELAH tombol OK terakhir diklik: awasi popup susulan sampai layar tenang.
@@ -809,39 +847,54 @@ def selesaikan_pasca_kirim(driver):
     Return (berhasil, pesan). Layar dianggap tenang bila tidak ada popup selama
     features.qc_popup_tenang detik; batas total features.qc_popup_tunggu detik.
     """
+    global BERHASIL_TERLIHAT
     ft = CFG["features"]
     batas = float(ft.get("qc_popup_tunggu", 12))
     tenang = float(ft.get("qc_popup_tenang", 4))
     mulai = time.time()
     aktif_terakhir = mulai
     n_qc = 0
+    n_stale = 0
+    BERHASIL_TERLIHAT = False
     while True:
-        h = tangani_popup_koreksi_qc(driver, tunggu=0)
-        if h["muncul"]:
-            n_qc += 1
-            if not h["diklik"]:
-                return False, "popup Koreksi QC tidak dapat dikonfirmasi: " + h["teks"]
-            if n_qc > 3:
-                return False, "popup Koreksi QC muncul berulang (>3x): " + h["teks"]
-            aktif_terakhir = time.time()
-            continue
-        lain = _popup_swal_lain(driver)
-        if lain:
-            el, teks, galat = lain
-            print(f"ℹ️ Popup susulan: {teks[:120]}")
-            if galat:
-                try:
-                    save_debug_snapshot(driver, "popup_galat_setelah_kirim")
-                except Exception:
-                    pass
-                return False, "popup galat setelah SEND: " + teks[:160]
-            for b in el.find_elements(By.XPATH, f".//button[{_LOW}='ok']"):
-                if _tampak(b):
-                    attempt_click(driver, b)
-                    print("✅ Popup susulan ditutup (OK)")
-                    break
-            aktif_terakhir = time.time()
-            time.sleep(0.4)
+        try:
+            h = tangani_popup_koreksi_qc(driver, tunggu=0)
+            if h["muncul"]:
+                n_qc += 1
+                if not h["diklik"]:
+                    return False, "popup Koreksi QC tidak dapat dikonfirmasi: " + h["teks"]
+                if n_qc > 3:
+                    return False, "popup Koreksi QC muncul berulang (>3x): " + h["teks"]
+                aktif_terakhir = time.time()
+                continue
+            lain = _popup_swal_lain(driver)
+            if lain:
+                el, teks, galat = lain
+                print(f"ℹ️ Popup susulan: {teks[:120]}")
+                if galat:
+                    try:
+                        save_debug_snapshot(driver, "popup_galat_setelah_kirim")
+                    except Exception:
+                        pass
+                    return False, "popup galat setelah SEND: " + teks[:160]
+                if re.search(r"berhasil|success", teks or "", re.I):
+                    BERHASIL_TERLIHAT = True   # [rev 30] web sendiri menyatakan data terkirim
+                for b in el.find_elements(By.XPATH, f".//button[{_LOW}='ok']"):
+                    if _tampak(b):
+                        attempt_click(driver, b)
+                        print("✅ Popup susulan ditutup (OK)")
+                        break
+                aktif_terakhir = time.time()
+                time.sleep(0.4)
+                continue
+        except StaleElementReferenceException:
+            # [rev 30] popup SweetAlert menutup dirinya sendiri saat dibaca (jam 18 UTC 2026-11-22: data TERKIRIM, tetapi galat stale
+            # ini membuat baris dicatat gagal). Cukup baca ulang layar.
+            n_stale += 1
+            if n_stale > 8:
+                return BERHASIL_TERLIHAT, "popup susulan terus berubah (stale element); " + (
+                    "web menyatakan berhasil" if BERHASIL_TERLIHAT else "status tidak dapat dipastikan")
+            time.sleep(0.3)
             continue
         sekarang = time.time()
         if sekarang - aktif_terakhir >= tenang or sekarang - mulai >= batas + tenang * 3:
@@ -1834,7 +1887,9 @@ def klik_tombol_oke_popup(image_path=None, max_wait=None, drv=None):
     # [F1.1] Urutan: (1) Selenium (tidak bergantung resolusi/skala layar), (2) gambar via pyautogui (cara V6),
     # (3) opsional: tekan Enter (features.popup_press_enter; dialog Chrome fokusnya sudah di tombol OK)
     if max_wait is None:
-        max_wait = CFG["runtime"].get("popup_wait_seconds", 3)
+        # [rev 29] bawaan 3 -> 1: pada 4 dari 4 run nyata (dry-run & jelajah) popup TIDAK pernah muncul sejak F1.1, tetapi tetap
+        # ditunggu 3 dtk + 3x pindai layar (4,3-4,8 dtk tiap run).
+        max_wait = CFG["runtime"].get("popup_wait_seconds", 1)
     drv = drv if drv is not None else driver
     if image_path is None:
         image_path = OK_IMAGE_PATH          # dari config.yaml (paths.ok_image)
@@ -1871,7 +1926,8 @@ def klik_tombol_oke_popup(image_path=None, max_wait=None, drv=None):
                 print(f"✅ Tombol OK berhasil diklik pada {center}")
                 return True
         print(f"⏳ Menunggu tombol OK muncul... ({i+1}/{max_wait})")
-        time.sleep(1)
+        if i < max_wait - 1:        # [rev 29] tidak tidur lagi setelah percobaan terakhir
+            time.sleep(1)
     if CFG["features"].get("popup_press_enter", False) and pyautogui is not None:
         try:
             pyautogui.press("enter")
@@ -1924,13 +1980,63 @@ def memilih_observer(driver):
     return False  # [FIX] return False agar caller tahu gagal
 
 
-def memilih_tanggal(driver, utc_date=None):
-    """utc_date 'YYYY-MM-DD' = tanggal slot (F1.5). None = perilaku V6 (tanggal UTC saat ini)."""
-    if utc_date is None:
-        local_now = datetime.now()
-        utc_target_time = local_now - timedelta(hours=7)
-        utc_date = utc_target_time.strftime("%Y-%m-%d")
-    print(f"Memilih tanggal: {utc_date}...")
+_JS_BULAN_KALENDER = ("var c=[].slice.call(document.querySelectorAll(\"[role='button'][data-date]\")); if(!c.length) return null;"
+                      "return c[Math.floor(c.length/2)].getAttribute('data-date');")
+
+
+def _kalender_terbuka(driver):
+    try:
+        return driver.find_element(By.ID, "input-datepicker").get_attribute("aria-expanded") == "true"
+    except Exception:
+        return False
+
+
+def _buka_kalender(driver, tombol):
+    """[rev 30] Buka kalender dan PASTIKAN terbuka (aria-expanded). Mengklik lagi kalender yang sudah terbuka justru menutupnya,
+    jadi klik hanya dilakukan bila belum terbuka."""
+    for cara in ("js", "biasa"):
+        if _kalender_terbuka(driver):
+            return True
+        try:
+            if cara == "js":
+                driver.execute_script("arguments[0].click();", tombol)
+                print("Datepicker button clicked via JavaScript.")
+            else:
+                tombol.click()
+                print("Datepicker button clicked (klik biasa).")
+        except Exception as e:
+            print(f"Failed to click datepicker button ({cara}): {e}")
+        akhir = time.time() + 3
+        while time.time() < akhir:
+            if _kalender_terbuka(driver):
+                return True
+            time.sleep(0.1)
+    return _kalender_terbuka(driver)
+
+
+def _navigasi_bulan_kalender(driver, target):
+    """Pindahkan kalender ke bulan `target` (date). Sebelumnya hanya bulan berjalan yang bisa dipilih -> slot tanggal akhir bulan
+    yang dieksekusi pagi tanggal 1 pasti gagal."""
+    for _ in range(14):
+        try:
+            tampil = driver.execute_script(_JS_BULAN_KALENDER)
+        except Exception:
+            return
+        if not tampil:
+            return
+        selisih = (target.year - int(tampil[:4])) * 12 + (target.month - int(tampil[5:7]))
+        if selisih == 0:
+            return
+        judul = "Previous month" if selisih < 0 else "Next month"
+        tombol = [b for b in driver.find_elements(By.XPATH, f"//button[@title='{judul}']") if _tampak(b)]
+        if not tombol or tombol[0].get_attribute("aria-disabled") == "true":
+            print(f"⚠️ Tombol '{judul}' tidak tersedia; bulan {target:%Y-%m} tidak bisa dicapai")
+            return
+        driver.execute_script("arguments[0].click();", tombol[0])
+        _jeda(0.3)
+
+
+def _pilih_tanggal_sekali(driver, utc_date):
     datepicker_button = driver.find_element(By.ID, "input-datepicker")
     try:
         WebDriverWait(driver, 15).until(
@@ -1946,25 +2052,53 @@ def memilih_tanggal(driver, utc_date=None):
         except Exception as e:
             print(f"Could not dismiss overlay: {e}")
 
-    try:
-        driver.execute_script("arguments[0].click();", datepicker_button)
-        print("Datepicker button clicked via JavaScript.")
-    except Exception as e:
-        print(f"Failed to click datepicker button via JavaScript: {e}")
-        _jeda(1)
-        datepicker_button.click()
+    if not _buka_kalender(driver, datepicker_button):
+        raise RuntimeError("kalender tidak terbuka")
+    target = datetime.strptime(utc_date, "%Y-%m-%d")
+    _navigasi_bulan_kalender(driver, target)
 
     xpath_date = f"//div[@role='button' and @data-date='{utc_date}']"
-    wait = WebDriverWait(driver, 10)
+    # [rev 30] cukup ADA di DOM (jelajah 23:00: sel aktif & kalender terbuka tetapi 'clickable' tak pernah terpenuhi 10 dtk)
+    sel = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, xpath_date)))
+    if sel.get_attribute("aria-disabled") == "true":
+        raise RuntimeError(f"tanggal {utc_date} dinonaktifkan di kalender (di luar rentang yang boleh dipilih)")
     try:
-        wait.until(EC.element_to_be_clickable((By.XPATH, xpath_date))).click()
-        print(f"✅ Tanggal '{utc_date}' berhasil dipilih.")
-        _jeda(0.5)
-        return True
-    except Exception as e:
-        print(f"⚠️ Gagal memilih tanggal {utc_date}: {e}. Memastikan datepicker ditutup...")
-        driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
-        return False
+        sel.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", sel)
+    akhir = time.time() + 3
+    while _kalender_terbuka(driver) and time.time() < akhir:
+        time.sleep(0.1)
+    terpilih = tanggal_di_web(driver)
+    if terpilih is not None and terpilih != utc_date:
+        raise RuntimeError(f"tanggal terpilih {terpilih}, bukan {utc_date}")
+    return True
+
+
+def memilih_tanggal(driver, utc_date=None, percobaan=3):
+    """utc_date 'YYYY-MM-DD' = tanggal slot (F1.5). None = perilaku V6 (tanggal UTC saat ini).
+    [rev 30] Dicoba sampai `percobaan` kali; kalender dibuka dengan benar & bisa pindah bulan."""
+    if utc_date is None:
+        local_now = datetime.now()
+        utc_target_time = local_now - timedelta(hours=7)
+        utc_date = utc_target_time.strftime("%Y-%m-%d")
+    print(f"Memilih tanggal: {utc_date}...")
+    for ke in range(1, percobaan + 1):
+        try:
+            if _pilih_tanggal_sekali(driver, utc_date):
+                print(f"✅ Tanggal '{utc_date}' berhasil dipilih.")
+                _jeda(0.5)
+                return True
+        except Exception as e:
+            print(f"⚠️ Gagal memilih tanggal {utc_date} (percobaan {ke}/{percobaan}): {type(e).__name__}: {str(e)[:120]}")
+        try:
+            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
+        except Exception:
+            pass
+        if ke < percobaan:
+            _jeda(1.0)
+    print(f"❌ Tanggal {utc_date} tidak berhasil dipilih setelah {percobaan} percobaan")
+    return False
 
 
 def isi_per_jam(driver, row):
@@ -2333,6 +2467,36 @@ def pilih_observer_gui(daftar, dry_run_awal=False):
     return hasil["v"]
 
 
+LATENSI = {}   # [rev 29] hasil ukur_latensi terakhir (dibaca tools/pantau_web.py untuk laporan)
+
+
+def ukur_latensi(driver, n=12):
+    """[rev 29] Diagnosa kenapa pengisian lambat: latensi round-trip driver, ukuran DOM, biaya XPath, dan apakah jendela
+    Chrome sedang tersembunyi/tidak fokus (penyebab throttling). Hanya mengukur; tidak mengubah apa pun. Tak pernah melempar galat."""
+    global LATENSI
+    try:
+        t = []
+        for _ in range(n):
+            s = time.perf_counter()
+            driver.execute_script("return 1;")
+            t.append((time.perf_counter() - s) * 1000)
+        t.sort()
+        s = time.perf_counter()
+        n_dd = len(driver.find_elements(By.XPATH, "//div[contains(@class,'ant-select-selection__rendered')]"))
+        xp = (time.perf_counter() - s) * 1000
+        info = driver.execute_script("return [document.getElementsByTagName('*').length, document.visibilityState, document.hasFocus()];")
+        LATENSI = {"execute_script_median_ms": round(t[len(t) // 2], 1), "execute_script_maks_ms": round(t[-1], 1),
+                   "xpath_dropdown_ms": round(xp, 1), "jumlah_dropdown": n_dd,
+                   "elemen_dom": info[0], "visibilityState": info[1], "jendela_fokus": bool(info[2])}
+        print(f"📶 Latensi driver: median {LATENSI['execute_script_median_ms']} ms (maks {LATENSI['execute_script_maks_ms']} ms) | "
+              f"XPath {n_dd} dropdown {LATENSI['xpath_dropdown_ms']} ms | DOM {info[0]} elemen | halaman {info[1]}, "
+              f"fokus={'ya' if info[2] else 'TIDAK'}")
+    except Exception as e:
+        LATENSI = {}
+        print(f"ℹ️ Latensi driver tidak terukur ({type(e).__name__}); dilewati")
+    return LATENSI
+
+
 def _jeda(detik):
     """[speed] time.sleep yang diskalakan SPEED_SCALE (config.yaml: speed.scale)."""
     time.sleep(max(0.05, float(detik) * SPEED_SCALE))
@@ -2347,6 +2511,27 @@ def _catat_waktu(nama):
     if _WAKTU_MARK[0]:
         print(f"⏱️ {nama}: {sekarang - _WAKTU_MARK[0]:.1f} dtk")
     _WAKTU_MARK[0] = sekarang
+
+
+def _tunggu_dropdown_terbuka(driver, id_div, timeout=1.0):
+    """[rev 29] Tunggu sampai dropdown Ant Design benar-benar terbuka (ant-select-open / aria-expanded) -- pengganti jeda tetap.
+    True = terbuka (lanjut segera). False = tak terbaca/belum terbuka -> pemanggil memakai jeda lama (perilaku sebelumnya)."""
+    akhir = time.time() + timeout
+    js = ("var c=document.getElementById(arguments[0]); if(!c) return 'nf';"
+          "return (c.classList.contains('ant-select-open')||c.querySelector('.ant-select-open')||"
+          "c.querySelector('[aria-expanded=\"true\"]')) ? 'open' : 'closed';")
+    while True:
+        try:
+            r = driver.execute_script(js, id_div)
+        except Exception:
+            return False
+        if r == "open":
+            return True
+        if r != "closed":
+            return False          # elemen tak ada / driver tak mengembalikan status -> jangan menunggu percuma
+        if time.time() >= akhir:
+            return False
+        time.sleep(0.03)
 
 
 def _tunggu_nilai_terpilih(driver, id_div, nilai, timeout=2.0):
@@ -3019,6 +3204,8 @@ def main():
     login(driver)
     klik_tombol_oke_popup(drv=driver)
     memilih_stasiun(driver)
+    if _SPEED.get("ukur_latensi", True):
+        ukur_latensi(driver)
     tanggal_aktif = None   # [F1.5] tanggal UTC yang sedang dipilih di web; dipilih per slot
 
     df_sebelumnya = None
@@ -3159,8 +3346,18 @@ def main():
             row_recovery_count = 0
             row_processed = False
             gagal_terakhir = None   # [F3.7] (pesan, screenshot) kegagalan terakhir baris ini
+            # [rev 30] tangga percobaan ulang: gagal SEBELUM tombol kirim akhir -> aman diulang (muat ulang halaman, lalu browser baru)
+            rt = CFG["runtime"]
+            max_percobaan = max(1, int(rt.get("max_row_attempts", 3)))
+            max_menit_baris = float(rt.get("max_row_menit", 25))
+            percobaan_umum = 0          # berapa kali baris ini sudah diulang karena galat biasa
+            baris_menyerah = False
+            tak_pasti = False           # gagal SETELAH tombol kirim akhir -> kemungkinan sudah terkirim (tidak boleh dikirim ulang)
+            t_mulai_baris = datetime.now()
+            set_slot_aktif(slot)        # [rev 30] snapshot dinamai dengan slot ini
 
-            while row_recovery_count <= MAX_ROW_RECOVERY and not row_processed:
+            while row_recovery_count <= MAX_ROW_RECOVERY and not row_processed and not baris_menyerah:
+                titik_tak_kembali = False   # menjadi True setelah tombol SEND final diklik
 
                 if row_recovery_count > 0:
                     print(f"\n🔁 Mengulang baris {index+1} setelah recovery "
@@ -3226,9 +3423,14 @@ def main():
                         timeout=15
                     )
 
+                    _t_isi = time.time()
                     if not isi_data(driver, row, plan=rr.plan):
                         _detail = ("; ".join(GAGAL_WAJIB))[:300] if GAGAL_WAJIB else "lihat log di atas"
                         raise Exception(f"Gagal isi data; membatalkan pengiriman untuk baris ini ({_detail})")
+                    _dur_isi = time.time() - _t_isi
+                    print(f"⏱️ Pengisian data jam ini: {_dur_isi:.0f} dtk")   # [rev 29/F3.3] pantau waktu per jam
+                    if slot[0]:
+                        db.log_event(*slot, "waktu_isi", f"{_dur_isi:.0f} dtk")
 
                     # [F1.5] rangkum field opsional yang gagal diisi (sebelumnya hanya peringatan di layar)
                     if GAGAL_OPSIONAL:
@@ -3342,6 +3544,7 @@ def main():
                     print("📨 Menunggu popup SEND final...")
                     if not submit_with_retry(driver, "SEND_GTS_final", lambda: SEND_GTS(driver), max_attempts=3):
                         raise Exception("Gagal klik SEND GTS final setelah 3 percobaan")
+                    titik_tak_kembali = True   # [rev 30] SEND final sudah diklik: mulai sini galat TIDAK boleh memicu kirim ulang
 
                     _jeda(1)
                     if not submit_with_retry(driver, "SEND_GTS_OK", lambda: SEND_GTS_OK(driver), max_attempts=3):
@@ -3349,10 +3552,21 @@ def main():
 
                     # [F3.11] popup susulan (Koreksi QC dsb.) bisa muncul SETELAH OK; data baru terkirim
                     # setelah popup itu dikonfirmasi -> jangan mencatat 'sent' sebelum layar tenang
-                    pasca_ok, pasca_pesan = selesaikan_pasca_kirim(driver)
+                    try:
+                        pasca_ok, pasca_pesan = selesaikan_pasca_kirim(driver)
+                    except Exception as e_pasca:   # [rev 30] galat membaca layar SESUDAH kirim: status tak diketahui, bukan "gagal"
+                        pasca_ok, pasca_pesan = None, f"{type(e_pasca).__name__}: {str(e_pasca).splitlines()[0] if str(e_pasca) else ''}"
                     if "koreksi_qc" in PERUBAHAN_OTOMATIS and slot[0]:
                         db.log_event(*slot, "koreksi_qc", PERUBAHAN_OTOMATIS["koreksi_qc"])
-                    if not pasca_ok:
+                    if pasca_ok is None:
+                        if BERHASIL_TERLIHAT:
+                            print(f"⚠️ Galat saat memeriksa layar pasca-kirim ({pasca_pesan}), tetapi web menyatakan BERHASIL -> dicatat terkirim")
+                            PERUBAHAN_OTOMATIS["pasca_kirim"] = "pemeriksaan layar pasca-kirim error: " + pasca_pesan[:120]
+                            pasca_ok = True
+                        else:
+                            raise Exception("Setelah SEND: pemeriksaan layar error (" + pasca_pesan + "); data kemungkinan SUDAH terkirim")
+                    elif not pasca_ok:
+                        titik_tak_kembali = False   # kegagalan yang DIKETAHUI (popup galat/QC tak terkonfirmasi): data belum terkirim
                         raise Exception("Setelah SEND: " + pasca_pesan + " (data BELUM terkirim)")
 
                     print("✅✅✅ PENGIRIMAN BERHASIL ✅✅✅")
@@ -3368,49 +3582,98 @@ def main():
                     error_msg = str(e)
                     print(f"❌ Error saat memproses baris {index+1}: {error_msg}")
                     gagal_terakhir = [error_msg, None]
-                    if slot[0]:   # [F1.4] catat kegagalan (+ screenshot bila browser masih hidup)
-                        try:
-                            png = save_debug_snapshot(driver, f"gagal_{slot[0]}_{slot[1].replace(':', '')}")
-                        except Exception:
-                            png = None
-                        db.mark_failed(*slot, error_msg, screenshot_path=png)
-                        gagal_terakhir[1] = png
-
-                    # ── Cek apakah perlu recovery sesi ──────────────────────
                     sesi_mati = SESSION_RECOVERY_NEEDED not in error_msg and sesi_habis(driver) is True   # [rev 28] ter-logout di tengah baris
                     if sesi_mati:
                         print("🔓 Terdeteksi ter-logout dari BMKG Satu di tengah pengisian -> diperlakukan sebagai masalah sesi")
-                    if SESSION_RECOVERY_NEEDED in error_msg or sesi_mati:
-                        if row_recovery_count < MAX_ROW_RECOVERY:
-                            row_recovery_count += 1
-                            print(f"\n⚠️ DETEKSI MASALAH SESI/WEB — memulai recovery "
-                                  f"({row_recovery_count}/{MAX_ROW_RECOVERY})...")
+                    sesi_terkait = SESSION_RECOVERY_NEEDED in error_msg or sesi_mati
+                    lewat_batas = (datetime.now() - t_mulai_baris).total_seconds() / 60.0 > max_menit_baris
 
-                            new_driver, recovery_ok = recover_session(driver, tanggal_utc=slot[0])
-                            notifier.recovery(slot, recovery_ok)   # [F3.7]
-
-                            if recovery_ok:
-                                driver = new_driver          # ganti driver global
-                                observer_selected = False    # reset, sesi baru belum pilih observer
-                                tanggal_aktif = None         # [F1.5] pilih ulang tanggal slot di sesi baru
-                                print(f"✅ Recovery berhasil, mengulang baris {index+1}...")
-                                time.sleep(2)
-                                # lanjut iterasi while (mengulang baris)
-                            else:
-                                print(f"❌ Recovery gagal total, melewati baris {index+1}")
-                                row_recovery_count = MAX_ROW_RECOVERY + 1  # paksa keluar loop
-                        else:
-                            print(f"❌ Sudah mencoba recovery {MAX_ROW_RECOVERY}x, "
-                                  f"melewati baris {index+1}")
-                            row_recovery_count += 1  # keluar loop
+                    # ── pilih tindakan ────────────────────────────────────────
+                    if titik_tak_kembali:
+                        aksi = "cek_manual"            # SEND final sudah diklik: jangan kirim ulang
+                    elif lewat_batas:
+                        aksi = "menyerah"
+                        print(f"⏱️ Baris ini sudah memakan > {max_menit_baris:.0f} menit; tidak diulang lagi")
+                    elif sesi_terkait:
+                        aksi = "recovery" if row_recovery_count < MAX_ROW_RECOVERY else "menyerah"
                     else:
-                        # Error biasa (bukan masalah sesi) — langsung skip baris
-                        print("🔄 Melanjutkan ke baris berikutnya...")
-                        row_recovery_count = MAX_ROW_RECOVERY + 1  # paksa keluar loop
+                        aksi = "ulang" if percobaan_umum + 1 < max_percobaan else "menyerah"
 
-            if not row_processed and gagal_terakhir and slot[0]:   # [F3.7] gagal akhir (setelah recovery)
-                notifier.gagal(slot, gagal_terakhir[0], percobaan=(db.get(*slot) or {}).get("percobaan"),
-                               screenshot=gagal_terakhir[1])
+                    if slot[0]:   # snapshot + jejak audit (status tetap 'berjalan' selama masih akan diulang)
+                        try:
+                            png = save_debug_snapshot(driver, f"gagal-percobaan{percobaan_umum + 1 + row_recovery_count}")
+                        except Exception:
+                            png = None
+                        gagal_terakhir[1] = png
+                        if aksi in ("recovery", "ulang"):
+                            db.log_event(*slot, "percobaan_gagal", f"percobaan {percobaan_umum + 1 + row_recovery_count}: {error_msg[:250]}")
+
+                    if aksi == "cek_manual":
+                        tak_pasti = True
+                        print("⚠️ Galat terjadi SETELAH tombol kirim akhir diklik: data KEMUNGKINAN SUDAH TERKIRIM — tidak dikirim ulang otomatis")
+                        baris_menyerah = True
+                    elif aksi == "menyerah":
+                        print(f"❌ Menyerah untuk baris {index+1} (percobaan {percobaan_umum + 1 + row_recovery_count})")
+                        baris_menyerah = True
+                    elif aksi == "recovery":
+                        row_recovery_count += 1
+                        print(f"\n⚠️ DETEKSI MASALAH SESI/WEB — memulai recovery ({row_recovery_count}/{MAX_ROW_RECOVERY})...")
+                        new_driver, recovery_ok = recover_session(driver, tanggal_utc=slot[0])
+                        notifier.recovery(slot, recovery_ok)   # [F3.7]
+                        if recovery_ok:
+                            driver = new_driver
+                            observer_selected = False
+                            tanggal_aktif = None
+                            print(f"✅ Recovery berhasil, mengulang baris {index+1}...")
+                            time.sleep(2)
+                        else:
+                            print(f"❌ Recovery gagal total, melewati baris {index+1}")
+                            baris_menyerah = True
+                    else:   # "ulang": galat biasa sebelum kirim -> coba lagi dari awal dengan keadaan halaman yang bersih
+                        percobaan_umum += 1
+                        tingkat = "muat ulang halaman" if percobaan_umum == 1 else "buka browser baru"
+                        print(f"\n🔁 PERCOBAAN ULANG {percobaan_umum + 1}/{max_percobaan} untuk jam {slot[1]} UTC ({tingkat})...")
+                        try:
+                            notifier.kirim(f"⚠️ Jam {slot[1]} UTC ({slot[0]}) gagal diisi: {error_msg[:160]}\n"
+                                           f"🔁 Mencoba ulang {percobaan_umum + 1}/{max_percobaan} ({tingkat}).", "recovery")
+                        except Exception:
+                            pass
+                        siap = False
+                        if percobaan_umum == 1:
+                            try:
+                                try:
+                                    driver.switch_to.alert.accept()   # alert JS yang menggantung menghalangi navigasi
+                                except Exception:
+                                    pass
+                                segarkan_sesi(driver)
+                                siap = True
+                            except Exception as e_soft:
+                                print(f"⚠️ Muat ulang halaman gagal ({type(e_soft).__name__}); membuka browser baru...")
+                        if not siap:
+                            new_driver, recovery_ok = recover_session(driver, tanggal_utc=slot[0])
+                            notifier.recovery(slot, recovery_ok)
+                            if recovery_ok:
+                                driver = new_driver
+                                siap = True
+                        if siap:
+                            observer_selected = False   # halaman baru: observer & tanggal dipilih ulang
+                            tanggal_aktif = None
+                            time.sleep(2)
+                        else:
+                            print("❌ Tidak bisa menyiapkan halaman baru; baris dilewati")
+                            baris_menyerah = True
+
+            set_slot_aktif(None)
+            if not row_processed and gagal_terakhir and slot[0]:   # [F3.7] gagal akhir (setelah semua percobaan)
+                pesan_akhir = gagal_terakhir[0]
+                if tak_pasti:
+                    pesan_akhir = f"{TANDA_CEK_MANUAL} {pesan_akhir}"
+                db.mark_failed(*slot, pesan_akhir, screenshot_path=gagal_terakhir[1])
+                if tak_pasti:
+                    notifier.perlu_cek_manual(slot, gagal_terakhir[0], screenshot=gagal_terakhir[1])
+                else:
+                    notifier.gagal(slot, gagal_terakhir[0], percobaan=(db.get(*slot) or {}).get("percobaan"),
+                                   screenshot=gagal_terakhir[1])
 
             time.sleep(2)
 
@@ -3424,9 +3687,58 @@ def main():
         time.sleep(10)
 
 
+def _tambah_argumen_restart():
+    """Pastikan main() yang dijalankan ulang TIDAK menampilkan launcher lagi: observer & mode dry-run dibawa."""
+    if nama_observer and "--observer" not in sys.argv:
+        sys.argv += ["--observer", nama_observer]
+    if "--no-gui" not in sys.argv:
+        sys.argv.append("--no-gui")
+    if DRY_RUN and "--dry-run" not in sys.argv:
+        sys.argv.append("--dry-run")
+
+
+def jalankan_dengan_pengawas():
+    """[rev 30] Bila main() berhenti karena galat tak terduga (mis. Chrome crash saat Anda tidur), jalankan ulang otomatis
+    (runtime.auto_restart_maks kali per jam). Tiap kegagalan diberitahukan lewat Telegram. KeyboardInterrupt tidak diulang."""
+    rt = CFG["runtime"]
+    maks = int(rt.get("auto_restart_maks", 5))
+    jeda = float(rt.get("auto_restart_jeda_detik", 30))
+    waktu_galat = []
+    while True:
+        try:
+            main()
+            return
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as e:
+            if maks <= 0:
+                raise
+            sekarang = time.time()
+            waktu_galat = [t for t in waktu_galat if sekarang - t < 3600] + [sekarang]
+            ringkas = f"{type(e).__name__}: {str(e).splitlines()[0][:160] if str(e) else ''}"
+            print(f"\n🚨 Bot berhenti karena galat: {ringkas}\n{traceback.format_exc()}")
+            if len(waktu_galat) > maks:
+                print(f"❌ Sudah {maks}x restart dalam 1 jam; pengawas menyerah")
+                raise
+            try:
+                Notifier.from_config(CFG).kirim(
+                    f"🚨 Bot SYNOP berhenti karena galat: {ringkas}\n"
+                    f"🔄 Restart otomatis dalam {jeda:.0f} dtk ({len(waktu_galat)}/{maks} per jam).", "gagal")
+            except Exception:
+                pass
+            try:
+                if driver is not None:
+                    driver.quit()
+            except Exception:
+                pass
+            set_slot_aktif(None)
+            _tambah_argumen_restart()
+            time.sleep(jeda)
+
+
 if __name__ == "__main__":
     try:
-        main()
+        jalankan_dengan_pengawas()
     except KeyboardInterrupt:
         try:   # [rev 23] Ctrl+C saat slot berjalan: jangan biarkan status 'berjalan' menggantung di dashboard
             _db_stop = SendLog(resolve_path(CFG, "db"))

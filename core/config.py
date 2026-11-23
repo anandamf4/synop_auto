@@ -46,13 +46,19 @@ DEFAULTS = {
         "window_open_minutes": 10,
         "late_info_minutes": 15,
         # >0: slot yang gagal/terhenti boleh dicoba ulang sampai sekian menit setelah waktu eksekusi
-        "retry_past_minutes": 0,
+        # [rev 30] bawaan 0 -> 90: slot yang gagal pada semua percobaan tetap diberi kesempatan di putaran berikutnya
+        "retry_past_minutes": 90,
+        "max_row_attempts": 3,            # rev 30: total percobaan per jam bila galat biasa (1=tanpa ulang); ulang ke-2 = muat ulang halaman, ke-3 = browser baru
+        "max_row_menit": 25,              # rev 30: batas total waktu mengulang satu jam (menit) agar tidak menabrak jam berikutnya
+        "auto_restart_maks": 5,           # rev 30: bot berhenti karena galat tak terduga -> restart otomatis, maks sekian kali per jam (0=mati)
+        "auto_restart_jeda_detik": 30,
     },
     "observers": {"allowed": []},
     "chrome": {
         "profile_dir": "",                    # F3.3: kosong = profil sementara; isi (mis. \"chrome_profile\") = sesi login disimpan
         "retry_buka": 3,                      # rev 28: berapa kali Chrome dicoba dibuka (profil dibebaskan di antara percobaan)
         "fallback_profil_sementara": True,    # rev 28: bila profil tetap terus gagal, pakai profil sementara (login dari awal)
+        "anti_throttle": True,                # rev 29: Chrome tidak menurunkan prioritas jendela yang tertutup jendela lain
     },
     "session": {                              # rev 28: BMKG Satu bisa logout sendiri tiap beberapa jam
         "aktif": True,

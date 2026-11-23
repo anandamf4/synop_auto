@@ -11,8 +11,14 @@
 .slot-info h2{margin:0}
 .slot-info .jam-besar{font:700 20px var(--mono);color:var(--judul)}
 .tabel{width:100%;border-collapse:collapse;font-size:13.5px}
-.tabel th{position:sticky;top:64px;background:var(--kartu2);text-align:left;padding:9px 10px;font-size:12.5px;color:var(--redup);border-bottom:1px solid var(--garis);white-space:nowrap}
-.tabel td{padding:9px 10px;border-bottom:1px solid var(--garis2);vertical-align:top}
+.tabel th{background:var(--kartu2);text-align:left;padding:9px 10px;font-size:12.5px;color:var(--redup);border-bottom:1px solid var(--garis);white-space:nowrap}
+.tabel td{padding:7px 10px;border-bottom:1px solid var(--garis2);vertical-align:top}
+.pager{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;padding:14px 8px 4px}
+.pager button{min-width:38px;padding:0 10px}
+.pager .no[aria-current=page]{background:var(--biru);border-color:var(--biru);color:#fff;cursor:default}
+:root[data-tema=dark] .pager .no[aria-current=page]{color:#06101c}
+.pager .titik{color:var(--redup);padding:0 2px}
+.pager .info{flex-basis:100%;text-align:center;font-size:12.5px;color:var(--redup);margin-top:4px}
 .tabel tr:hover td{background:var(--kartu2)}
 .tabel .w{font:12.5px var(--mono);white-space:nowrap;color:var(--redup)}
 .tabel .s{font:600 13px var(--mono);white-space:nowrap}
@@ -26,7 +32,7 @@
 .b-gagal{background:var(--merah-t);color:var(--merah)}
 .b-netral{background:var(--abu-t);color:var(--abu)}
 .b-info2{background:var(--ungu-t);color:var(--ungu)}
-@media (max-width:640px){.filter .q{grid-column:auto}.tabel th{position:static}}
+@media (max-width:640px){.filter .q{grid-column:auto}}
 </style>
 {% endblock %}
 {% block isi %}
@@ -39,6 +45,7 @@
     <label for="sampai">Sampai tanggal (UTC)<input type="date" id="sampai" value="{{ sampai }}"></label>
     <label for="jam">Jam (UTC)<select id="jam"><option value="">Semua jam</option></select></label>
     <label for="event">Jenis kejadian<select id="event"><option value="">Semua</option></select></label>
+    <label for="per">Baris per halaman<select id="per"><option>10</option><option selected>25</option><option>50</option><option>100</option></select></label>
     <label class="q" for="q">Cari di keterangan<input type="search" id="q" value="{{ q }}" placeholder="mis. nama observer, kolom, pesan galat"></label>
   </div>
   <div class="baris-aksi">
@@ -56,6 +63,7 @@
       <tbody id="isi"><tr><td colspan="4" class="kosong">memuat…</td></tr></tbody>
     </table>
   </div>
+  <nav class="pager" id="pager" aria-label="Halaman riwayat"></nav>
 </div>
 
 <script>
@@ -66,17 +74,38 @@ const EV={
  terkirim_manual:["Ditandai terkirim manual","kirim","check"],gagal:["Gagal","gagal","x"],dilewati:["Dilewati","info2","skip"],
  diatur_ulang:["Status diatur ulang","info2","redo"],mode_update:["Mode Update (sudah ada di web)","warn","info"],
  verifikasi_sandi:["Verifikasi sandi","netral","check"],gagal_opsional:["Kolom opsional gagal","warn","alert"],
- koreksi_qc:["Koreksi QC dikonfirmasi","warn","alert"],rekap_terkirim:["Rekap harian terkirim","netral","info"]
+ koreksi_qc:["Koreksi QC dikonfirmasi","warn","alert"],rekap_terkirim:["Rekap harian terkirim","netral","info"],waktu_isi:["Waktu pengisian bot","netral","clock"],
+ percobaan_gagal:["Percobaan gagal (diulang)","warn","redo"],jadwal_diubah:["Jadwal jam diubah","info2","clock"],jadwal_default:["Jadwal default diubah","info2","clock"]
 };
 const lab=e=>(EV[e]||[e,"netral","info"]);
 const tampilEv=e=>{const [t,k,i]=lab(e);return `<span class="badge b-${k}">${ico(i)}${esc(t)}</span>`};
 
 const F={dari:$("#dari"),sampai:$("#sampai"),jam:$("#jam"),event:$("#event"),q:$("#q")};
+const U0=new URLSearchParams(location.search);
+let HAL=Math.max(1,parseInt(U0.get("hal"))||1);
+$("#per").value=["10","25","50","100"].includes(U0.get("per"))?U0.get("per"):"25";
 for(let h=0;h<24;h++){const j=String(h).padStart(2,"0")+":00";F.jam.insertAdjacentHTML("beforeend",`<option>${j}</option>`)}
 F.jam.value="{{ jam }}";
 const AWAL_EVENT="{{ event }}";
 
-const param=()=>{const p=new URLSearchParams();for(const k in F)if(F[k].value)p.set(k,F[k].value);return p};
+const paramFilter=()=>{const p=new URLSearchParams();for(const k in F)if(F[k].value)p.set(k,F[k].value);return p};
+const param=()=>{const p=paramFilter();p.set("hal",HAL);p.set("per",$("#per").value);return p};
+
+/* nomor halaman: 1 … 4 5 [6] 7 8 … 20  (selalu ada halaman pertama & terakhir) */
+function gambarPager(hal,total,jumlah,per,tampil){
+ const nav=$("#pager");
+ if(total<=1){nav.innerHTML=jumlah?`<span class="info">${jumlah} kejadian</span>`:"";return}
+ const s=new Set([1,total,hal-2,hal-1,hal,hal+1,hal+2]);
+ if(hal<=3)[2,3,4,5].forEach(x=>s.add(x));if(hal>=total-2)[total-4,total-3,total-2,total-1].forEach(x=>s.add(x));
+ const nomor=[...s].filter(x=>x>=1&&x<=total).sort((a,b)=>a-b);
+ let h=`<button type="button" data-h="${hal-1}" ${hal<=1?"disabled":""} aria-label="Halaman sebelumnya">${ico("left")}Sebelumnya</button>`,prev=0;
+ for(const n of nomor){if(n-prev>1)h+='<span class="titik" aria-hidden="true">…</span>';
+  h+=`<button type="button" class="no" data-h="${n}" ${n===hal?'aria-current="page"':""} aria-label="Halaman ${n}">${n}</button>`;prev=n}
+ h+=`<button type="button" data-h="${hal+1}" ${hal>=total?"disabled":""} aria-label="Halaman berikutnya">Berikutnya${ico("right")}</button>`;
+ h+=`<span class="info">Halaman ${hal} dari ${total} · menampilkan ${(hal-1)*per+1}–${(hal-1)*per+tampil} dari ${jumlah} kejadian (terbaru dulu)</span>`;
+ nav.innerHTML=h;
+ nav.querySelectorAll("button[data-h]").forEach(b=>b.onclick=()=>{HAL=+b.dataset.h;muat(true)});
+}
 
 async function muatInfoSlot(){
  const box=$("#info-slot");
@@ -92,10 +121,10 @@ async function muatInfoSlot(){
  }catch(e){box.hidden=true}
 }
 
-async function muat(){
+async function muat(gulir){
  const p=param();
  history.replaceState(null,"","/riwayat?"+p.toString());
- $("#ekspor").href="/ekspor_riwayat.xlsx?"+p.toString();
+ $("#ekspor").href="/ekspor_riwayat.xlsx?"+paramFilter().toString();   // ekspor = SEMUA yang cocok, bukan hanya halaman ini
  $("#isi").innerHTML='<tr><td colspan="4" class="kosong">memuat…</td></tr>';
  let j;
  try{
@@ -104,18 +133,23 @@ async function muat(){
   if(!r.ok){throw new Error("HTTP "+r.status)}
   j=await r.json();
  }catch(e){
-  $("#isi").innerHTML=`<tr><td colspan="4" class="kosong">${ico("alert")}Gagal memuat riwayat (${esc(e.message)})</td></tr>`;return}
+  $("#isi").innerHTML=`<tr><td colspan="4" class="kosong">${ico("alert")}Gagal memuat riwayat (${esc(e.message)})</td></tr>`;$("#pager").innerHTML="";return}
+ HAL=j.hal||1;
  /* pilihan jenis kejadian: isi sekali dari server, pertahankan pilihan */
  if(F.event.options.length<=1){(j.jenis||[]).forEach(e=>F.event.insertAdjacentHTML("beforeend",`<option value="${esc(e)}">${esc(lab(e)[0])}</option>`));F.event.value=AWAL_EVENT||F.event.value}
  const B=j.baris||[];
- $("#ringkas").textContent=j.total?`Menampilkan ${B.length} dari ${j.total} kejadian (terbaru dulu)`:"";
+ $("#ringkas").textContent=j.total?`${j.total} kejadian cocok`:"";
+ gambarPager(HAL,j.halaman_total||1,j.total||0,j.per||B.length||1,B.length);
  $("#isi").innerHTML=B.length?B.map(b=>`<tr><td class="w">${esc(b.ts)}</td><td class="s">${esc(b.tanggal_utc||"-")} ${esc(b.jam||"")}</td><td>${tampilEv(b.event)}</td><td class="d">${esc(b.detail||"")}</td></tr>`).join("")
   :`<tr><td colspan="4" class="kosong">${ico("list")}Tidak ada kejadian yang cocok dengan filter ini.</td></tr>`;
  muatInfoSlot();
+ if(gulir){const t=$(".tabel");if(t.getBoundingClientRect().top<0)t.scrollIntoView({behavior:"smooth",block:"start"})}
 }
-$("#f").onsubmit=e=>{e.preventDefault();muat()};
-for(const k of ["jam","event"])F[k].onchange=muat;
-$("#reset").onclick=()=>{F.dari.value=F.sampai.value="";F.jam.value=F.event.value=F.q.value="";muat()};
+/* mengubah filter selalu kembali ke halaman 1 */
+$("#f").onsubmit=e=>{e.preventDefault();HAL=1;muat()};
+for(const k of ["jam","event"])F[k].onchange=()=>{HAL=1;muat()};
+$("#per").onchange=()=>{HAL=1;muat()};
+$("#reset").onclick=()=>{F.dari.value=F.sampai.value="";F.jam.value=F.event.value=F.q.value="";HAL=1;muat()};
 muat();
 </script>
 {% endblock %}

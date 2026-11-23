@@ -70,6 +70,11 @@
 .pilihan button{justify-content:flex-start;text-align:left;height:auto;padding:12px 14px;align-items:flex-start}
 .pilihan button small{display:block;font-weight:400;margin-top:2px;color:inherit;opacity:.85}
 .baris-tombol{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+.jd{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:12.5px;color:var(--redup)}
+.jd svg{width:14px;height:14px}.jd b{color:var(--teks);font-variant-numeric:tabular-nums}
+.jd .khusus{background:var(--ungu-t);color:var(--ungu);border-radius:999px;padding:1px 8px;font-weight:600}
+.jd button{height:24px;min-height:0;padding:0 9px;font-size:12px}
+.j-menit{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.j-menit input{width:84px}
 /* responsif: tabel jadi kartu */
 @media (max-width:820px){
  .lini{grid-template-columns:repeat(8,minmax(0,1fr))}
@@ -92,6 +97,7 @@
   <button id="hariini" type="button"><svg class="i"><use href="#i-cal"/></svg>Hari ini (UTC)</button>
   <span class="ket redup">Tanggal &amp; jam = UTC</span>
   <span class="sp"></span>
+  <button id="buka-jadwal" type="button" title="Atur kapan bot mulai mengisi & mengirim"><svg class="i"><use href="#i-clock"/></svg>Jadwal kirim: <b id="jadwal-ringkas">…</b></button>
   <button id="buka-salin" type="button"><svg class="i"><use href="#i-copy"/></svg>Salin dari tanggal lain</button>
   <a class="tombol" id="ekspor" href="#"><svg class="i"><use href="#i-down"/></svg>Ekspor Excel</a>
   <label class="tombol"><svg class="i"><use href="#i-up"/></svg>Impor Excel<input type="file" id="impor" accept=".xlsx" hidden></label>
@@ -151,6 +157,23 @@
   <div class="baris-tombol"><button id="s-tutup" type="button">Tutup</button><button id="s-cek" type="button">Pratinjau</button><button class="utama" id="s-go" type="button">Salin</button></div>
 </div></dialog>
 
+<dialog id="dlg-jadwal" aria-labelledby="j-judul"><div class="dlg">
+  <h3 id="j-judul">Jadwal pengiriman</h3>
+  <div class="redup" id="j-ket" style="font-size:14px"></div>
+  <div class="opsi" id="j-pilih" style="margin-top:14px">
+    <label><input type="radio" name="j-mode" value="default" checked> Ikuti default (<span id="j-def"></span>)</label>
+    <label><input type="radio" name="j-mode" value="khusus"> Atur sendiri hanya untuk jam ini</label>
+  </div>
+  <div class="grid2" id="j-atur">
+    <label for="j-menit">Bot mulai mengisi</label>
+    <div class="j-menit"><input type="number" id="j-menit" min="0" max="10" step="1" value="2" inputmode="numeric"> menit
+      <select id="j-arah" aria-label="Sebelum atau sesudah jam observasi"><option value="sebelum">sebelum</option><option value="sesudah">sesudah</option></select> jam observasi</div>
+  </div>
+  <div class="msg ok" id="j-prev" style="margin-top:14px"></div>
+  <div class="redup" id="j-batas" style="margin-top:10px;font-size:12.5px"></div>
+  <div class="baris-tombol"><button type="button" id="j-batal">Batal</button><button class="utama" type="button" id="j-simpan">Simpan</button></div>
+</div></dialog>
+
 <dialog id="dlg-reset" aria-labelledby="r-judul"><div class="dlg">
   <h3 id="r-judul">Atur ulang jam <span id="r-jam"></span></h3>
   <div class="redup" id="r-ket" style="font-size:14px"></div>
@@ -202,13 +225,15 @@ function render(j){
   return `<tr class="${b.sekarang?'skrg':''}">
   <td><span class="jamc">${b.jam}</span>${b.sekarang?` <span class="badge b-running">sekarang</span>`:''}</td>
   <td><span class="badge b-${b.level}">${ico(LV[b.level][1])}${LV[b.level][0]}</span>${b.oleh?`<div class="cat">${esc(b.oleh)}</div>`:''}</td>
-  <td>${b.kirim?badgeKirim(b.kirim,b.macet):'<small>—</small>'}${b.kirim==="running"&&b.macet?`<div class="cat w">Tidak ada kemajuan &gt; 15 menit — kemungkinan proses bot terhenti.</div>`:''}</td>
+  <td>${b.kirim?badgeKirim(b.kirim,b.macet):'<small>—</small>'}${b.kirim==="running"&&b.macet?`<div class="cat w">Tidak ada kemajuan &gt; 15 menit — kemungkinan proses bot terhenti.</div>`:''}${b.kirim!=="sent"&&b.jadwal?barisJadwal(b,j):""}</td>
   <td>${b.sandi?`<div class="sandi" data-sandi>${esc(b.sandi)}<button type="button" class="salin-sandi" aria-label="Salin sandi" title="Salin sandi">${ico("copy")}</button></div>`:''}${b.pesan&&b.kirim!=='sent'?`<div class="cat ${b.kirim==='failed'?'e':''}">${esc(b.pesan)}</div>`:''}${b.diubah_otomatis?`<div class="cat w">${ico("alert")} ${esc(b.diubah_otomatis)}</div>`:''}</td>
   <td><div class="aksi">${tahan?`<button type="button" class="kecil" data-reset="${b.jam}" data-st="${b.kirim}">${ico("redo")}Atur ulang</button>`:''}
    <a class="tombol kecil ${b.level==='kosong'&&!b.sudah_lewat?'utama':''}" href="/form/${j.tanggal}/${b.jam}">${ico(b.level==='kosong'?'plus':'edit')}${b.level==='kosong'?'Isi':'Buka'}</a></div></td></tr>`}).join("")
   :`<tr><td colspan="5" class="kosong-t">Tidak ada jam pada filter ini.</td></tr>`;
  $$(".salin-sandi").forEach(e=>e.onclick=async()=>{const t=e.parentElement.firstChild.textContent;try{await navigator.clipboard.writeText(t);toast("Sandi disalin","ok",1800)}catch(x){toast("Gagal menyalin (izin browser)","err")}});
  $$("[data-reset]").forEach(e=>e.onclick=()=>bukaReset(e.dataset.reset,e.dataset.st));
+ $$("[data-jadwal]").forEach(e=>e.onclick=()=>bukaJadwal(e.dataset.jadwal));
+ $("#jadwal-ringkas").textContent=teksMenit(j.jadwal_default).replace(" jam observasi","");
 }
 async function muat(paksa){
  const r=await fetch("/api/status?tanggal="+tanggal);if(r.status===401){location.href="/login";return}if(!r.ok)return;
@@ -218,6 +243,49 @@ async function muat(paksa){
  if(!paksa&&kunci===TERAKHIR)return;          // tidak ada perubahan: jangan gambar ulang (tanpa kedip)
  TERAKHIR=kunci;DATA=j;render(j);
 }
+/* ---- jadwal pengiriman (rev 30) ---- */
+const teksMenit=m=>m===0?"tepat pada jam observasi":m>0?`${m} menit sebelum jam observasi`:`${-m} menit sesudah jam observasi`;
+function barisJadwal(b,j){const jd=b.jadwal;
+ return `<div class="jd" title="Bot mulai mengisi ${esc(jd.mulai_tanggal)} ${esc(jd.mulai)} ${esc(j.zona)}">${ico("clock")}Bot mulai <b>${esc(jd.mulai)} ${esc(j.zona)}</b>${jd.khusus?'<span class="khusus">khusus</span>':""}<button type="button" class="kecil" data-jadwal="${b.jam}">Atur</button></div>`}
+let JD={jam:null};
+function menitDialog(){const n=Math.max(0,parseInt($("#j-menit").value)||0);return $("#j-arah").value==="sebelum"?n:-n}
+function jamLokal(jamUtc,menit){const tz=DATA.tz_jam,h=parseInt(jamUtc)||0;let t=((h+tz)%24)*60-menit;t=((t%1440)+1440)%1440;
+ return String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0")}
+function segarkanJadwal(){
+ const [lo,hi]=DATA.jadwal_batas;const arah=$("#j-arah").value;
+ $("#j-menit").max=arah==="sebelum"?hi:-lo;
+ const khusus=JD.jam===null||document.querySelector('[name="j-mode"]:checked').value==="khusus";
+ $("#j-atur").style.opacity=khusus?1:.45;$("#j-menit").disabled=$("#j-arah").disabled=!khusus;
+ const m=khusus?menitDialog():DATA.jadwal_default,ok=m>=lo&&m<=hi;
+ const jamContoh=JD.jam?JD.jam:"00:00",pref=JD.jam?`Jam ${JD.jam} UTC`:"Contoh, jam 00:00 UTC";
+ $("#j-prev").className="msg "+(ok?"ok":"err");
+ $("#j-prev").innerHTML=ok?`${esc(pref)} (= ${jamLokal(jamContoh,0)} ${esc(DATA.zona)}): bot mulai mengisi pukul <b>${jamLokal(jamContoh,m)} ${esc(DATA.zona)}</b> — ${teksMenit(m)}.`
+  :`Di luar batas: antara ${-lo} menit sesudah dan ${hi} menit sebelum jam observasi.`;
+ $("#j-simpan").disabled=!ok}
+function bukaJadwal(jam){JD={jam:jam||null};const D=DATA;
+ $("#j-judul").textContent=jam?`Jadwal jam ${jam} UTC`:"Jadwal pengiriman (semua jam)";
+ $("#j-ket").textContent=jam?"Kapan bot mulai mengisi & mengirim jam ini. Tidak memengaruhi jam lain.":
+  "Berlaku untuk SEMUA jam yang tidak punya pengaturan khusus. Bot membaca perubahan ini langsung, tanpa restart.";
+ $("#j-def").textContent=teksMenit(D.jadwal_default);
+ $("#j-pilih").style.display=jam?"flex":"none";
+ const b=jam?D.baris.find(x=>x.jam===jam):null,m=jam&&b&&b.jadwal.khusus?b.jadwal.menit:D.jadwal_default;
+ document.querySelector(`[name="j-mode"][value="${jam&&b&&b.jadwal.khusus?"khusus":"default"}"]`).checked=true;
+ $("#j-arah").value=m>=0?"sebelum":"sesudah";$("#j-menit").value=Math.abs(m);
+ $("#j-batas").textContent=`Batas: sampai ${D.jadwal_batas[1]} menit sebelum jam observasi (web baru membuka jam tersebut ${D.jadwal_batas[1]} menit sebelumnya) dan ${-D.jadwal_batas[0]} menit sesudahnya.`;
+ segarkanJadwal();$("#dlg-jadwal").showModal()}
+for(const e of ["#j-menit","#j-arah"])$(e).addEventListener("input",segarkanJadwal);
+document.querySelectorAll('[name="j-mode"]').forEach(e=>e.onchange=segarkanJadwal);
+$("#buka-jadwal").onclick=()=>{if(DATA)bukaJadwal(null)};
+$("#j-batal").onclick=()=>$("#dlg-jadwal").close();
+$("#j-simpan").onclick=async()=>{
+ const obs=(typeof observerTersimpan==="function")?observerTersimpan():"";
+ let body;
+ if(JD.jam===null)body={default:menitDialog(),observer:obs};
+ else if(document.querySelector('[name="j-mode"]:checked').value==="default")body={tanggal,jam:JD.jam,menit:null,observer:obs};
+ else body={tanggal,jam:JD.jam,menit:menitDialog(),observer:obs};
+ const r=await fetch("/api/jadwal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+ let j={};try{j=await r.json()}catch(e){}
+ if(r.ok&&j.ok){$("#dlg-jadwal").close();toast(j.pesan,"ok");muat(true)}else toast(j.pesan||j.description||"Gagal menyimpan jadwal","err")};
 /* ---- atur ulang slot tertahan ---- */
 let RESET={};
 function bukaReset(jam,st){RESET={jam,st};$("#r-jam").textContent=jam+" UTC";

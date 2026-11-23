@@ -54,7 +54,7 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 28
+  Revisi catatan      : 30
   Terakhir diperbarui : 2026-11-22
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
@@ -102,6 +102,89 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 30 (2026-11-23) - CADANGAN KEGAGALAN (TANGGA PERCOBAAN ULANG), KASUS KIRIM NYATA 22 NOV, WEB (RIWAYAT/NAVIGASI/JADWAL):
+    * BUKTI: kirim nyata semalam (pantau 231604_kirim, memakai V7SATU rev 28, 6 slot 17:00-23:00 UTC, observer Ananda) + 2 snapshot gagal.
+      Hasil: 3 dari 6 slot bermasalah, ketiganya "selesai begitu saja lalu lompat ke jam berikutnya" (TANPA percobaan ulang):
+      (1) 18:00 UTC "gagal" padahal DATA TERKIRIM. Popup web "Input data sinoptik berhasil" muncul lalu menutup sendiri; selesaikan_pasca_kirim
+          membaca elemen popup -> StaleElementReferenceException -> baris dicatat gagal. Pengguna menandai "terkirim manual". BAHAYA kedua:
+          retry naif akan mengirim ganda.
+      (2) 22:00 UTC gagal: Jenis/Jumlah Awan Rendah gagal di cara pertama lalu pulih lewat cara cadangan 'relatif-id', tetapi Arah Awan Rendah
+          gagal di semua cara. Snapshot HTML: menu opsi LENGKAP ('0 - Stationary or No Clouds' ada) namun kotak pilihan tetap kosong -> klik tidak
+          'kena' (intermiten; slot yang sama berhasil di dry-run). Slot ini 191 dtk vs 92-97 dtk slot lain.
+      (3) 23:00 UTC gagal memilih tanggal 22 Nov (11 dtk). Snapshot: kalender TERBUKA, sel 2026-11-22 ada & tidak disabled, tetapi
+          element_to_be_clickable tidak pernah terpenuhi -> TimeoutException berpesan kosong. Penyebab pasti tak terlihat (kondisi balapan kalender).
+          Cacat laten yang ditemukan sekalian: memilih_tanggal tak bisa pindah bulan -> slot tgl 30/31 yang dieksekusi pagi tgl 1 pasti gagal.
+      Juga terbukti baik: rev 28 pastikan_sesi berjalan tiap slot ("Sesi login tersimpan masih berlaku"); buat_driver rev 28 PULIH dari
+      "SessionNotCreatedException: Chrome instance exited" (percobaan 1/4 gagal, ke-2 berhasil) -> retry profil terbukti berguna.
+      klik_tombol_oke_popup memboroskan 4-5 dtk x 8 kali (popup tak pernah muncul) -> sudah diatasi rev 29 (belum dipakai pengguna saat itu).
+    * KEPUTUSAN rev 29 vs rekaman ini: TIDAK ADA yang bertentangan. Popup 1 percobaan: cocok dengan data. Dropdown eksplisit hanya menyentuh
+      pilih_dropdown_ant_select (fungsi lama), sedangkan kegagalan 22:00 lewat pilih_opsi_ant_select (jalur aria) -> tak terpengaruh. Anti-throttle:
+      kecepatan 5 slot sukses konsisten (92-97 dtk) sehingga throttling bukan penyebab kegagalan 22:00 (hipotesis tetap belum terbukti).
+      SATU REGRESI rev 29 ditemukan & dibetulkan: fungsi _tampak() ganda (milik saya tertimpa definisi asli di bawahnya, tes lulus "kebetulan").
+    * PERBAIKAN V7SATU.py (script utama):
+      a) TITIK TAK KEMBALI: setelah SEND_GTS final diklik, galat TIDAK memicu kirim ulang. Galat pemeriksaan layar pasca-kirim + web menyatakan
+         "berhasil" -> dicatat TERKIRIM (kasus 18:00). Tanpa bukti berhasil -> status failed bertanda "[CEK-MANUAL]" + notifikasi khusus
+         (Notifier.perlu_cek_manual) + should_send=False (tak dikirim ulang otomatis; dashboard 'atur ulang'/'terkirim manual' tetap bisa).
+         Kegagalan pasca-kirim yang DIKETAHUI (popup galat / QC tak terkonfirmasi) tetap aman diulang (data belum terkirim).
+         selesaikan_pasca_kirim kini menelan StaleElementReference (baca ulang layar) dan mencatat BERHASIL_TERLIHAT.
+      b) TANGGA PERCOBAAN ULANG (runtime.max_row_attempts=3, max_row_menit=25): galat biasa SEBELUM kirim -> percobaan 2 = muat ulang halaman
+         (segarkan_sesi), percobaan 3 = browser baru (recover_session). Selama masih akan diulang status tetap 'running' & dicatat event
+         "percobaan_gagal"; mark_failed hanya di akhir. Telegram diberi tahu tiap percobaan ulang. Masalah sesi tetap lewat jalur recovery lama.
+      c) RETRY SLOT GAGAL DI PUTARAN BERIKUTNYA: retry_past_minutes bawaan 0 -> 90 (config.yaml pengguna sebelumnya 0 = slot gagal selamanya dilewati).
+      d) PENGAWAS AUTO-RESTART (jalankan_dengan_pengawas, runtime.auto_restart_maks=5/jam, jeda 30 dtk): bot yang berhenti karena galat tak
+         terduga (mis. Chrome crash saat tidur) dijalankan ulang otomatis membawa --observer/--no-gui/--dry-run + Telegram. Ctrl+C tidak di-restart.
+      e) memilih_tanggal tangguh: 3 percobaan; kalender dibuka & diverifikasi (aria-expanded; tidak diklik dua kali), PINDAH BULAN via tombol
+         'Previous/Next month', menunggu sel ADA (bukan 'clickable'), klik biasa lalu cadangan klik JS, memverifikasi tanggal terpilih.
+      f) NAMA SNAPSHOT: <TANGGAL>_<JAM>UTC__<keterangan>__<waktu rekam>WIB, mis. 20261122_2200UTC__gagal-percobaan1__20261123-050117WIB.png
+         (slot di DEPAN -> terurut per jam & jelas jam berapa yang bermasalah; sebelumnya waktu rekam di depan sehingga tampak seperti tanggal slot).
+    * WEB (permintaan pengguna): (1) Riwayat berhalaman 1 2 3 … (10/25/50/100 per halaman, URL ikut berubah, ekspor tetap SEMUA yang cocok);
+      header tabel lengket yang menimpa baris dihapus. (2) Form: tombol ‹jam sebelumnya / jam berikutnya›, dan "Simpan & ke HH:00" (menyimpan lalu
+      pindah; lintas hari 23:00 -> 00:00 benar). (3) Dashboard: JADWAL PENGIRIMAN: default global + pengecualian per jam, disimpan di DB
+      (tabel pengaturan & jadwal) sehingga bot langsung memakainya TANPA restart; batas 10 menit sebelum (web baru membuka jam 10 menit sebelumnya;
+      runtime.window_open_minutes) s.d. 25 menit sesudah; pratinjau jam setempat di dialog; audit jadwal_default/jadwal_diubah di Riwayat.
+      Slot tetap terdeteksi benar di seluruh rentang (diuji dengan _kunci_baris & Validator; hanya INFO "terlambat" pada 25 menit sesudah).
+    * Tes: test_rev30_bot.py BARU (32), test_bot_flow 65 (+20 skenario tangga/cek-manual/pasca-kirim), test_app 111 (+30 jadwal/paging/navigasi),
+      test_popup/test_f33 disesuaikan. Seluruh 18 berkas lulus. UI diuji di jsdom terhadap server nyata (31 pemeriksaan: pager, dialog jadwal,
+      Simpan & lanjut). BELUM diuji di web BMKG Satu asli: tangga percobaan ulang dan memilih_tanggal baru.
+    * Berikutnya: (1) pengguna menjalankan kirim semalaman dengan rev 30 (config.yaml baru: retry_past_minutes 90, max_row_attempts 3);
+      (2) bila kegagalan klik 'Arah Awan Rendah' muncul lagi, kirim snapshot 'gagal-percobaan1/2/3' + log (butuh bukti klik mana yang tak kena);
+      (3) cek bahwa "percobaan_gagal" di Riwayat jarang & percobaan 2 biasanya cukup.
+  REV 29 (2026-11-22) - HASIL UJI NYATA PENGGUNA + F3.3 SELESAI:
+    * BUKTI UJI NYATA (zip pantau yang diunggah pengguna):
+      - jelajah 225027 (profil sementara) & 230249 (chrome_profile): login BERHASIL -> bug rev 28 #1 (kredensial None) TERBUKTI teratasi.
+        230249 melewati login ("Sesi login tersimpan masih berlaku") -> profil tetap bekerja. Kedua run: stasiun, tanggal 2026-11-22,
+        jam 00:00 & 03:00, Fill AWS Digi, form jam 00 (penguapan/radiasi/lama penyinaran/iE TERLIHAT & aktif) dan jam 03 (nonaktif) OK.
+      - dry-run 154628 (jam 00 tgl 21 & 22, observer Ananda, profil sementara): kedua slot sampai Preview_OK; "Verifikasi sandi: sesuai
+        data" di keduanya; sandi 22 memuat 55043 (lama penyinaran 4,3 jam) dan 50570 (penguapan 5,7 mm iE=0) sesuai form; 0 WARNING/ERROR.
+      - TIDAK terjadi di run mana pun: Chrome terbuka tanpa menuju BMKG Satu (rev 28 #2) maupun logout sendiri (rev 28 #3) -> kedua
+        perbaikan itu BELUM teruji di lapangan (kode & tes ada). Tetap amati; bila terjadi, kirim log_konsol.txt.
+      - Pengguna juga menghapus date picker ganda di dashboard + menambah satu pemeriksaan di tests/test_app.py (commit a7cdce9).
+    * DATA WAKTU (dry-run): total 289 dtk/2 slot; isi_data 170 dtk (slot dengan 3 lapisan awan tambahan: 63 dtk) & 67 dtk (slot biasa).
+      Sleep hanya ~10% (27 dtk); sisanya latensi halaman/driver: isi_input_text 1,0 dtk di awal -> 2,9 dtk di akhir form (makin lambat
+      seiring DOM makin penuh), dropdown median 2,4 dtk. Pemborosan jelas: klik_tombol_oke_popup 4,3-4,8 dtk tiap run padahal popup
+      tak pernah muncul (4/4 run) -> 3 dtk tidur + 3x pindai layar pyautogui.
+    * F3.3 (V7SATU.py, core/config.py, config.yaml, tools/pantau_web.py):
+      (a) popup: bawaan runtime.popup_wait_seconds 3 -> 1 dan tidak tidur setelah percobaan terakhir (hemat ~4 dtk/run).
+      (b) dropdown Ant Design: _tunggu_dropdown_terbuka() (ant-select-open/aria-expanded) menggantikan jeda tetap setelah klik; bila status
+          tak terbaca otomatis kembali ke jeda lama (aman). Penundaan 0,3 dtk setelah mengetik SENGAJA dipertahankan (melindungi ketepatan
+          pemilihan opsi sebelum ENTER).
+      (c) pilih_opsi_unsur utamakan <li> yang TAMPAK (jelajah 230249 mencatat nama opsi jam 00:00 kosong = mengenai <li> tersembunyi;
+          jam tetap benar, tetapi rapuh).
+      (d) Chrome anti-throttle (chrome.anti_throttle, bawaan true): --disable-features=...,CalculateNativeWinOcclusion +
+          --disable-background-timer-throttling/--disable-renderer-backgrounding/--disable-backgrounding-occluded-windows. HIPOTESIS:
+          Windows melambatkan jendela yang tertutup jendela lain (pengguna memakai PC lain saat bot jalan). BELUM terbukti -> bandingkan.
+      (e) ukur_latensi(): dicetak di awal bot & jelajah, masuk laporan pantau (latensi_driver): median round-trip driver, biaya XPath,
+          jumlah elemen DOM, visibilityState & fokus jendela. Untuk membuktikan/menyingkirkan hipotesis (d) pada run berikutnya.
+      (f) waktu pengisian tiap jam dicatat: cetak "Pengisian data jam ini: N dtk" + kejadian "waktu_isi" (tampil di halaman Riwayat).
+      (g) lanjutan rev 26/28 tetap: profil tetap opsional, explicit wait login/sinoptik, buka Chrome tangguh.
+      KEPUTUSAN: sleep di dalam pengisian kolom tidak dihapus lebih jauh -> hanya ~10% total & melindungi ketepatan; sisa waktu adalah
+      kecepatan halaman web, bukan sleep. Optimasi lanjutan (mis. isi via JS) berisiko merusak validasi Vue -> TIDAK dilakukan.
+    * Tes: tests/test_f33_waktu.py BARU (22), test_bot_flow 45, test_popup disesuaikan. Semua 17 berkas tes lulus di sandbox AI.
+    * Cara memverifikasi F3.3 di PC: jalankan lagi dry-run yang sama (python tools/pantau_web.py --mode dryrun --observer "..." --no-gui
+      -- --jam 00:00 --process-past) lalu bandingkan dengan 154628: klik_tombol_oke_popup (4,3 dtk -> ~1,5 dtk), pilih_dropdown median
+      (2,4 dtk), isi_data slot biasa (67 dtk), dan baris latensi_driver (fokus=TIDAK / visibilityState hidden = bukti throttling).
+    * Berikutnya: (1) dry-run perbandingan di atas; (2) amati beberapa jam apakah login ulang otomatis (rev 28) terjadi saat BMKG Satu
+      logout sendiri; (3) uji KIRIM sungguhan jam 00 UTC (mode kirim, observer sendiri) bila dry-run sudah memuaskan.
   REV 28 (2026-11-22) - BUG LOGIN JELAJAH, CHROME/SESI TANGGUH, OBSERVER OPSIONAL, RIWAYAT HILANG, TATA LETAK JAM 00:
     * BUG 1 (pantau_web --mode jelajah: "Error saat mengisi email: 'NoneType' object is not iterable"): STATION_ID/PASSWORD
       baru diisi di main(); jalur jelajah memanggil login() langsung -> send_keys(None). PERBAIKAN: V7SATU._muat_kredensial()
@@ -1637,9 +1720,10 @@ FASE 3 - BOT LEBIH TAHAN BANTING
     Cara   : tangani popup awal dengan Selenium (inspeksi DOM popup).
     DoD    : berjalan tanpa gambar dan tanpa bergantung resolusi.
 
-[~] F3.3  Explicit wait & Chrome profile  (rev 28: buka Chrome tangguh + bebaskan profil + fallback + login ulang saat sesi habis; rev 26: profil tetap opsional + explicit wait; menunggu uji nyata; sleep di pengisian form sengaja belum diganti)
+[x] F3.3  Explicit wait & Chrome profile  (SELESAI rev 29: profil tetap [terbukti di 230249], explicit wait login/sinoptik/dropdown/popup, buka Chrome tangguh, login ulang saat sesi habis, anti-throttle, ukur latensi, waktu_isi per jam; sleep sisa ~10% sengaja dipertahankan)
     Cara   : ganti time.sleep dengan WebDriverWait; profile Chrome tetap agar
              login tidak berulang; Selenium Manager untuk driver.
+    Bukti  : jelajah 230249 melewati login lewat profil; dry-run 154628 sandi sesuai; data waktu & keputusan lihat REV 29.
     DoD    : waktu proses per jam turun & stabil.
 
 [x] F3.4  Verifikasi kode SYNOP  (rev 18: TUNTAS; 24/24 sandi 14 Nov 2026 sesuai. Kalibrasi lanjutan opsional lewat dry-run harian)
@@ -1696,8 +1780,10 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
     Timeline 24 jam, status per jam (Menunggu/Siap/Terkirim/Gagal), klik untuk
     detail + kode SYNOP + screenshot. Desain kreatif.
     Sisa: screenshot kegagalan belum ditampilkan di dashboard; halaman detail per jam (event/audit) menyusul di F4.2.
-[~] F4.2  Riwayat & audit  (rev 28: riwayat.html & cari_events yang HILANG dari rev 25 dibuat; rev 25: filter, ekspor Excel, audit; MENUNGGU uji pengguna)
+[~] F4.2  Riwayat & audit  (rev 30: berhalaman + header diperbaiki; rev 28: riwayat.html & cari_events yang HILANG dari rev 25 dibuat; rev 25: filter, ekspor Excel, audit; MENUNGGU uji pengguna)
     Pencarian per tanggal, siapa mengubah apa, ekspor.
+[~] F4.7  Cadangan kegagalan: tangga percobaan ulang, titik tak-kembali, retry putaran berikutnya, auto-restart (rev 30; menunggu uji kirim nyata)
+[~] F4.8  Jadwal pengiriman dari dashboard + navigasi jam di form (rev 30; menunggu uji pengguna)
 [ ] F4.3  Paket .exe (PyInstaller) atau shortcut desktop
 [ ] F4.4  Autostart (Windows Task Scheduler) + pemulihan otomatis saat PC
     restart
@@ -1737,6 +1823,13 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
       salin dari jam sebelumnya harus mengisi form (bukan sekadar status). Dashboard jangan bergantung pada
       pengeditan Excel -> ada penyalinan antar tanggal (F2.8).
   K12 (2026-11-22, pengguna) Observer di form/dashboard OPSIONAL dan diingat; tidak boleh memaksa memilih ulang tiap edit.
+  K17 (2026-11-23, AI) Jadwal pengiriman disimpan di DB (bukan config.yaml) agar bot membacanya langsung tanpa restart; batas 'sebelum'
+      = window_open_minutes (web belum membuka jam lebih awal), 'sesudah' <= 25 menit (pembulatan slot memakai +30 menit).
+  K16 (2026-11-23, AI) Galat SETELAH tombol kirim akhir = status tak pasti -> JANGAN kirim ulang otomatis ([CEK-MANUAL]); lebih baik
+      meminta pengguna memeriksa daripada mengirim ganda ke GTS.
+  K15 (2026-11-23, pengguna) Kegagalan tidak boleh 'selesai begitu saja': harus ada percobaan ulang & cadangan; nama snapshot harus memuat jam slot.
+  K14 (2026-11-22, AI) F3.3 dianggap SELESAI: sisa waktu pengisian = latensi halaman (sleep ~10%); tidak mengganti pengisian kolom ke JS
+      (risiko merusak validasi Vue). Sleep 0,3 dtk setelah mengetik di dropdown dipertahankan demi ketepatan pilihan.
   K13 (2026-11-22, AI) Sesi BMKG Satu diperiksa sebelum tiap eksekusi (bukan menunggu gagal); kegagalan membuka profil Chrome tetap
       -> bebaskan profil lalu coba lagi, terakhir profil sementara agar slot tidak terlewat.
   K11 (2026-11-21, AI) Nilai dropdown disimpan & ditampilkan sebagai TEKS OPSI web (kanonik), bukan kode mentah
@@ -1956,6 +2049,17 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                tools/pantau_web.py, app.py, core/db.py, core/config.py, core/formschema.py, config.yaml, requirements.txt, web/base.html,
                web/form.html, web/dashboard.html, web/riwayat.html (BARU), tests/test_sesi_chrome.py (BARU), test_app/test_bot_flow/test_popup/
                test_f32_f33. Berikutnya: pengguna jalankan pantau jelajah (tanpa & dengan profil) + dry-run, unggah zip; amati login ulang otomatis.
+
+  [2026-11-22] Rev 29 - F3.3 SELESAI. Hasil uji nyata (2 jelajah + dry-run jam 00 tgl 21/22): login/profil/pengisian/sandi OK. Dipangkas:
+               tunggu popup (4 dtk/run), jeda dropdown (eksplisit), opsi <li> tersembunyi, flag anti-throttle Chrome; ditambah ukur_latensi
+               & kejadian waktu_isi. Berkas: V7SATU.py, core/config.py, config.yaml, tools/pantau_web.py, web/riwayat.html,
+               tests/test_f33_waktu.py (BARU), test_bot_flow, test_popup. Berikutnya: dry-run perbandingan, amati login ulang otomatis, uji kirim.
+
+  [2026-11-23] Rev 30 - Cadangan kegagalan setelah analisis kirim nyata 22 Nov (18:00 terkirim tapi dicatat gagal; 22:00 klik Arah Awan Rendah
+               gagal; 23:00 kalender gagal). V7SATU: titik tak-kembali, tangga percobaan ulang, retry 90 mnt, auto-restart, memilih_tanggal
+               + pindah bulan, nama snapshot per slot, buang _tampak ganda. Web: riwayat berhalaman, navigasi jam + simpan&lanjut, jadwal
+               pengiriman (DB). Berkas: V7SATU.py, app.py, config.yaml, core/{db,obsdb,notify,config}.py, web/{dashboard,form,riwayat}.html,
+               tests/test_rev30_bot.py (BARU), test_app, test_bot_flow. Berikutnya: kirim semalaman dengan rev 30, amati "percobaan_gagal".
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

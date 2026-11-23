@@ -110,7 +110,7 @@ check("prefs mematikan password manager & deteksi kebocoran",
       prefs.get("credentials_enable_service") is False and prefs.get("profile.password_manager_enabled") is False
       and prefs.get("profile.password_manager_leak_detection") is False, prefs)
 check("argumen Chrome menonaktifkan fitur cek password",
-      "--disable-features=PasswordLeakDetection,PasswordCheck" in M.chrome_options.arguments, M.chrome_options.arguments)
+      any(a.startswith("--disable-features=PasswordLeakDetection,PasswordCheck") for a in M.chrome_options.arguments), M.chrome_options.arguments)
 src = (ROOT / "V7SATU.py").read_text(encoding="utf-8")
 # [rev 28] recovery membuka browser lewat buat_driver() -> _opsi_chrome_baru() -> _terapkan_opsi_anti_popup()
 check("opsi yang sama dipakai saat recovery sesi (browser baru)",
@@ -122,7 +122,8 @@ M.time = types.SimpleNamespace(sleep=lambda s: sleeps.append(s), time=__import__
 M.CFG["runtime"]["popup_wait_seconds"] = 2
 M.CFG["features"]["popup_press_enter"] = False
 r = M.klik_tombol_oke_popup(image_path="tidak_ada.png", drv=Drv(False))
-check("tanpa max_wait memakai runtime.popup_wait_seconds (2 detik) lalu lanjut", r is False and len(sleeps) == 2, (r, sleeps))
+# [rev 29] 2 percobaan = 1 tidur di antaranya (tidak tidur lagi setelah percobaan terakhir)
+check("tanpa max_wait memakai runtime.popup_wait_seconds (2 percobaan) lalu lanjut", r is False and len(sleeps) == 1, (r, sleeps))
 pressed = []
 pg.press = lambda k: pressed.append(k)
 M.CFG["features"]["popup_press_enter"] = True

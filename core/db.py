@@ -68,6 +68,10 @@ def _js(x):
     return None if x is None else json.dumps(x, ensure_ascii=False)
 
 
+# [rev 30] awalan pesan gagal yang berarti "kemungkinan sudah terkirim": tidak boleh dikirim ulang otomatis
+TANDA_CEK_MANUAL = "[CEK-MANUAL]"
+
+
 class SendLog:
     def __init__(self, path):
         path = str(path)
@@ -141,6 +145,11 @@ class SendLog:
                     "reason": "sebelumnya berhenti saat berjalan (kemungkinan crash); data mungkin sudah ada di web",
                     "needs_web_check": True}
         if st == "failed":
+            if str(r.get("pesan") or "").startswith(TANDA_CEK_MANUAL):
+                # [rev 30] gagal SETELAH tombol kirim akhir diklik: data kemungkinan SUDAH terkirim -> JANGAN dikirim ulang otomatis
+                return {"send": False, "needs_web_check": False,
+                        "reason": "kemungkinan sudah terkirim, perlu dicek manual di BMKG Satu "
+                                  "(tandai terkirim manual di dashboard, atau atur ulang bila ternyata belum)"}
             return {"send": True, "reason": f"percobaan sebelumnya gagal: {r['pesan']}",
                     "needs_web_check": True}
         return {"send": True, "reason": "pending", "needs_web_check": False}
@@ -225,7 +234,7 @@ class SendLog:
             (_now(), tanggal_utc, jam, event, detail))
         self.conn.commit()
 
-    def cari_events(self, dari=None, sampai=None, jam=None, event=None, q=None, limit=300):
+    def cari_events(self, dari=None, sampai=None, jam=None, event=None, q=None, limit=300, offset=0):
         """[F4.2] Cari jejak kejadian (riwayat & audit). Terbaru dulu. Mengembalikan (baris, total_cocok)."""
         w, a = [], []
         if dari:
@@ -245,9 +254,13 @@ class SendLog:
         except (TypeError, ValueError):
             limit = 300
         total = self.conn.execute("SELECT COUNT(*) FROM events" + where, a).fetchone()[0]
+        try:
+            offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            offset = 0
         rows = self.conn.execute(
-            "SELECT id, ts, tanggal_utc, jam, event, detail FROM events" + where + " ORDER BY id DESC LIMIT ?",
-            a + [limit]).fetchall()
+            "SELECT id, ts, tanggal_utc, jam, event, detail FROM events" + where + " ORDER BY id DESC LIMIT ? OFFSET ?",
+            a + [limit, offset]).fetchall()
         return [dict(r) for r in rows], total
 
     def daftar_event(self):

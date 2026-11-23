@@ -32,6 +32,8 @@
 .hit{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .aksi-bawah{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:12px;z-index:20;background:color-mix(in srgb,var(--kartu) 92%,transparent);backdrop-filter:blur(8px)}
 .aksi-bawah .redup{font-size:13.5px}
+.jam-nav{gap:6px;padding:0 12px;font-variant-numeric:tabular-nums;font-family:var(--mono);font-weight:600}
+.jam-nav svg{flex:none}
 @media (max-width:1020px){.dua{grid-template-columns:1fr}.samping{position:static}.kepala{top:60px}}
 @media (max-width:760px){.bag-penguapan .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}.bag-penguapan .f label{min-height:0}}
 @media (max-width:640px){.kepala{position:static}.grid{grid-template-columns:1fr}}
@@ -40,7 +42,9 @@
 {% block isi %}
 <div class="kartu kepala">
   <a class="tombol" href="/?tanggal={{ tanggal }}"><svg class="i"><use href="#i-left"/></svg>Dashboard</a>
+  <a class="tombol jam-nav" id="nav-prev" href="/form/{{ prev[0] }}/{{ prev[1] }}" title="Jam sebelumnya: {{ prev[1] }} UTC{{ ' (' ~ prev[0] ~ ')' if prev[0] != tanggal }}" aria-label="Jam sebelumnya, {{ prev[1] }} UTC"><svg class="i"><use href="#i-left"/></svg><span>{{ prev[1] }}</span></a>
   <h1><span>{{ jam }} UTC</span><small>{{ tanggal }}</small></h1>
+  <a class="tombol jam-nav" id="nav-next" href="/form/{{ nxt[0] }}/{{ nxt[1] }}" title="Jam berikutnya: {{ nxt[1] }} UTC{{ ' (' ~ nxt[0] ~ ')' if nxt[0] != tanggal }}" aria-label="Jam berikutnya, {{ nxt[1] }} UTC"><span>{{ nxt[1] }}</span><svg class="i"><use href="#i-right"/></svg></a>
   <span id="status-kirim"></span><a class="tombol kecil" href="/riwayat?dari={{ tanggal }}&sampai={{ tanggal }}&jam={{ jam }}" title="Riwayat perubahan & pengiriman jam ini"><svg class="i"><use href="#i-list"/></svg>Riwayat jam ini</a><span class="sp"></span>
   <label>Observer <small>(opsional)</small> <select id="observer"><option value="">— tanpa nama —</option>{% for o in observers %}<option {{ 'selected' if o==observer }}>{{ o }}</option>{% endfor %}</select></label>
 </div>
@@ -57,10 +61,12 @@
 </div>
 <div class="kartu aksi-bawah">
   <button class="utama" id="simpan" type="button" disabled><svg class="i"><use href="#i-save"/></svg>Simpan</button>
+  <button id="simpan-lanjut" type="button" disabled title="Simpan lalu buka jam {{ nxt[1] }} UTC"><svg class="i"><use href="#i-save"/></svg>Simpan &amp; ke {{ nxt[1] }}<svg class="i"><use href="#i-right"/></svg></button>
   <button class="bahaya" id="hapus" type="button"><svg class="i"><use href="#i-trash"/></svg>Hapus data jam ini</button>
   <span id="infosimpan" class="redup"></span>
 </div>
 <script>
+const NEXT_URL="/form/{{ nxt[0] }}/{{ nxt[1] }}";
 const TANGGAL="{{ tanggal }}",JAM="{{ jam }}",PREV={tanggal:"{{ prev[0] }}",jam:"{{ prev[1] }}"};
 let SKEMA,STATE={},ADA_ERROR=true,TIMER=null,DIRTY=false;const TOUCHED=new Set();
 function bangun(){
@@ -95,17 +101,18 @@ function jadwal(){clearTimeout(TIMER);TIMER=setTimeout(periksa,250)}
 async function periksa(){
  const r=await fetch("/api/validasi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil()})});
  if(r.status===401){location.href="/login";return}const j=await r.json();terapkan(j.state,j.temuan);ADA_ERROR=!j.ok;
- $("#simpan").disabled=ADA_ERROR;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":"";   // observer opsional (rev 28)
+ $("#simpan").disabled=ADA_ERROR;$("#simpan-lanjut").disabled=ADA_ERROR;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":"";   // observer opsional (rev 28)
 }
 function pesan(t,ok){toast(t,ok?"ok":"err")}
 pasangObserver($("#observer"));
-async function simpan(paksa){
+async function simpan(paksa){   // mengembalikan true bila tersimpan
  const r=await fetch("/api/simpan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil(),observer:$("#observer").value,paksa:!!paksa})});
  const j=await r.json();
  if(r.status===409&&j.perlu_konfirmasi){if(confirm(j.pesan))return simpan(true);return}
- if(j.ok){DIRTY=false;pesan("Tersimpan — bot akan mengirim pada jamnya.",true)}else{pesan(j.pesan||"gagal menyimpan",false);if(j.temuan)terapkan(STATE,j.temuan)}
+ if(j.ok){DIRTY=false;pesan("Tersimpan — bot akan mengirim pada jamnya.",true);return true}else{pesan(j.pesan||"gagal menyimpan",false);if(j.temuan)terapkan(STATE,j.temuan);return false}
 }
 $("#simpan").onclick=()=>simpan(false);
+$("#simpan-lanjut").onclick=async()=>{if(await simpan(false))location.href=NEXT_URL};
 $("#hapus").onclick=async()=>{if(!confirm("Hapus data jam ini?"))return;const r=await fetch("/api/hapus",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM})});
  const j=await r.json();if(j.ok){isiData({});DIRTY=false;periksa();pesan("Data dihapus",true)}else pesan(j.pesan,false)};
 $("#salin").onclick=async()=>{const r=await fetch(`/api/salin?tanggal=${TANGGAL}&jam=${JAM}`);if(!r.ok){pesan(`Tidak ada data pada ${PREV.tanggal} ${PREV.jam} UTC`,false);return}

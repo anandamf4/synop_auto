@@ -79,6 +79,19 @@ def create_app(cfg=None, db_path=None):
             abort(400, "jam harus HH:00")
         return tanggal, jam
 
+    def batas_jadwal():
+        """(paling sesudah, paling sebelum) dalam menit, relatif terhadap jam observasi. 'Sebelum' dibatasi jendela web
+        (window_open_minutes: web baru membuka jam itu sekian menit sebelum jam observasi)."""
+        sebelum = int((cfg.get("runtime", {}) or {}).get("window_open_minutes", 10))
+        return -OBS.MENIT_SESUDAH_MAKS, sebelum
+
+    def info_jadwal(tanggal, jam, peta=None):
+        peta = peta or OBS.peta_jadwal()
+        khusus = (tanggal, jam) in peta[1]
+        w = OBS.waktu_eksekusi(tanggal, jam, peta)
+        return {"menit": peta[1].get((tanggal, jam), peta[0]), "khusus": khusus,
+                "mulai": w.strftime("%H:%M"), "mulai_tanggal": w.strftime("%Y-%m-%d")}
+
     YA = {"1", "true", "ya", "yes", "y", "v"}
     TIDAK = {"0", "false", "tidak", "no", "n", ""}
 
@@ -173,7 +186,7 @@ def create_app(cfg=None, db_path=None):
         parse_slot(tanggal, jam)
         return render_template("form.html", tanggal=tanggal, jam=jam, stasiun=nama_stasiun,
                                observers=daftar_observer(), observer=observer_cookie(),
-                               prev=OBS.slot_sebelumnya(tanggal, jam))
+                               prev=OBS.slot_sebelumnya(tanggal, jam), nxt=OBS.slot_berikutnya(tanggal, jam))
 
     # ----------------------------------------------------------------- API
     @app.route("/api/skema")
@@ -334,6 +347,7 @@ def create_app(cfg=None, db_path=None):
         ada = OBS.list_day(tanggal)
         riwayat = {r["jam"]: r for r in LOG.history(tanggal, limit=100)}
         sekarang = dt.datetime.now(dt.timezone.utc)
+        peta = OBS.peta_jadwal()
         baris = []
         for h in range(24):
             jam = f"{h:02d}:00"
@@ -346,7 +360,8 @@ def create_app(cfg=None, db_path=None):
                           "diubah_otomatis": (s.get("diubah_otomatis") if s else None),
                           "mulai": (s.get("waktu_mulai") if s else None), "percobaan": (s.get("percobaan") if s else 0),
                           "macet": bool(s and s["status"] == "running" and macet(s.get("waktu_mulai"))),
-                          "sudah_lewat": waktu <= sekarang, "sekarang": waktu <= sekarang < waktu + dt.timedelta(hours=1)})
+                          "sudah_lewat": waktu <= sekarang, "sekarang": waktu <= sekarang < waktu + dt.timedelta(hours=1),
+                          "jadwal": info_jadwal(tanggal, jam, peta)})
         ringkas = {"terkirim": sum(1 for x in baris if x["kirim"] == "sent"),
                    "gagal": sum(1 for x in baris if x["kirim"] == "failed"),
                    "dilewati": sum(1 for x in baris if x["kirim"] == "skipped"),
@@ -354,7 +369,48 @@ def create_app(cfg=None, db_path=None):
                    "perlu_perhatian": sum(1 for x in baris if x["level"] == "merah" or x["kirim"] in ("failed",)),
                    "berjalan": sum(1 for x in baris if x["kirim"] == "running")}
         return jsonify({"tanggal": tanggal, "baris": baris, "ringkas": ringkas,
+                        "jadwal_default": peta[0], "jadwal_batas": list(batas_jadwal()),
+                        "tz_jam": int(cfg["runtime"].get("timezone_offset_hours", 7)),
+                        "zona": "WIB" if int(cfg["runtime"].get("timezone_offset_hours", 7)) == 7 else "waktu lokal",
                         "waktu_server_utc": sekarang.strftime("%Y-%m-%d %H:%M:%S")})
+
+    # ------------------------------------------------- jadwal pengiriman (rev 30)
+    def _menit_valid(v):
+        try:
+            m = int(v)
+        except (TypeError, ValueError):
+            abort(400, "menit harus bilangan bulat")
+        lo, hi = batas_jadwal()
+        if not lo <= m <= hi:
+            abort(400, f"menit harus antara {lo} (sesudah jam observasi) dan {hi} (sebelum jam observasi); "
+                       f"web hanya membuka jam {hi} menit sebelum jam observasi")
+        return m
+
+    @app.route("/api/jadwal", methods=["GET", "POST"])
+    def api_jadwal():
+        if request.method == "GET":
+            tanggal = request.args.get("tanggal") or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+            peta = OBS.peta_jadwal()
+            return jsonify({"default": peta[0], "batas": list(batas_jadwal()),
+                            "khusus": {j: m for j, m in OBS.jadwal_hari(tanggal).items()}})
+        b = request.get_json(force=True, silent=True) or {}
+        oleh = nama_pengubah(b.get("observer")) or None
+        if "default" in b:                                   # default untuk SEMUA jam yang tidak punya pengecualian
+            m = _menit_valid(b["default"])
+            OBS.set_menit_default(m)
+            catat("", "", "jadwal_default", f"{oleh or 'tanpa nama'}: bot mulai mengisi {m} menit sebelum jam observasi (semua jam)")
+            return jsonify({"ok": True, "pesan": f"Default jadwal: {m} menit sebelum jam observasi", "default": m})
+        tanggal, jam = parse_slot(b.get("tanggal", ""), b.get("jam", ""))
+        if b.get("menit") is None:                           # hapus pengecualian -> ikut default
+            OBS.hapus_jadwal(tanggal, jam)
+            catat(tanggal, jam, "jadwal_diubah", f"{oleh or 'tanpa nama'}: kembali mengikuti default")
+            pesan = "Jadwal jam ini kembali mengikuti default"
+        else:
+            m = _menit_valid(b["menit"])
+            OBS.set_jadwal(tanggal, jam, m, oleh)
+            catat(tanggal, jam, "jadwal_diubah", f"{oleh or 'tanpa nama'}: {m} menit sebelum jam observasi")
+            pesan = "Jadwal jam ini disimpan"
+        return jsonify({"ok": True, "pesan": pesan, "jadwal": info_jadwal(tanggal, jam)})
 
     # ------------------------------------------------------- Excel (F2.6)
     @app.route("/ekspor/<tanggal>.xlsx")
@@ -423,8 +479,21 @@ def create_app(cfg=None, db_path=None):
     @app.route("/api/riwayat")
     def api_riwayat():
         f = filter_riwayat()
+        a = request.args
+        if "hal" in a or "per" in a:                       # [rev 30] berhalaman: ?hal=2&per=25
+            try:
+                per = min(200, max(5, int(a.get("per", 25))))
+                hal = max(1, int(a.get("hal", 1)))
+            except ValueError:
+                abort(400, "hal/per harus bilangan bulat")
+            _, total = LOG.cari_events(limit=1, **f)
+            hal_total = max(1, -(-total // per))
+            hal = min(hal, hal_total)
+            baris, total = LOG.cari_events(limit=per, offset=(hal - 1) * per, **f)
+            return jsonify({"total": total, "hal": hal, "per": per, "halaman_total": hal_total, "baris": baris,
+                            "jenis": LOG.daftar_event()})
         try:
-            limit = int(request.args.get("limit", 300))
+            limit = int(a.get("limit", 300))
         except ValueError:
             limit = 300
         baris, total = LOG.cari_events(limit=limit, **f)

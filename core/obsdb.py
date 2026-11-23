@@ -28,6 +28,19 @@ CREATE TABLE IF NOT EXISTS observasi (
     updated_at   TEXT,
     PRIMARY KEY (tanggal_utc, jam)
 );
+-- [rev 30] jadwal pengiriman: default global + pengecualian per jam. Disimpan di DB agar bot langsung memakainya (tanpa restart).
+CREATE TABLE IF NOT EXISTS pengaturan (
+    kunci   TEXT PRIMARY KEY,
+    nilai   TEXT
+);
+CREATE TABLE IF NOT EXISTS jadwal (
+    tanggal_utc  TEXT NOT NULL,
+    jam          TEXT NOT NULL,
+    menit        INTEGER NOT NULL,       -- bot mulai mengisi N menit SEBELUM jam observasi (negatif = sesudah)
+    diubah_oleh  TEXT,
+    updated_at   TEXT,
+    PRIMARY KEY (tanggal_utc, jam)
+);
 """
 # urutan kolom seperti Excel INPUT_PARAMETER (kolom tak dikenal ditaruh di belakang)
 URUTAN_KOLOM = [
@@ -153,18 +166,69 @@ class ObsStore:
         """Data jam sebelumnya (melewati pergantian hari UTC) untuk tombol 'salin'."""
         return self.get(*self.slot_sebelumnya(tanggal_utc, jam))
 
-    # ------------------------------------------------- jembatan ke bot/validator
-    def waktu_eksekusi(self, tanggal_utc, jam):
-        """Waktu setempat (naive) saat bot mulai mengisi: jam observasi (UTC) + zona - menit_sebelum."""
-        t = dt.datetime.strptime(f"{tanggal_utc} {jam}", "%Y-%m-%d %H:%M")
-        return t + dt.timedelta(hours=self.tz) - dt.timedelta(minutes=self.menit)
+    @staticmethod
+    def slot_berikutnya(tanggal_utc, jam):
+        t = dt.datetime.strptime(f"{tanggal_utc} {jam}", "%Y-%m-%d %H:%M") + dt.timedelta(hours=1)
+        return t.strftime("%Y-%m-%d"), t.strftime("%H:%M")
 
-    def to_row(self, tanggal_utc, jam, data=None):
+    # ------------------------------------------------- jadwal pengiriman (rev 30)
+    MENIT_SESUDAH_MAKS = 25     # < 30 agar pembulatan jam di validator/bot (+30 menit) tetap menemukan slot yang benar
+
+    def peta_jadwal(self, c=None):
+        """(menit_default, {(tanggal, jam): menit}) dibaca sekali agar to_dataframe tidak membuka koneksi per baris."""
+        def baca(cn):
+            r = cn.execute("SELECT nilai FROM pengaturan WHERE kunci='menit_sebelum'").fetchone()
+            try:
+                default = int(r["nilai"]) if r else self.menit
+            except (TypeError, ValueError):
+                default = self.menit
+            ov = {(x["tanggal_utc"], x["jam"]): int(x["menit"]) for x in cn.execute("SELECT * FROM jadwal").fetchall()}
+            return default, ov
+        if c is not None:
+            return baca(c)
+        with self._conn() as cn:
+            return baca(cn)
+
+    def menit_default(self):
+        return self.peta_jadwal()[0]
+
+    def set_menit_default(self, menit):
+        with self._conn() as c:
+            c.execute("INSERT INTO pengaturan (kunci, nilai) VALUES ('menit_sebelum', ?) "
+                      "ON CONFLICT(kunci) DO UPDATE SET nilai=excluded.nilai", (str(int(menit)),))
+
+    def set_jadwal(self, tanggal_utc, jam, menit, oleh=None):
+        with self._conn() as c:
+            c.execute("INSERT INTO jadwal (tanggal_utc, jam, menit, diubah_oleh, updated_at) VALUES (?,?,?,?,?) "
+                      "ON CONFLICT(tanggal_utc, jam) DO UPDATE SET menit=excluded.menit, diubah_oleh=excluded.diubah_oleh, "
+                      "updated_at=excluded.updated_at", (tanggal_utc, jam, int(menit), oleh, _now()))
+
+    def hapus_jadwal(self, tanggal_utc, jam):
+        with self._conn() as c:
+            c.execute("DELETE FROM jadwal WHERE tanggal_utc=? AND jam=?", (tanggal_utc, jam))
+
+    def jadwal_hari(self, tanggal_utc):
+        """{jam: menit} pengecualian pada tanggal itu."""
+        with self._conn() as c:
+            rs = c.execute("SELECT jam, menit FROM jadwal WHERE tanggal_utc=?", (tanggal_utc,)).fetchall()
+        return {r["jam"]: int(r["menit"]) for r in rs}
+
+    # ------------------------------------------------- jembatan ke bot/validator
+    def waktu_eksekusi(self, tanggal_utc, jam, peta=None):
+        """Waktu setempat (naive) saat bot mulai mengisi: jam observasi (UTC) + zona - menit.
+        [rev 30] menit = pengecualian jam itu bila ada, jika tidak default dari dashboard (tabel pengaturan), jika tidak
+        nilai config web.menit_sebelum."""
+        default, ov = peta if peta is not None else self.peta_jadwal()
+        menit = ov.get((tanggal_utc, jam), default)
+        t = dt.datetime.strptime(f"{tanggal_utc} {jam}", "%Y-%m-%d %H:%M")
+        return t + dt.timedelta(hours=self.tz) - dt.timedelta(minutes=menit)
+
+    def to_row(self, tanggal_utc, jam, data=None, peta=None):
         """Baris bergaya Excel (dict) untuk Validator.validate_row / DataFrame bot."""
         d = self.get(tanggal_utc, jam) if data is None else normalisasi(data)
         if d is None:
             return None
-        row = {"waktu_eksekusi": self.waktu_eksekusi(tanggal_utc, jam), "jam_input": jam}
+        row = {"waktu_eksekusi": self.waktu_eksekusi(tanggal_utc, jam, peta), "jam_input": jam}
         row.update(d)
         return row
 
@@ -183,7 +247,8 @@ class ObsStore:
         q += " ORDER BY tanggal_utc, jam"
         with self._conn() as c:
             rs = c.execute(q, args).fetchall()
-        rows = [self.to_row(r["tanggal_utc"], r["jam"], json.loads(r["data_json"])) for r in rs]
+            peta = self.peta_jadwal(c)
+        rows = [self.to_row(r["tanggal_utc"], r["jam"], json.loads(r["data_json"]), peta) for r in rs]
         if not rows:
             return pd.DataFrame(columns=URUTAN_KOLOM)
         df = pd.DataFrame(rows)

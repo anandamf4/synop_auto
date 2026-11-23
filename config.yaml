@@ -39,6 +39,7 @@ chrome:
   # halaman benar-benar terbuka; bila gagal: tutup Chrome yatim yang memakai profil bot, hapus berkas kunci, coba lagi.
   retry_buka: 3                   # berapa kali Chrome dicoba dibuka sebelum menyerah
   fallback_profil_sementara: true # profil tetap gagal terus -> pakai profil sementara (login dari awal) daripada berhenti
+  anti_throttle: true             # [rev 29] cegah Windows/Chrome melambatkan jendela bot saat tertutup jendela lain (pengisian lebih cepat)
 
 # [rev 28] BMKG Satu bisa logout sendiri (sekitar tiap 1 jam, bahkan saat dipakai). Sebelum tiap eksekusi bot memeriksa
 # sesi: bila sudah habis, login ulang otomatis (berlaku juga TANPA profil Chrome). Juga dideteksi bila logout terjadi di tengah pengisian.
@@ -52,7 +53,13 @@ runtime:
   max_row_recovery: 2             # maks pemulihan sesi per baris
   window_open_minutes: 10         # web membuka jam 10 menit sebelum jam observasi
   late_info_minutes: 15           # eksekusi lebih lambat dari ini diberi catatan
-  retry_past_minutes: 0           # >0: slot gagal/terhenti dicoba ulang s.d. sekian menit setelah waktu eksekusi
+  popup_wait_seconds: 1           # [rev 29] berapa kali (x1 dtk) mencari popup Chrome; popup tak pernah muncul sejak opsi anti-popup (F1.1)
+  retry_past_minutes: 90          # >0: slot gagal/terhenti dicoba ulang s.d. sekian menit setelah waktu eksekusi (rev 30: bawaan 90)
+  # [rev 30] CADANGAN bila pengisian gagal (sebelumnya langsung lompat ke jam berikutnya):
+  max_row_attempts: 3             # total percobaan per jam: 1=normal, 2=setelah MUAT ULANG halaman, 3=setelah BUKA BROWSER BARU
+  max_row_menit: 25               # batas total waktu mengulang satu jam (menit)
+  auto_restart_maks: 5            # bot berhenti karena galat tak terduga -> restart otomatis (maks per jam; 0 = mati)
+  auto_restart_jeda_detik: 30
 
 observers:
   # Kosong = pakai daftar observer aktif dari core/options.json.

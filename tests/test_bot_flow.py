@@ -354,6 +354,9 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     check("pemeriksaan sesi terjadi SEBELUM halaman jam diisi", nama.index("segarkan") < nama.index("jam"), nama)
     check("setelah halaman dimuat ulang, tanggal slot dipilih ulang", "tanggal" in nama[nama.index("segarkan"):], nama)
     check("slot tetap terkirim", slots(dbS)[("2026-11-14", "07:00")]["status"] == "sent")
+    import sqlite3 as _sq
+    _c = _sq.connect(str(dbS)); _ev = [r[0] for r in _c.execute("SELECT event FROM events WHERE jam='07:00'")]; _c.close()
+    check("[F3.3] waktu pengisian per jam dicatat sebagai kejadian 'waktu_isi' (tampil di Riwayat)", "waktu_isi" in _ev, _ev)
 
     V7.SESI_TERAKHIR_OK = V7.time.time()       # sesi baru saja terbukti hidup -> pemeriksaan dilewati (hemat waktu)
     dbT = Path(d) / "t.db"
@@ -377,8 +380,147 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         V7.SESI_TERAKHIR_OK = __import__("time").time()
         V7.sesi_habis = lambda drv=None: False
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbV, isi_data_result=False, pra=pra_normal)
-    check("gagal isi data tanpa logout -> TIDAK ada recovery (perilaku lama tetap)", rec.names("recover") == [], rec.names("recover"))
+    check("[rev 30] gagal isi data biasa -> diulang bertingkat: percobaan 3 membuka browser baru (1 recover), lalu gagal",
+          len(rec.names("recover")) == 1 and len(rec.names("isi_data")) == 3, (rec.names("recover"), len(rec.names("isi_data"))))
 V7.segarkan_sesi, V7.sesi_habis = _seg_asli, _habis_asli
+
+print("== [rev 30] cadangan: tangga percobaan ulang & cegah kirim ganda ==")
+from core.notify import Notifier as _Notif
+_seg0, _hab0, _isi_asli_cfg = V7.segarkan_sesi, V7.sesi_habis, V7.CFG["runtime"].get("max_row_attempts", 3)
+
+
+def _pasang_notif(rec):
+    """Notifier tiruan: mencatat gagal / perlu_cek_manual / kirim ke Recorder yang sama."""
+    class N:
+        aktif = False
+        def __init__(self, *a, **k): pass
+        def gagal(self, slot, pesan, **k): rec.add("N_gagal", slot, pesan)
+        def perlu_cek_manual(self, slot, pesan, **k): rec.add("N_cek_manual", slot, pesan)
+        def recovery(self, slot, ok, **k): rec.add("N_recovery", ok)
+        def sukses(self, *a, **k): pass
+        def kirim(self, teks, jenis="info", **k): rec.add("N_kirim", teks)
+        def rekap_jika_waktunya(self, db): pass
+        def fatal(self, *a, **k): pass
+        @classmethod
+        def from_config(cls, *a, **k): return cls()
+    V7.Notifier = N
+
+
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    # A) isi_data gagal TERUS: 3 percobaan (normal -> muat ulang halaman -> browser baru), lalu gagal + notifikasi
+    def pra_A(rec):
+        _pasang_notif(rec)
+        V7.CFG["runtime"]["max_row_attempts"] = 3
+        V7.sesi_habis = lambda drv=None: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), False)[1]
+    dbA = Path(d) / "A.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbA, isi_data_result=False, pra=pra_A)
+    sA = slots(dbA)[("2026-11-14", "07:00")]
+    check("A: isi_data dicoba 3x", len(rec.names("isi_data")) == 3, len(rec.names("isi_data")))
+    check("A: percobaan 2 = MUAT ULANG halaman (segarkan_sesi), percobaan 3 = browser baru (recover)",
+          len(rec.names("segarkan")) == 1 and len(rec.names("recover")) == 1, (rec.names("segarkan"), rec.names("recover")))
+    check("A: sesudah semua habis -> status failed + SATU notifikasi gagal", sA["status"] == "failed" and len(rec.names("N_gagal")) == 1, sA)
+    check("A: tidak ada pengiriman (data tidak lengkap tidak dikirim)", rec.names("send_submit") == [])
+    ev = [e["event"] for e in SendLog(dbA).events(limit=50)]
+    check("A: jejak audit mencatat 2 percobaan_gagal + gagal akhir", ev.count("percobaan_gagal") == 2 and ev.count("gagal") == 1, ev)
+    check("A: pemberitahuan Telegram tiap percobaan ulang", len([c for c in rec.names("N_kirim") if "Mencoba ulang" in c[1]]) == 2, rec.names("N_kirim"))
+    check("A: observer & tanggal dipilih ulang setelah tiap reset (halaman baru)", len(rec.names("tanggal")) >= 3, rec.names("tanggal"))
+
+    # B) gagal sekali, percobaan ke-2 (setelah muat ulang halaman) berhasil -> TERKIRIM, tanpa browser baru
+    def pra_B(rec):
+        _pasang_notif(rec)
+        V7.CFG["runtime"]["max_row_attempts"] = 3
+        V7.sesi_habis = lambda drv=None: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), False)[1]
+        n = {"x": 0}
+        def isi(drv, row, plan=None):
+            n["x"] += 1
+            rec.add("isi_data", str(row["jam_input"]))
+            return n["x"] >= 2
+        V7.isi_data = isi
+    dbB = Path(d) / "B.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbB, pra=pra_B)
+    check("B: gagal 1x lalu berhasil -> status SENT", slots(dbB)[("2026-11-14", "07:00")]["status"] == "sent")
+    check("B: hanya muat ulang halaman (tanpa browser baru) & tanpa notifikasi gagal akhir",
+          len(rec.names("segarkan")) == 1 and rec.names("recover") == [] and rec.names("N_gagal") == [])
+    check("B: dikirim tepat sekali", len(rec.names("send_submit")) == 1, rec.names("send_submit"))
+
+    # C) max_row_attempts=1 -> perilaku lama (tanpa ulang)
+    def pra_C(rec):
+        _pasang_notif(rec)
+        V7.CFG["runtime"]["max_row_attempts"] = 1
+        V7.sesi_habis = lambda drv=None: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), False)[1]
+    dbC = Path(d) / "C.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbC, isi_data_result=False, pra=pra_C)
+    check("C: max_row_attempts=1 -> hanya 1 percobaan, tanpa reset", len(rec.names("isi_data")) == 1 and rec.names("segarkan") == [] and rec.names("recover") == [])
+
+    # D) gagal SETELAH tombol kirim akhir: TIDAK dikirim ulang, ditandai cek-manual
+    def pra_D(rec):
+        _pasang_notif(rec)
+        V7.CFG["runtime"]["max_row_attempts"] = 3
+        V7.sesi_habis = lambda drv=None: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), False)[1]
+        V7.SEND_GTS = lambda drv: (rec.add("send_gts"), True)[1]
+        V7.SEND_GTS_OK = lambda drv: False                  # tombol OK akhir tidak berhasil diklik -> status tak pasti
+    dbD = Path(d) / "D.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbD, pra=pra_D)
+    sD = slots(dbD)[("2026-11-14", "07:00")]
+    check("D: SEND final hanya SEKALI (tidak dikirim ulang)", len(rec.names("send_gts")) == 1, rec.names("send_gts"))
+    check("D: status failed bertanda [CEK-MANUAL]", sD["status"] == "failed" and sD["pesan"].startswith("[CEK-MANUAL]"), sD)
+    check("D: notifikasi 'perlu cek manual' (bukan 'gagal biasa')", len(rec.names("N_cek_manual")) == 1 and rec.names("N_gagal") == [])
+    check("D: tanpa reset/ulang", rec.names("segarkan") == [] and rec.names("recover") == [])
+    from core.db import SendLog as _SL
+    _l = _SL(dbD)
+    check("D: slot ini TIDAK dikirim ulang oleh putaran berikutnya (should_send=False)", _l.should_send("2026-11-14", "07:00")["send"] is False)
+    _l.close()
+
+    # E) pasca-kirim error (stale), web menyatakan BERHASIL -> dicatat TERKIRIM (kasus nyata jam 18 UTC)
+    def pra_E(rec):
+        _pasang_notif(rec)
+        V7.CFG["runtime"]["max_row_attempts"] = 3
+        V7.sesi_habis = lambda drv=None: False
+        V7.SESI_TERAKHIR_OK = __import__("time").time()
+        def pasca(drv):
+            V7.BERHASIL_TERLIHAT = True
+            raise V7.StaleElementReferenceException("stale element reference")
+        V7.selesaikan_pasca_kirim = pasca
+    dbE = Path(d) / "E.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbE, pra=pra_E)
+    sE = slots(dbE)[("2026-11-14", "07:00")]
+    check("E: galat pasca-kirim + web 'berhasil' -> status SENT (bukan gagal)", sE["status"] == "sent", sE)
+    check("E: tidak ada notifikasi gagal", rec.names("N_gagal") == [] and rec.names("N_cek_manual") == [])
+
+    # F) pasca-kirim error tanpa bukti berhasil -> cek manual (bukan gagal-ulang)
+    def pra_F(rec):
+        pra_E(rec)
+        def pasca(drv):
+            V7.BERHASIL_TERLIHAT = False
+            raise V7.StaleElementReferenceException("stale element reference")
+        V7.selesaikan_pasca_kirim = pasca
+    dbF = Path(d) / "F.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbF, pra=pra_F)
+    sF = slots(dbF)[("2026-11-14", "07:00")]
+    check("F: galat pasca-kirim tanpa bukti -> [CEK-MANUAL], tidak dikirim ulang",
+          sF["status"] == "failed" and sF["pesan"].startswith("[CEK-MANUAL]") and len(rec.names("send_submit")) == 1, sF)
+
+    # G) kegagalan yang DIKETAHUI pasca-kirim (popup galat) -> aman diulang (data belum terkirim)
+    def pra_G(rec):
+        pra_E(rec)
+        V7.selesaikan_pasca_kirim = lambda drv: (False, "popup galat setelah SEND: Gagal")
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), False)[1]
+    dbG = Path(d) / "G.db"
+    rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbG, pra=pra_G)
+    sG = slots(dbG)[("2026-11-14", "07:00")]
+    check("G: popup galat pasca-kirim yang diketahui -> diulang (3 percobaan), bukan cek-manual",
+          len(rec.names("send_submit")) == 3 and not str(sG["pesan"]).startswith("[CEK-MANUAL]"), (len(rec.names("send_submit")), sG["pesan"]))
+
+V7.segarkan_sesi, V7.sesi_habis = _seg0, _hab0
+V7.CFG["runtime"]["max_row_attempts"] = _isi_asli_cfg
 
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

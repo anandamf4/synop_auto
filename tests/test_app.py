@@ -275,5 +275,82 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     check("form memakai kelas bag-<id> & catatan bagian & menyembunyikan bagian ini di jam lain",
           "bag-${esc(b.id)}" in fh and "b.catatan" in fh and 'JAM!=="00:00"?" hidden"' in fh)
 
+print("\n== [rev 30] jadwal pengiriman (dashboard) ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    app7 = create_app(load_config(), db_path=str(Path(d) / "j.db"))
+    c7 = app7.test_client()
+    J = lambda **k: c7.post("/api/jadwal", json=k)
+    g = c7.get("/api/jadwal?tanggal=2026-11-22").get_json()
+    check("default awal = config web.menit_sebelum (2) dan batas (-25 .. 10)", g["default"] == 2 and g["batas"] == [-25, 10], g)
+    st = c7.get("/api/status?tanggal=2026-11-22").get_json()
+    b7 = next(b for b in st["baris"] if b["jam"] == "07:00")
+    check("status memuat jadwal tiap jam: 07:00 UTC = 14:00 WIB, mulai 13:58", b7["jadwal"]["mulai"] == "13:58" and b7["jadwal"]["khusus"] is False and st["zona"] == "WIB", b7["jadwal"])
+    r = J(default=5)
+    check("ubah default -> 5 menit sebelum; berlaku ke semua jam", r.status_code == 200 and c7.get("/api/status?tanggal=2026-11-22").get_json()["baris"][7]["jadwal"]["mulai"] == "13:55")
+    r = J(tanggal="2026-11-22", jam="07:00", menit=-3)
+    st = c7.get("/api/status?tanggal=2026-11-22").get_json()
+    b7, b8 = st["baris"][7], st["baris"][8]
+    check("pengecualian jam 07:00 = 3 menit SESUDAH -> mulai 14:03, bertanda khusus; jam lain tetap default", r.status_code == 200
+          and b7["jadwal"] == {"menit": -3, "khusus": True, "mulai": "14:03", "mulai_tanggal": "2026-11-22"} and b8["jadwal"]["mulai"] == "14:55", (b7["jadwal"], b8["jadwal"]))
+    # bot membaca dari DB yang sama: waktu_eksekusi berubah TANPA restart
+    app7.obs.upsert("2026-11-22", "07:00", {"visibility": 8}, "T")
+    app7.obs.upsert("2026-11-22", "08:00", {"visibility": 8}, "T")
+    w7 = app7.obs.to_row("2026-11-22", "07:00")["waktu_eksekusi"]
+    w8 = app7.obs.to_row("2026-11-22", "08:00")["waktu_eksekusi"]
+    check("ObsStore.to_row (yang dibaca bot) memakai jadwal: 07:00 -> 14:03, 08:00 -> 14:55 (default 5)",
+          (w7.hour, w7.minute) == (14, 3) and (w8.hour, w8.minute) == (14, 55) + (), (w7, w8))
+    df = app7.obs.to_dataframe()
+    ws = {str(r["jam_input"]): r["waktu_eksekusi"] for _, r in df.iterrows()}
+    check("to_dataframe (jalur bot) juga memakai jadwal", (ws["07:00"].hour, ws["07:00"].minute) == (14, 3) and (ws["08:00"].minute) == 55, ws)
+    r = J(tanggal="2026-11-22", jam="07:00", menit=None)
+    check("hapus pengecualian -> kembali mengikuti default", r.status_code == 200 and c7.get("/api/status?tanggal=2026-11-22").get_json()["baris"][7]["jadwal"]["khusus"] is False)
+    for nama, body in [("terlalu awal (11 > batas web 10)", dict(default=11)), ("terlalu lambat (-26)", dict(default=-26)),
+                       ("bukan angka", dict(default="abc")), ("jam bukan HH:00", dict(tanggal="2026-11-22", jam="07:30", menit=1)),
+                       ("tanggal salah", dict(tanggal="2026-13-01", jam="07:00", menit=1))]:
+        check(f"validasi: {nama} -> 400", J(**body).status_code == 400, J(**body).status_code)
+    check("batas persis diterima: 10 sebelum & 25 sesudah", J(default=10).status_code == 200 and J(default=-25).status_code == 200)
+    ev = [e["event"] for e in c7.get("/api/riwayat").get_json()["baris"]]
+    check("perubahan jadwal masuk jejak audit", "jadwal_default" in ev and "jadwal_diubah" in ev, ev)
+    c7.set_cookie("observer", "Nama%20Uji", domain="localhost")
+    J(default=3)
+    det = [e["detail"] for e in c7.get("/api/riwayat?event=jadwal_default").get_json()["baris"]][0]
+    check("audit mencatat nama (dari cookie ber-spasi) & nilai", "Nama Uji" in det and "3 menit" in det, det)
+    html = c7.get("/").get_data(as_text=True)
+    check("dashboard memuat tombol & dialog jadwal", 'id="buka-jadwal"' in html and 'id="dlg-jadwal"' in html and "barisJadwal" in html)
+
+print("\n== [rev 30] riwayat berhalaman ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    app8 = create_app(load_config(), db_path=str(Path(d) / "p.db"))
+    c8 = app8.test_client()
+    for i in range(60):
+        app8.log.log_event("2026-11-22", "07:00", "form_simpan", f"baris-{i:02d}")
+    g1 = c8.get("/api/riwayat?hal=1&per=25").get_json()
+    g3 = c8.get("/api/riwayat?hal=3&per=25").get_json()
+    check("60 kejadian / 25 per halaman = 3 halaman; halaman 1 = 25 baris terbaru dulu",
+          g1["total"] == 60 and g1["halaman_total"] == 3 and len(g1["baris"]) == 25 and g1["baris"][0]["detail"] == "baris-59", (g1["total"], g1["halaman_total"], len(g1["baris"])))
+    check("halaman terakhir berisi sisa 10 baris, berakhir di kejadian tertua", len(g3["baris"]) == 10 and g3["baris"][-1]["detail"] == "baris-00" and g3["hal"] == 3)
+    ids = [b["id"] for h in (1, 2, 3) for b in c8.get(f"/api/riwayat?hal={h}&per=25").get_json()["baris"]]
+    check("tiga halaman tidak tumpang-tindih & lengkap (60 id unik)", len(ids) == 60 and len(set(ids)) == 60)
+    check("halaman melebihi batas -> dijepit ke halaman terakhir", c8.get("/api/riwayat?hal=99&per=25").get_json()["hal"] == 3)
+    check("per dijepit 5..200", c8.get("/api/riwayat?hal=1&per=1").get_json()["per"] == 5 and c8.get("/api/riwayat?hal=1&per=999").get_json()["per"] == 200)
+    check("hal bukan angka -> 400", c8.get("/api/riwayat?hal=x").status_code == 400)
+    check("filter + halaman: total mengikuti filter", c8.get("/api/riwayat?hal=1&per=10&q=baris-0").get_json()["total"] == 10)
+    check("tanpa hal/per -> perilaku lama (limit) tetap", len(c8.get("/api/riwayat?limit=7").get_json()["baris"]) == 7)
+    html = c8.get("/riwayat").get_data(as_text=True)
+    check("halaman riwayat memuat pager & tidak lagi memakai header lengket", 'id="pager"' in html and "position:sticky;top:64px" not in html)
+    check("ekspor tetap memuat SEMUA yang cocok (bukan hanya satu halaman)", c8.get("/ekspor_riwayat.xlsx").status_code == 200)
+
+print("\n== [rev 30] navigasi jam di form ==")
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    app9 = create_app(load_config(), db_path=str(Path(d) / "n.db"))
+    c9 = app9.test_client()
+    f = c9.get("/form/2026-11-22/07:00").get_data(as_text=True)
+    check("tombol jam sebelumnya (06:00) & berikutnya (08:00)", 'href="/form/2026-11-22/06:00"' in f and 'href="/form/2026-11-22/08:00"' in f)
+    check("tombol 'Simpan & ke 08:00' tersedia", "Simpan &amp; ke 08:00" in f and 'id="simpan-lanjut"' in f)
+    f = c9.get("/form/2026-11-22/23:00").get_data(as_text=True)
+    check("23:00 -> berikutnya = 00:00 hari berikutnya", 'href="/form/2026-11-23/00:00"' in f and "(2026-11-23)" in f)
+    f = c9.get("/form/2026-11-22/00:00").get_data(as_text=True)
+    check("00:00 -> sebelumnya = 23:00 hari sebelumnya", 'href="/form/2026-11-21/23:00"' in f)
+
 print(f"\nHasil: {passed} lulus, {failed} gagal")
 sys.exit(1 if failed else 0)

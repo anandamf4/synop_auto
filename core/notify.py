@@ -177,15 +177,29 @@ class Notifier:
         return self.opsi.get("nama_stasiun", "")
 
     def gagal(self, slot, pesan, percobaan=None, screenshot=None, alarm=True):
-        t = [f"❌ SYNOP GAGAL — {self._stn()}",
+        t = [f"❌ SYNOP GAGAL (semua percobaan ulang otomatis habis) — {self._stn()}",
              f"Slot: {slot[0]} {slot[1]} UTC"]
         if percobaan:
             t.append(f"Percobaan: {percobaan}")
         t.append(f"Penyebab: {pesan}")
-        t.append("Tindakan: cek bot/web lalu kirim manual bila perlu.")
+        t.append("Tindakan: kirim manual lewat BMKG Satu SEKARANG bila belum (data ada di form dashboard). "
+                 "Bot masih akan mencoba lagi pada putaran berikutnya selama masih dalam jendela retry.")
         ok = self.kirim("\n".join(t), "gagal", foto=screenshot)
         if alarm:
             self.alarm()
+        return ok
+
+    def perlu_cek_manual(self, slot, pesan, screenshot=None):
+        """[rev 30] Galat terjadi SETELAH tombol kirim akhir diklik: data kemungkinan sudah terkirim. Bot tidak mengirim ulang."""
+        t = [f"⚠️ SYNOP PERLU DICEK MANUAL — {self._stn()}",
+             f"Slot: {slot[0]} {slot[1]} UTC",
+             "Bot sudah menekan tombol kirim akhir, tetapi konfirmasinya tidak lengkap: data KEMUNGKINAN SUDAH TERKIRIM.",
+             "Bot TIDAK mengirim ulang (mencegah kiriman ganda).",
+             f"Rincian: {str(pesan)[:220]}",
+             "Tindakan: cek jam itu di BMKG Satu. Sudah ada -> tandai 'terkirim manual' di dashboard. "
+             "Belum ada -> 'atur ulang' di dashboard lalu jalankan ulang jam itu."]
+        ok = self.kirim("\n".join(t), "gagal", foto=screenshot)
+        self.alarm()
         return ok
 
     def dilewati_validasi(self, slot, alasan):

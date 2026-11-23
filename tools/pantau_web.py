@@ -285,6 +285,7 @@ def mode_jelajah(V, rek, a):
         V.login(drv)
         V.klik_tombol_oke_popup(drv=drv)
         V.memilih_stasiun(drv)
+        V.ukur_latensi(drv)       # [rev 29] diagnosa latensi driver/DOM/fokus jendela -> masuk laporan
         tgl = a.tanggal or (dt.datetime.utcnow().strftime("%Y-%m-%d"))
         if V.memilih_tanggal(drv, tgl) is False:
             raise SystemExit(f"tanggal {tgl} tidak bisa dipilih di web")
@@ -342,6 +343,9 @@ def main():
         rek.info["GALAT_FATAL"] = f"{type(e).__name__}: {str(e)[:300]}"
         print(f"\n❌ Berhenti karena galat: {rek.info['GALAT_FATAL']}")
     finally:
+        if getattr(V, "LATENSI", None):
+            rek.info["latensi_driver"] = dict(V.LATENSI)    # [rev 29]
+        rek.info["anti_throttle"] = bool((V.CFG.get("chrome", {}) or {}).get("anti_throttle", True))
         zp = tulis_laporan(rek, a.mode, argv, sys.stdout)
         sys.stdout = sys.stdout.asli
         print(f"\n📊 Laporan: {folder / 'laporan.txt'}\n📦 Unggah file ini ke chat: {zp}")
