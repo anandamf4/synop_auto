@@ -50,7 +50,7 @@ check("radiasi nilai baru -> rencana nilai", rr.plan["penguapan"] == {"radiasi":
 rr = nilai("03:00", penguapan_mm=5.9)
 check("jam 03: WARNING R25 dan DIABAIKAN", ("R25", "WARNING") in aturan(rr) and rr.plan["penguapan"] is None and not rr.errors)
 check("kosongkan + nilai radiasi sekaligus -> ERROR R26", ("R26", "ERROR") in aturan(nilai("00:00", radiasi_kosongkan=True, radiasi_matahari=100)))
-check("iE bukan 0-9 -> ERROR R25", ("R25", "ERROR") in aturan(nilai("00:00", penguapan_ie=12)))
+check("iE bukan 0-4 (dropdown web) -> ERROR R25", ("R25", "ERROR") in aturan(nilai("00:00", penguapan_ie=12)) and ("R25", "ERROR") in aturan(nilai("00:00", penguapan_ie=5)) and ("R25", "ERROR") not in aturan(nilai("00:00", penguapan_ie=4)))
 check("lama penyinaran 30 jam -> ERROR R27", ("R27", "ERROR") in aturan(nilai("00:00", lama_penyinaran_jam=30)))
 check("lama penyinaran 14 jam -> WARNING R27", ("R27", "WARNING") in aturan(nilai("00:00", lama_penyinaran_jam=14)))
 check("angka negatif ditolak (R-NUM)", ("R-NUM", "ERROR") in aturan(nilai("00:00", penguapan_mm=-1)))
@@ -62,8 +62,8 @@ check("jam 00: semua kolom penguapan aktif", all(S0[c]["aktif"] for c in cols))
 check("jam 03: semua kolom penguapan nonaktif", not any(S3[c]["aktif"] for c in cols))
 check("radiasi dikosongkan -> kolom nilai radiasi nonaktif", not field_state(V, dict(CERAH, radiasi_kosongkan=True), 0)["radiasi_matahari"]["aktif"])
 sk = app.test_client().get("/api/skema").get_json()
-check("skema memuat bagian penguapan dengan 5 kolom (saklar untuk 'kosongkan')",
-      any(b["id"] == "penguapan" and len(b["field"]) == 5 and any(f["kolom"] == "radiasi_kosongkan" and f["jenis"] == "saklar" for f in b["field"]) for b in sk["bagian"]))
+check("skema memuat bagian penguapan dengan 6 kolom (5 kolom jam 00 + keadaan tanah; saklar untuk 'kosongkan')",
+      any(b["id"] == "penguapan" and len(b["field"]) == 6 and any(f["kolom"] == "radiasi_kosongkan" and f["jenis"] == "saklar" for f in b["field"]) for b in sk["bagian"]))
 
 print("== simpan / baca / salin ==")
 c = app.test_client()

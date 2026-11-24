@@ -54,7 +54,7 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 31
+  Revisi catatan      : 32
   Terakhir diperbarui : 2026-11-24
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
@@ -102,6 +102,42 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 32 (2026-11-24) - KECEPATAN ISI FORM (JALUR CEPAT), URUTAN BAGIAN BAWAH, TOMBOL SALIN 1 KLIK, iE DROPDOWN, TANAH DI BAWAH:
+    * DIAGNOSIS dry-run 24 Nov (pantau_20261124_064911_dryrun, isi_data 145,7 dtk vs V6 < 60 dtk):
+        - 104 dtk (71%) habis di combobox Jenis/Jumlah/Arah: +-11,5 dtk PER combobox (9 combobox untuk 1 rendah+1 menengah+1 tinggi).
+          Penyebab tepat di dalam pilih_opsi_ant_select belum terukur (fungsi itu tidak dibungkus pantau); dugaan: tunggu-habis 3 dtk
+          bertingkat saat klik pertama tak membuka menu + membaca SEMUA <li> satu per satu (3 panggilan WebDriver per opsi).
+        - tiap dropdown berid 2-3 dtk: 1,0 dtk terbuang menunggu kelas 'ant-select-open' yang tak pernah muncul + mengetik teks panjang.
+        - tiap karakter yang diketik memicu render ulang halaman +-0,7 dtk (isi_input_text: 450 -> 1,8 dtk; 3000 -> 3,2 dtk).
+        - memilih_tanggal 20,5 dtk gagal 3x ('kalender tidak terbuka') pada percobaan 1; pulih setelah muat ulang (tangga rev 30 bekerja).
+    * PERBAIKAN V7SATU.py: JALUR CEPAT (_pilih_cepat, _pilih_cepat_id, _isi_input_cepat) = buka menu (klik -> JS click -> mouse event, tiap cara
+      hanya ditunggu 0,8 dtk dan tidak menekan lagi bila menu sudah terbuka) -> baca semua opsi dalam SATU panggilan JS -> pilih prioritas
+      persis > berawalan > mengandung -> KLIK opsi (tanpa mengetik) -> verifikasi nilai terpilih. Gagal apa pun -> None -> JALUR LAMA berjalan
+      persis seperti rev 31 (tidak ada kehilangan keamanan). _tunggu_dropdown_terbuka 1,0 -> 0,4 dtk. Dikait di pilih_dropdown_ant_select,
+      pilih_opsi_ant_select (dipakai semua Jenis/Jumlah/Arah) dan isi_input_text.
+        config.yaml (blok speed BARU): fast_select: true (bawaan) | fast_input: false (bawaan MATI; isi kotak angka lewat 1 render, aktifkan
+        setelah dry-run membuktikan sandi tetap sesuai: 'Verifikasi sandi: sesuai data').
+      Pantau (tools/pantau_web.py) kini membungkus pilih_ant_select, isi_input, pilih_opsi_ant_select, _pilih_cepat, pilih_ant_select_berlapis,
+      _isi_bagian_bawah -> dry-run berikut menunjukkan waktu per combobox (dan apakah jalur cepat terpakai: tak ada 'tidur' & < 1 dtk).
+      TARGET (belum terbukti di web asli): combobox <1 dtk, dropdown <1 dtk -> isi_data +-30-45 dtk.
+    * URUTAN BAGIAN BAWAH (permintaan pengguna): penguapan, radiasi, keadaan tanah, pengenal data penguapan (iE), lama penyinaran, LALU Preview;
+      semuanya SETELAH awan (sebelumnya penguapan dikerjakan sebelum awan). _isi_bagian_bawah(driver,row,plan) dipakai juga cabang tanpa awan
+      (tutupan 0/9//). isi_penguapan_00(driver, rencana, bagian=None): subset & urutan web (URUTAN_PENGUAPAN_WEB). Jam bukan 00: hanya tanah.
+      Kegagalan penguapan/radiasi membatalkan jam SEBELUM keadaan tanah (strict seperti rev 27).
+    * DASHBOARD/FORM: (a) bug 'salin harus klik 2x' DIPERBAIKI: kolom turunan (NCL, Jenis, Jumlah, tinggi dasar, arah) masih terkunci saat data
+      disalin -> ambil() tak mengirimnya -> server menganggap CL kosong -> kolom-kolom itu dikosongkan (persis screenshot). Kini terapkanData(d):
+      isi awal (opsi yang belum ada ditambahkan) -> validasi dengan data UTUH (membuka kunci) -> isi ulang -> ulang sampai stabil; dipakai juga
+      template Cerah/Hujan. Terbukti: tes jsdom mereproduksi bug pada kode lama (24 kolom, tepat 14 hilang) dan lulus pada kode baru.
+      (b) iE = dropdown 5 pilihan (0-4, teks persis web) bernilai kode; validator R25: iE hanya 0-4. (c) keadaan tanah pindah dari 'Umum' ke bagian
+      bawah, tampil SEMUA jam; kolom khusus 00 UTC (penguapan, radiasi, iE, lama penyinaran) disembunyikan di jam lain. Urutan kolom = urutan web.
+    * Berkas: V7SATU.py, tools/pantau_web.py, config.yaml, core/{formschema,validator}.py, web/form.html, tests/test_rev32_bot.py (BARU, 21),
+      tests/test_form_salin.py (BARU, 7; perlu node + 'npm install jsdom' di tests/js, dilewati bila tak ada), tests/js/form_jsdom.js (BARU),
+      test_app/test_penguapan disesuaikan.
+    * BELUM TERUJI DI WEB ASLI: seluruh jalur cepat (hanya tes dengan driver palsu). Berikutnya: (1) python tools/pantau_web.py --mode dryrun --jam 00:00
+      lalu kirim zip: bandingkan isi_data (145,7 dtk) dan cari baris pilih_opsi_ant_select/_pilih_cepat; bila masih lambat, durasi per combobox
+      kini terlihat; (2) coba speed.fast_input: true di dry-run, pastikan 'Verifikasi sandi: sesuai data'; (3) kirim nyata jam 00 UTC untuk
+      urutan penguapan/radiasi/tanah/iE/lama penyinaran.
+
   REV 31 (2026-11-24) - F3.1 fields.py + FUNGSI GENERIK, PERCOBAAN ULANG PER LANGKAH (SEBELUM JAM DIANGGAP GAGAL), T21 SEBAGAI DATA:
     * LATAR (permintaan pengguna): galat satu klik/kolom (kasus Arah Awan Rendah 22:00 UTC) langsung membuat jam gagal & terlempar ke jam berikutnya.
       Rev 30 sudah menambah tangga PER JAM (muat ulang -> browser baru -> putaran berikut). Rev 31 menambah lapisan di BAWAHNYA: setiap langkah
@@ -2106,6 +2142,9 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                + pindah bulan, nama snapshot per slot, buang _tampak ganda. Web: riwayat berhalaman, navigasi jam + simpan&lanjut, jadwal
                pengiriman (DB). Berkas: V7SATU.py, app.py, config.yaml, core/{db,obsdb,notify,config}.py, web/{dashboard,form,riwayat}.html,
                tests/test_rev30_bot.py (BARU), test_app, test_bot_flow. Berikutnya: kirim semalaman dengan rev 30, amati "percobaan_gagal".
+
+  [2026-11-24] Rev 32 - jalur cepat dropdown/input, urutan bagian bawah (penguapan..lama penyinaran setelah awan), salin 1 klik, iE dropdown, tanah di bawah.
+               V7SATU.py, pantau_web.py, config.yaml, formschema/validator, form.html, tests baru (rev32_bot, form_salin). Berikutnya: dry-run & bandingkan waktu.
 
   [2026-11-24] Rev 31 - F3.1 diimplementasi + percobaan ulang PER LANGKAH. core/fields.py (BARU), V7SATU.py (-155 baris; generik + pembungkus),
                core/config.py, config.yaml, tests/test_fields.py (BARU). Berikutnya: dry-run & kirim nyata rev 31; kirim snapshot 'gagal_*' bila Arah Awan Rendah

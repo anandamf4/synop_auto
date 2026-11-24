@@ -81,6 +81,7 @@ NAMA_DIBUNGKUS = [
     "Preview", "Preview_OK", "SEND_SEND_SUBMIT", "SEND_INASWITCH_SUBMIT", "SEND_GTS", "SEND_GTS_OK",
     "selesaikan_pasca_kirim", "tangani_popup_koreksi_qc", "recover_session", "baca_sandi",
     "pilih_dropdown_ant_select", "isi_input_text", "wait_for_presence", "wait_for_clickable", "click_button_by_text",
+    "pilih_ant_select", "isi_input", "pilih_opsi_ant_select", "_pilih_cepat", "pilih_ant_select_berlapis", "_isi_bagian_bawah",
 ]
 SNAPSHOT_SESUDAH = {"Fill_AWS_Digi": "setelah_fill_aws", "isi_data": "setelah_isi_data", "Preview": "setelah_preview",
                     "selesaikan_pasca_kirim": "setelah_kirim"}
@@ -140,8 +141,10 @@ class Perekam:
     @staticmethod
     def _ringkas_arg(nama, a, k):
         try:
-            if nama in ("pilih_dropdown_ant_select", "isi_input_text"):
+            if nama in ("pilih_dropdown_ant_select", "isi_input_text", "pilih_ant_select", "isi_input"):
                 return f"{a[1]}={str(a[2])[:30]}"
+            if nama in ("pilih_opsi_ant_select", "_pilih_cepat"):     # (driver, combobox, target, nama_field)
+                return f"{a[3]}={str(a[2])[:30]}"
             if nama.startswith("wait_for"):
                 return str(a[1])[:90]
             if nama == "click_button_by_text":
@@ -231,7 +234,7 @@ def teks_laporan(rek, mode, argv):
         L.append(f"  t={e['mulai']:.1f} {e['nama']} {e['arg']} -> {e['galat'] or e['hasil']} ({e['durasi']:.1f} dtk)")
     L += ["", "== URUTAN KEJADIAN (tingkat atas; indentasi = bersarang) =="]
     for e in sorted(rek.kejadian, key=lambda e: e["mulai"])[:400]:
-        if e["nama"] in ("wait_for_presence", "wait_for_clickable", "pilih_dropdown_ant_select", "isi_input_text") and e["ok"] and e["durasi"] < 1.0:
+        if e["nama"] in ("wait_for_presence", "wait_for_clickable", "pilih_dropdown_ant_select", "isi_input_text", "_pilih_cepat") and e["ok"] and e["durasi"] < 1.0:
             continue
         L.append(f"  {e['mulai']:7.1f}s {'  ' * e['depth']}{e['nama']} {e['arg']} [{e['durasi']:.1f} dtk{'; tidur %.1f' % e['tidur'] if e['tidur'] else ''}]{'' if e['ok'] else ' GAGAL'}")
     for d in rek.snapshots:

@@ -10,7 +10,7 @@
 .dua{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
 .samping{position:sticky;top:132px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px 16px}
-.f{display:flex;flex-direction:column;gap:4px;transition:opacity var(--dur)}
+.f{display:flex;flex-direction:column;gap:4px;transition:opacity var(--dur)}[hidden]{display:none!important}   /* rev 32: kolom khusus jam 00 UTC disembunyikan di jam lain */
 .f label{font-size:13px;color:var(--redup);font-weight:500}.f label b{color:var(--merah)}
 .f select,.f input{width:100%}
 .f.mati{opacity:.42}
@@ -70,18 +70,35 @@ const NEXT_URL="/form/{{ nxt[0] }}/{{ nxt[1] }}";
 const TANGGAL="{{ tanggal }}",JAM="{{ jam }}",PREV={tanggal:"{{ prev[0] }}",jam:"{{ prev[1] }}"};
 let SKEMA,STATE={},ADA_ERROR=true,TIMER=null,DIRTY=false;const TOUCHED=new Set();
 function bangun(){
- $("#form").innerHTML=SKEMA.bagian.map((b,n)=>`<section class="kartu bag-${esc(b.id)}"${b.id==="penguapan"&&JAM!=="00:00"?" hidden":""}><h2><span class="nomor">${n+1}</span>${esc(b.judul)}</h2>${b.catatan?`<div class="catatan">${ico("info")}<span>${esc(b.catatan)}</span></div>`:""}<div class="grid">${b.field.map(f=>{
+ $("#form").innerHTML=SKEMA.bagian.map((b,n)=>`<section class="kartu bag-${esc(b.id)}"><h2><span class="nomor">${n+1}</span>${esc(b.judul)}</h2>${b.catatan?`<div class="catatan"${b.id==="penguapan"&&JAM!=="00:00"?" hidden":""}>${ico("info")}<span>${esc(b.catatan)}</span></div>`:""}<div class="grid">${b.field.map(f=>{
   const sub=f.sub?`<div class="sub">${esc(f.sub)}</div>`:"";let in_;
   const id="f_"+f.kolom;
   if(f.jenis==="pilih")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option>${f.opsi.map(o=>`<option>${esc(o)}</option>`).join("")}</select>`;
+  else if(f.jenis==="pilih_kode")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option>${f.opsi.map(o=>`<option value="${esc(o[0])}">${esc(o[1])}</option>`).join("")}</select>`;   // rev 32: iE = dropdown seperti di web (nilai tersimpan = kode)
   else if(f.jenis==="saklar")in_=`<select id="${id}" data-k="${f.kolom}"><option value=""></option><option value="true">Ya</option><option value="false">Tidak</option></select>`;
   else in_=`<input id="${id}" type="number" step="any" min="0" inputmode="decimal" data-k="${f.kolom}" placeholder="${esc(f.satuan||'')}">`;
-  return `${sub}<div class="f" data-w="${f.kolom}"><label for="${id}">${esc(f.label)}${f.satuan?` (${esc(f.satuan)})`:''}<b class="bt"></b></label>${in_}<div class="fm" aria-live="polite"></div></div>`}).join("")}</div></section>`).join("");
+  return `${sub}<div class="f" data-w="${f.kolom}"${f.hanya00&&JAM!=="00:00"?" hidden":""}><label for="${id}">${esc(f.label)}${f.satuan?` (${esc(f.satuan)})`:''}<b class="bt"></b></label>${in_}<div class="fm" aria-live="polite"></div></div>`}).join("")}</div></section>`).join("");
  $$("[data-k]").forEach(e=>{e.oninput=e.onchange=()=>{DIRTY=true;TOUCHED.add(e.dataset.k);jadwal()}});
 }
 function ambil(){const d={};$$("[data-k]").forEach(e=>{if(e.disabled)return;const v=e.value.trim();if(v==="")return;
   d[e.dataset.k]=e.type==="number"?parseFloat(v):(v==="true"?true:v==="false"?false:v)});return d}
-function isiData(d){$$("[data-k]").forEach(e=>{const v=d[e.dataset.k];e.value=(v===undefined||v===null)?"":String(v)})}
+// rev 32: ulang=false -> isi semua (opsi dropdown yang belum ada, mis. Jenis yang menyempit menurut CL, ditambahkan dulu agar nilai TIDAK hilang);
+// ulang=true -> hanya kolom yang kini aktif & opsinya sudah dibangun ulang oleh server (nilai yang memang tak sah tetap dibuang).
+function isiData(d,ulang){$$("[data-k]").forEach(e=>{if(ulang&&e.disabled)return;const v=d[e.dataset.k],t=(v===undefined||v===null)?"":String(v);
+  if(!ulang&&e.tagName==="SELECT"&&t!==""&&![...e.options].some(o=>o.value===t))e.add(new Option(t,t));
+  e.value=t})}
+// rev 32: menerapkan satu paket data (salin / template / hapus). Akar masalah "harus klik 2x": kolom turunan (NCL, Jenis, Jumlah, tinggi dasar, ...)
+// masih TERKUNCI saat data disalin sehingga ambil() tidak mengirimnya; server menganggap CL kosong, lalu mengosongkan kolom-kolom itu.
+// Kini data dikirim UTUH ke validasi dulu (membuka kunci & menyempitkan opsi), baru diisi ulang -- diulang sampai stabil.
+async function terapkanData(d){
+ isiData(d);
+ for(let i=0;i<4;i++){
+  await periksa(d);
+  isiData(d,true);
+  if(Object.keys(d).every(k=>{const e=document.querySelector(`[data-k="${k}"]`);return !e||e.disabled||e.value===String(d[k])}))break;
+ }
+ await periksa();
+}
 function terapkan(S,temuan){
  STATE=S;const per={};(temuan||[]).forEach(t=>{(per[t.kolom]=per[t.kolom]||[]).push(t)});
  SKEMA.bagian.forEach(b=>b.field.forEach(f=>{const k=f.kolom,s=S[k]||{aktif:true},w=document.querySelector(`[data-w="${k}"]`),el=w.querySelector("[data-k]");
@@ -98,8 +115,8 @@ function terapkan(S,temuan){
  $("#temuan").innerHTML=T.length?T.map(t=>`<div class="tm ${t.level}">${ico(t.level==="ERROR"?"x":t.level==="WARNING"?"alert":"info")}<div><span class="lv">${t.level}</span> ${t.kolom?`<small>[${esc(t.kolom)}]</small> `:''}${esc(t.pesan)} <small>(${esc(t.rule)})</small></div></div>`).join(""):`<div class="ok-t">${ico("check")}Tidak ada temuan</div>`;
 }
 function jadwal(){clearTimeout(TIMER);TIMER=setTimeout(periksa,250)}
-async function periksa(){
- const r=await fetch("/api/validasi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:ambil()})});
+async function periksa(data){
+ const r=await fetch("/api/validasi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM,data:data||ambil()})});
  if(r.status===401){location.href="/login";return}const j=await r.json();terapkan(j.state,j.temuan);ADA_ERROR=!j.ok;
  $("#simpan").disabled=ADA_ERROR;$("#simpan-lanjut").disabled=ADA_ERROR;$("#infosimpan").textContent=ADA_ERROR?"Perbaiki kesalahan (merah) dulu":"";   // observer opsional (rev 28)
 }
@@ -116,11 +133,11 @@ $("#simpan-lanjut").onclick=async()=>{if(await simpan(false))location.href=NEXT_
 $("#hapus").onclick=async()=>{if(!confirm("Hapus data jam ini?"))return;const r=await fetch("/api/hapus",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tanggal:TANGGAL,jam:JAM})});
  const j=await r.json();if(j.ok){isiData({});DIRTY=false;periksa();pesan("Data dihapus",true)}else pesan(j.pesan,false)};
 $("#salin").onclick=async()=>{const r=await fetch(`/api/salin?tanggal=${TANGGAL}&jam=${JAM}`);if(!r.ok){pesan(`Tidak ada data pada ${PREV.tanggal} ${PREV.jam} UTC`,false);return}
- const j=await r.json();isiData(j.data);DIRTY=true;await periksa();await periksa();pesan(`Disalin dari ${j.dari.join(" ")} UTC — periksa lagi sebelum menyimpan`,true)};
+ const j=await r.json();DIRTY=true;await terapkanData(j.data);pesan(`Disalin dari ${j.dari.join(" ")} UTC — periksa lagi sebelum menyimpan`,true)};
 function kode(k,c){const f=SKEMA.bagian.flatMap(b=>b.field).find(x=>x.kolom===k);return(f.opsi||[]).find(o=>o.split(" ")[0]===c)||""}
 const TEMPLATE={cerah:()=>({cloud_cover_oktas_m:kode("cloud_cover_oktas_m","0"),visibility:10,ww:kode("ww","00"),w1:kode("w1","0"),w2:kode("w2","0"),land_cond:kode("land_cond","0")}),
  hujan:()=>({ww:kode("ww","61"),w1:kode("w1","6"),w2:kode("w2","6"),land_cond:kode("land_cond","2"),visibility:5})};
-$$(".t").forEach(b=>b.onclick=async()=>{const d=Object.assign(ambil(),TEMPLATE[b.dataset.t]());isiData(d);DIRTY=true;await periksa();await periksa()});
+$$(".t").forEach(b=>b.onclick=async()=>{const d=Object.assign(ambil(),TEMPLATE[b.dataset.t]());DIRTY=true;await terapkanData(d)});
 addEventListener("beforeunload",e=>{if(DIRTY){e.preventDefault();e.returnValue=""}});
 (async()=>{SKEMA=await (await fetch("/api/skema")).json();bangun();
  const r=await fetch(`/api/slot/${TANGGAL}/${JAM}`);const j=await r.json();isiData(j.data||{});

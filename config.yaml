@@ -106,3 +106,10 @@ web:
   host: "0.0.0.0"                 # 0.0.0.0 = bisa dibuka dari PC lain di jaringan stasiun; 127.0.0.1 = hanya PC ini
   port: 8080
   menit_sebelum: 2                # bot mulai mengisi N menit sebelum jam observasi (data dari form)
+
+# [rev 32] kecepatan pengisian form BMKG Satu (semua opsional; nilai di bawah = bawaan kode)
+speed:
+  scale: 0.5                      # pengali jeda tetap (1.0 = jeda asli V6)
+  optional_timeout: 3             # batas tunggu field opsional (detik)
+  fast_select: true               # jalur cepat dropdown: klik opsi (tanpa mengetik) + verifikasi; gagal -> jalur lama otomatis
+  fast_input: false               # isi kotak angka lewat 1 render (bukan per karakter). AKTIFKAN setelah dry-run membuktikan sandi tetap sesuai

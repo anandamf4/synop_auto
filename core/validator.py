@@ -678,8 +678,8 @@ class Validator:
         for c in ("penguapan_mm", "radiasi_matahari", "lama_penyinaran_jam", "penguapan_ie"):
             if val(row, c) is not None and nums.get(c) is None:
                 return          # sudah ditandai R-NUM (bukan angka / negatif)
-        if ie is not None and (ie != int(ie) or not 0 <= ie <= 9):
-            add(ERROR, "R25", "penguapan_ie", f"pengenal data penguapan (iE) harus bilangan bulat 0-9 (kode di web), bukan {ie_raw!r}")
+        if ie is not None and (ie != int(ie) or not 0 <= ie <= 4):   # [rev 32] dropdown web hanya 0-4
+            add(ERROR, "R25", "penguapan_ie", f"pengenal data penguapan (iE) harus salah satu kode 0-4 (dropdown di web), bukan {ie_raw!r}")
             return
         if kosongkan and rad is not None:
             add(ERROR, "R26", "radiasi_matahari", "pilih salah satu: kosongkan radiasi ATAU isi nilai radiasi, bukan keduanya")

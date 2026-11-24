@@ -409,7 +409,178 @@ def pilih_opsi_unsur(driver, unsur):
         return False
 
 
+# ===================== [rev 32] JALUR CEPAT dropdown & input =====================
+# Bukti dry-run 24 Nov: 104 dari 146 dtk isi_data habis di combobox Jenis/Jumlah/Arah (+-11,5 dtk/combobox) dan tiap
+# dropdown berid +-2-3 dtk (mengetik teks panjang: tiap ketikan memicu render ulang halaman, +-0,7 dtk/karakter).
+# Jalur cepat: buka menu -> baca SEMUA opsi dalam SATU panggilan JS -> pilih lewat KLIK opsi (tanpa mengetik) -> baca
+# nilai terpilih untuk verifikasi. Bila apa pun tak cocok, fungsi mengembalikan None dan jalur LAMA (lambat tapi teruji)
+# dijalankan persis seperti sebelumnya. Dimatikan lewat config.yaml: speed.fast_select: false / speed.fast_input: false.
+FAST_SELECT = bool(_SPEED.get("fast_select", True))
+FAST_INPUT = bool(_SPEED.get("fast_input", False))   # bawaan mati: aktifkan setelah dry-run membuktikan sandi tetap sesuai
+
+_JS_OPSI_MENU = r"""
+const n = s => (s || '').replace(/\s+/g, ' ').trim();
+const m = document.getElementById(arguments[0]); if (!m) return null;
+return Array.from(m.querySelectorAll('li')).map(l => [n(l.innerText || l.textContent),
+        l.getAttribute('aria-disabled') === 'true', l.offsetParent !== null]);
+"""
+_JS_AMBIL_LI = ("var m=document.getElementById(arguments[0]); if(!m) return null;"
+                "var l=m.querySelectorAll('li')[arguments[1]]; return l||null;")
+_JS_NILAI_COMBO = ("var c=arguments[0]; var v=c.querySelector('.ant-select-selection-selected-value');"
+                   "return v ? (v.getAttribute('title')||v.textContent||'') : '';")
+_JS_KLIK_MOUSE = ("var e=arguments[0];['mousedown','mouseup','click'].forEach(function(t){"
+                  "e.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));});")
+_JS_SET_INPUT = r"""
+const e = arguments[0], v = arguments[1];
+e.scrollIntoView({block: 'center'}); e.focus();
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, v);
+e.dispatchEvent(new Event('input', {bubbles: true}));
+e.dispatchEvent(new Event('change', {bubbles: true}));
+e.blur();
+return e.value;
+"""
+
+
+def _pilih_indeks_opsi(opsi, target):
+    """opsi = [(teks, disabled, tampak)]. Prioritas: teks PERSIS > diawali target > mengandung target (hanya opsi tampak & aktif)."""
+    t = " ".join(str(target).split())
+    kandidat = [(i, x[0]) for i, x in enumerate(opsi) if x[2] and not x[1]]
+    for cocok in (lambda s: s == t, lambda s: s.startswith(t), lambda s: t in s):
+        for i, teks in kandidat:
+            if cocok(teks):
+                return i
+    return None
+
+
+def _sama_pilihan(terpilih, target):
+    """Nilai yang tampil di kotak pilihan sudah sesuai target? Target berupa kode saja ('0 -') dibandingkan sebagai awalan."""
+    a, b = " ".join(str(terpilih or "").split()).lower(), " ".join(str(target or "").split()).lower()
+    if not a or not b:
+        return False
+    if b.endswith("-"):
+        return a.startswith(b)
+    return a == b or a.startswith(b) or b in a
+
+
+def _tunggu_poll(kondisi, timeout, poll=0.04):
+    """Ulangi kondisi() tiap `poll` dtk sampai hasilnya benar (dikembalikan) atau waktu habis (None). Sesi mati dilempar."""
+    akhir = time.time() + timeout
+    while True:
+        try:
+            r = kondisi()
+        except (InvalidSessionIdException, NoSuchWindowException):
+            raise
+        except Exception:
+            r = None
+        if r:
+            return r
+        if time.time() >= akhir:
+            return None
+        time.sleep(poll)
+
+
+def _nilai_combo(driver, combobox):
+    try:
+        return " ".join(str(driver.execute_script(_JS_NILAI_COMBO, combobox) or "").split())
+    except (InvalidSessionIdException, NoSuchWindowException):
+        raise
+    except Exception:
+        return ""
+
+
+def _buka_combo(driver, combobox, cara):
+    if cara == "klik":
+        attempt_click(driver, combobox)
+    elif cara == "js":
+        driver.execute_script("arguments[0].click();", combobox)
+    else:
+        driver.execute_script(_JS_KLIK_MOUSE, combobox)
+
+
+def _menu_opsi(driver, aria_id):
+    o = driver.execute_script(_JS_OPSI_MENU, aria_id)
+    return o if o and any(x[2] for x in o) else None
+
+
+def _pilih_cepat(driver, combobox, target, nama):
+    """True = terpilih & terverifikasi. None = tidak bisa lewat jalur cepat (pemanggil memakai jalur lama). Tidak pernah mengetik."""
+    if not FAST_SELECT:
+        return None
+    t0 = time.time()
+    try:
+        aria_id = combobox.get_attribute("aria-controls")
+        if not aria_id:
+            return None
+        if _sama_pilihan(_nilai_combo(driver, combobox), target):
+            return True
+        if not _combo_siap(driver, combobox, tunggu=1.5):
+            return None
+        opsi = None
+        for cara in ("klik", "js", "mouse"):
+            if _menu_opsi(driver, aria_id) is None:       # jangan menekan lagi bila menu SUDAH terbuka (akan menutupnya)
+                _buka_combo(driver, combobox, cara)
+            opsi = _tunggu_poll(lambda: _menu_opsi(driver, aria_id), 0.8)
+            if opsi:
+                break
+        if not opsi:
+            return None
+        idx = _pilih_indeks_opsi(opsi, target)
+        if idx is None:
+            _pulihkan_ui(driver)
+            return None
+        li = driver.execute_script(_JS_AMBIL_LI, aria_id, idx)
+        if li is None or not attempt_click(driver, li):
+            _pulihkan_ui(driver)
+            return None
+        if _tunggu_poll(lambda: _sama_pilihan(_nilai_combo(driver, combobox), target), 1.5):
+            _CEPAT_LOG.append((nama, round(time.time() - t0, 2)))
+            return True
+        _pulihkan_ui(driver)
+        return None
+    except (InvalidSessionIdException, NoSuchWindowException):
+        raise
+    except Exception:
+        return None
+
+
+_CEPAT_LOG = []   # (nama field, detik) pilihan yang berhasil lewat jalur cepat; dipakai tes/laporan
+
+
+def _pilih_cepat_id(driver, id_div, nilai):
+    if not FAST_SELECT:
+        return None
+    try:
+        combo = driver.find_element(By.XPATH, f"//div[@id='{id_div}']//div[@role='combobox']")
+    except (InvalidSessionIdException, NoSuchWindowException):
+        raise
+    except Exception:
+        return None
+    return _pilih_cepat(driver, combo, nilai, id_div)
+
+
+def _isi_input_cepat(driver, id_input, nilai):
+    """Isi kotak angka lewat SATU render ulang (bukan satu per karakter), lalu baca ulang. None = pakai jalur lama."""
+    if not FAST_INPUT:
+        return None
+    try:
+        el = driver.find_element(By.ID, id_input)
+        if not el.is_enabled():
+            return None
+        driver.execute_script(_JS_SET_INPUT, el, str(nilai))
+        def cocok():
+            a = (el.get_attribute("value") or "").strip()
+            return a == str(nilai) or _angka_sama(a, nilai)
+        return True if _tunggu_poll(cocok, 1.0) else None
+    except (InvalidSessionIdException, NoSuchWindowException):
+        raise
+    except Exception:
+        return None
+
+
 def pilih_dropdown_ant_select(driver, id_div, nilai, timeout=12, max_attempts=2):
+    if _pilih_cepat_id(driver, id_div, nilai):   # [rev 32] jalur cepat (klik opsi, tanpa mengetik); gagal -> jalur lama di bawah
+        print(f"✅ {id_div} dipilih dengan '{nilai}'")
+        return True
     attempt = 0
     while attempt < max_attempts:
         attempt += 1
@@ -462,6 +633,9 @@ def pilih_dropdown_ant_select(driver, id_div, nilai, timeout=12, max_attempts=2)
 
 
 def isi_input_text(driver, id_input, nilai, timeout=12):
+    if _isi_input_cepat(driver, id_input, nilai):   # [rev 32] opsional (speed.fast_input); gagal -> jalur lama di bawah
+        print(f"✅ {id_input} diisi dengan {nilai}")
+        return True
     try:
         input_field = wait_for_presence(driver, (By.ID, id_input), timeout=timeout)
         if not input_field:
@@ -561,6 +735,9 @@ def pilih_opsi_ant_select(driver, combobox, target_teks, nama_field):
             return ""
         return (values[0].get_attribute("title") or values[0].text).strip()
 
+    if _pilih_cepat(driver, combobox, target_teks, nama_field):   # [rev 32] jalur cepat; gagal -> jalur lama di bawah
+        print(f"✅ {nama_field} dipilih: {target_teks}")
+        return True
     try:
         if target_teks in nilai_terpilih():
             print(f"✅ {nama_field} sudah berisi '{target_teks}'")
@@ -2123,14 +2300,18 @@ def _angka_sama(teks_web, nilai):
         return False
 
 
-def isi_penguapan_00(driver, rencana):
+URUTAN_PENGUAPAN_WEB = ("mm", "radiasi", "ie", "sinar_jam")   # urutan kolom di web: penguapan, radiasi, [tanah], iE, lama penyinaran
+
+
+def isi_penguapan_00(driver, rencana, bagian=None):
     """
     Terapkan isian bagian bawah form jam 00 UTC. Nilai kosong di rencana = biarkan hasil Fill AWS Digi.
       rencana = {mm, ie, radiasi:{kosongkan|nilai}, sinar_jam}
     STRICT (default, features.penguapan_strict): kolom diminta tapi gagal diisi/diverifikasi -> return False (jam TIDAK dikirim).
     Setiap kolom dibaca ulang dari web setelah diisi; nilai AWS asli dan nilai akhir dicatat di PENGUAPAN_LOG.
     """
-    PENGUAPAN_LOG.clear()
+    if bagian is None:
+        PENGUAPAN_LOG.clear()
     strict = CFG["features"].get("penguapan_strict", True)
     semua_ok = True
 
@@ -2141,7 +2322,7 @@ def isi_penguapan_00(driver, rencana):
         print(f"❌ Penguapan/matahari [{kunci}]: {alasan}")
         semua_ok = False
 
-    for kunci in ("mm", "radiasi", "sinar_jam", "ie"):
+    for kunci in (bagian or URUTAN_PENGUAPAN_WEB):   # [rev 32] urutan = urutan di web; `bagian` = subset (dipanggil dua kali, tanah di antaranya)
         if kunci not in rencana:
             continue
         log = PENGUAPAN_LOG.setdefault(kunci, {"applied": False})
@@ -2356,7 +2537,7 @@ def _catat_waktu(nama):
     _WAKTU_MARK[0] = sekarang
 
 
-def _tunggu_dropdown_terbuka(driver, id_div, timeout=1.0):
+def _tunggu_dropdown_terbuka(driver, id_div, timeout=0.4):
     """[rev 29] Tunggu sampai dropdown Ant Design benar-benar terbuka (ant-select-open / aria-expanded) -- pengganti jeda tetap.
     True = terbuka (lanjut segera). False = tak terbaca/belum terbuka -> pemanggil memakai jeda lama (perilaku sebelumnya)."""
     akhir = time.time() + timeout
@@ -2567,6 +2748,24 @@ def isi_lapisan_tambahan(driver, plan, layer=None):
             print(f"⚠️ Gagal mematikan lapisan {off.get('section')} {off.get('n')}: {e}")
 
 
+def _isi_bagian_bawah(driver, row, plan):
+    """[rev 32] Bagian paling bawah form, DIKERJAKAN SETELAH AWAN, persis urutan di web BMKG Satu:
+    penguapan -> radiasi matahari -> keadaan tanah -> pengenal data penguapan (iE) -> lama penyinaran -> (Preview oleh pemanggil).
+    Jam selain 00 UTC tidak punya rencana penguapan: hanya keadaan tanah. False = jam dibatalkan (field wajib gagal)."""
+    pg = plan.get("penguapan") if plan else None
+    PENGUAPAN_LOG.clear()
+    if pg and not isi_penguapan_00(driver, pg, bagian=("mm", "radiasi")):
+        return False
+    if not pilih_ant_select(driver, "land_cond", str(row['land_cond'])):
+        return False  # WAJIB
+    _catat_waktu("Keadaan tanah")
+    if pg and not isi_penguapan_00(driver, pg, bagian=("ie", "sinar_jam")):
+        return False
+    if pg:
+        _catat_waktu("Penguapan & matahari")
+    return True
+
+
 def isi_data(driver, row, plan=None):
     # plan = keputusan dari core.validator (F1.9); None = perilaku V6 (tanpa plan)
     try:
@@ -2592,11 +2791,8 @@ def isi_data(driver, row, plan=None):
             if not isi_hujan_override(driver, plan["rain_override"]["mm"]):
                 return False
 
-        # [rev 27] jam 00 UTC: ganti nilai penguapan / kosongkan radiasi / lama penyinaran / iE (hanya bila diminta)
-        PENGUAPAN_LOG.clear()
-        if plan and plan.get("penguapan"):
-            if not isi_penguapan_00(driver, plan["penguapan"]):
-                return False
+        # [rev 32] penguapan / radiasi / iE / lama penyinaran (jam 00 UTC) kini dikerjakan DI AKHIR, sesudah awan
+        # (lihat _isi_bagian_bawah); sebelumnya di sini, sebelum awan.
 
         # [F1.9] total tutupan 0 / 9 / "/" : web mengisi CL/CM/CH otomatis & menonaktifkan detail awan
         skip_clouds = bool(plan and plan.get("skip_clouds"))
@@ -2614,7 +2810,7 @@ def isi_data(driver, row, plan=None):
                 if not isi_input(driver, "cloud_vertical_vis", _fmt_angka(vv)):
                     print("❌ cloud_vertical_vis gagal diisi")
                     return False
-            if not pilih_ant_select(driver, "land_cond", str(row['land_cond'])):
+            if not _isi_bagian_bawah(driver, row, plan):
                 return False
             print("✅ Data berhasil diisi")
             return True
@@ -2840,10 +3036,9 @@ def isi_data(driver, row, plan=None):
             isi_lapisan_tambahan(driver, plan, layer="high")   # [rev 15] tinggi ke-2 tepat setelah tinggi ke-1
         _catat_waktu("Awan tinggi")
 
-        # ================ KEADAAN TANAH ======================================#
-        if not pilih_ant_select(driver, "land_cond", str(row['land_cond'])):
-            return False  # WAJIB
-        _catat_waktu("Keadaan tanah")
+        # ============ PENGUAPAN, RADIASI, KEADAAN TANAH, iE, LAMA PENYINARAN (urutan web) ============#
+        if not _isi_bagian_bawah(driver, row, plan):
+            return False
 
         # [rev 15] lapisan tambahan yang diminta Excel tetapi gagal diisi = field merah di web (form tidak valid,
         # Preview pasti gagal) -> diperlakukan sebagai kegagalan wajib agar tidak membuang waktu mencoba Preview

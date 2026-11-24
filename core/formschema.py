@@ -37,7 +37,7 @@ LABEL_LAIN = {
 SUFFIKS = {"jenis": "Jenis", "jumlah": "Jumlah", "arah": "Arah gerak"}
 
 BAGIAN = [
-    {"id": "umum", "judul": "Umum", "kolom": ["visibility", "ww", "w1", "w2", "land_cond", "cloud_cover_oktas_m",
+    {"id": "umum", "judul": "Umum", "kolom": ["visibility", "ww", "w1", "w2", "cloud_cover_oktas_m",
                                                "vertical_visibility"]},
     {"id": "rendah", "judul": "Awan rendah", "kolom": [
         "cloud_low_type_cl", "cloud_low_cover_oktas", "awan_rendah_jenis", "awan_rendah_jumlah", "cloud_low_base_1",
@@ -54,18 +54,29 @@ BAGIAN = [
         "cloud_arah_tinggi", "awan_tinggi_2_jenis", "awan_tinggi_2_jumlah", "cloud_high_base_2",
         "cloud_arah_tinggi_2"]},
     {"id": "hujan", "judul": "Curah hujan", "kolom": ["hujan_override_aktif", "hujan_override_mm"]},
-    {"id": "penguapan", "judul": "Penguapan & matahari (khusus jam 00 UTC)",
-     "catatan": "Kosongkan kolom yang tidak ingin diganti: nilainya tetap memakai data AWS Digi. "
-                "Radiasi matahari biasanya dikosongkan karena nilai AWS tidak relevan.",
+    # [rev 32] bagian PALING BAWAH; keadaan tanah ditempatkan di kolom paling kanan.
+    # Kolom lain hanya terbuka pada jam 00 UTC (HANYA_00), sedangkan keadaan tanah berlaku SEMUA jam;
+    # kolom lain hanya terbuka pada jam 00 UTC (HANYA_00).
+    {"id": "penguapan", "judul": "Penguapan, matahari & tanah",
+     "catatan": "Penguapan, radiasi, iE & lama penyinaran hanya terbuka pada jam 00 UTC; kosongkan kolom yang tidak ingin diganti "
+                "(nilainya tetap memakai data AWS Digi). Radiasi matahari biasanya dikosongkan karena nilai AWS tidak relevan.",
      "kolom": [
-        "penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam"]},
+       "penguapan_mm", "radiasi_kosongkan", "radiasi_matahari", "penguapan_ie", "lama_penyinaran_jam", "land_cond"]},
 ]
 SEMUA_KOLOM = [c for b in BAGIAN for c in b["kolom"]]
+HANYA_00 = frozenset({"penguapan_mm", "radiasi_kosongkan", "radiasi_matahari", "penguapan_ie", "lama_penyinaran_jam"})
+# Pengenal data penguapan (iE): dropdown di web BMKG Satu (kode -> teks persis seperti di web)
+OPSI_IE = [
+    ("0", "0 - USA open pan evaporimeter (without cover)"),
+    ("1", "1 - USA open pan evaporimeter (meshed)"),
+    ("2", "2 - GGI-3000 evaporimeter (sunken)"),
+    ("3", "3 - 20-m2 tank"),
+    ("4", "4 - Others"),
+]
 # kolom ke-n pada lapisan: (judul kecil)
 SUB = {
     "cloud_low_type_cl": "", "awan_rendah_2_jenis": "Lapisan 2 (opsional)", "awan_rendah_3_jenis": "Lapisan 3 (opsional)",
     "awan_menengah_jenis_2": "Lapisan 2 (opsional)", "awan_tinggi_2_jenis": "Lapisan 2 (opsional)",
-    "penguapan_mm": "Penguapan", "radiasi_kosongkan": "Matahari",     # rev 28: dua kelompok rapi pada jam 00 UTC
 }
 
 
@@ -91,7 +102,10 @@ def build_schema(v):
     for b in BAGIAN:
         fl = []
         for col in b["kolom"]:
-            if col in COLUMN_FIELD:
+            if col == "penguapan_ie":
+                fl.append({"kolom": col, "label": "Pengenal data penguapan (iE)", "jenis": "pilih_kode",
+                           "opsi": [list(o) for o in OPSI_IE], "sub": SUB.get(col)})
+            elif col in COLUMN_FIELD:
                 fl.append({"kolom": col, "label": _label(v, col), "jenis": "pilih", "opsi": opsi_kolom(v, col) or [],
                            "sub": SUB.get(col)})
             elif col in SAKLAR:
@@ -99,6 +113,9 @@ def build_schema(v):
             else:
                 fl.append({"kolom": col, "label": _label(v, col), "jenis": "angka",
                            "satuan": LABEL_ANGKA.get(col, ("", ""))[1], "sub": SUB.get(col)})
+        for f in fl:
+            if f["kolom"] in HANYA_00:
+                f["hanya00"] = True
         bagian.append({"id": b["id"], "judul": b["judul"], "catatan": b.get("catatan"), "field": fl})
     return {"bagian": bagian}
 

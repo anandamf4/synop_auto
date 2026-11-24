@@ -264,9 +264,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     sk = app5.test_client().get("/api/skema").get_json()
     pg = next(b for b in sk["bagian"] if b["id"] == "penguapan")
     check("bagian penguapan punya catatan tunggal (kosong = pakai nilai AWS)", pg.get("catatan") and "AWS" in pg["catatan"], pg.get("catatan"))
-    check("dua kelompok: Penguapan | Matahari, urutan kolom rapi",
-          [f["kolom"] for f in pg["field"]] == ["penguapan_mm", "penguapan_ie", "radiasi_kosongkan", "radiasi_matahari", "lama_penyinaran_jam"]
-          and [f["sub"] for f in pg["field"] if f["sub"]] == ["Penguapan", "Matahari"], [(f["kolom"], f["sub"]) for f in pg["field"]])
+    check("[rev 33] keadaan tanah berada di kolom paling kanan",
+          [f["kolom"] for f in pg["field"]] == ["penguapan_mm", "radiasi_kosongkan", "radiasi_matahari", "penguapan_ie", "lama_penyinaran_jam", "land_cond"],
+          [(f["kolom"], f["sub"]) for f in pg["field"]])
+    check("[rev 32] keadaan tanah TIDAK lagi di bagian Umum; iE = dropdown (pilih_kode) 0-4; kolom jam 00 bertanda hanya00",
+          "land_cond" not in [f["kolom"] for b in sk["bagian"] if b["id"] == "umum" for f in b["field"]]
+          and next(f for f in pg["field"] if f["kolom"] == "penguapan_ie")["jenis"] == "pilih_kode"
+          and [o[0] for o in next(f for f in pg["field"] if f["kolom"] == "penguapan_ie")["opsi"]] == ["0", "1", "2", "3", "4"]
+          and not next(f for f in pg["field"] if f["kolom"] == "land_cond").get("hanya00")
+          and all(f.get("hanya00") for f in pg["field"] if f["kolom"] != "land_cond"), pg["field"])
     check("label tidak ada tanda kurung ganda", all(not (f.get("satuan") and "(" in f["label"]) for f in pg["field"]), [f["label"] for f in pg["field"]])
     S0 = app5.test_client().get("/api/slot/%s/00:00" % T).get_json()["state"]
     check("jam 00: tidak ada teks alasan berulang 'kosong = pakai nilai AWS' di tiap kolom",
