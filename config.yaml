@@ -112,4 +112,4 @@ speed:
   scale: 0.5                      # pengali jeda tetap (1.0 = jeda asli V6)
   optional_timeout: 3             # batas tunggu field opsional (detik)
   fast_select: true               # jalur cepat dropdown: klik opsi (tanpa mengetik) + verifikasi; gagal -> jalur lama otomatis
-  fast_input: false               # isi kotak angka lewat 1 render (bukan per karakter). AKTIFKAN setelah dry-run membuktikan sandi tetap sesuai
+  fast_input: true               # isi kotak angka lewat 1 render (bukan per karakter). AKTIFKAN setelah dry-run membuktikan sandi tetap sesuai

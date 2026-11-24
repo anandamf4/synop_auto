@@ -2143,6 +2143,9 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                pengiriman (DB). Berkas: V7SATU.py, app.py, config.yaml, core/{db,obsdb,notify,config}.py, web/{dashboard,form,riwayat}.html,
                tests/test_rev30_bot.py (BARU), test_app, test_bot_flow. Berikutnya: kirim semalaman dengan rev 30, amati "percobaan_gagal".
 
+  [2026-11-24] Rev 32b - jalankan_remote.bat BARU: app.py (127.0.0.1) + Cloudflare Tunnel sekali klik agar form bisa dibuka dari HP di jaringan lain;
+               menolak jalan bila WEB_PIN di .env kosong; memasang cloudflared via winget bila belum ada. Link trycloudflare berubah tiap run. BELUM diuji di Windows.
+
   [2026-11-24] Rev 32 - jalur cepat dropdown/input, urutan bagian bawah (penguapan..lama penyinaran setelah awan), salin 1 klik, iE dropdown, tanah di bawah.
                V7SATU.py, pantau_web.py, config.yaml, formschema/validator, form.html, tests baru (rev32_bot, form_salin). Berikutnya: dry-run & bandingkan waktu.
 
