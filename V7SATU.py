@@ -3187,6 +3187,46 @@ def fallback_ww_mist_ke_haze(driver, row):
     PERUBAHAN_OTOMATIS["ww"] = "10->05 (Mist->Haze, RH<95%)"   # [F1.4] dicatat di log
     return True
 
+def gerbang_persetujuan(slot, sandi, tampil=True):
+    """[F3.5] Jendela hitung-mundur sebelum SEND. True = kirim (bawaan: tanpa tindakan, ditutup, atau tanpa layar TETAP kirim);
+    False = pengamat menekan Batalkan. Galat apa pun pada jendela -> True (gerbang tidak boleh menggagalkan kirim)."""
+    g = CFG.get("gerbang", {})
+    detik = int(g.get("detik", 20))
+    if not (g.get("aktif", True) and tampil and detik > 0):
+        return True
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.title("SYNOP: konfirmasi kirim")
+        root.attributes("-topmost", True)
+        hasil = {"kirim": True}
+        teks = tk.StringVar()
+        tk.Label(root, text=f"Jam {slot[1]} UTC akan dikirim:", font=("Segoe UI", 11, "bold")).pack(padx=16, pady=(14, 4))
+        tk.Label(root, text=sandi or "(sandi tidak terbaca)", font=("Consolas", 10), justify="left").pack(padx=16)
+        tk.Label(root, textvariable=teks).pack(pady=6)
+
+        def batal():
+            hasil["kirim"] = False
+            root.destroy()
+
+        def tick(n):
+            if n <= 0:
+                root.destroy()
+                return
+            teks.set(f"Terkirim otomatis dalam {n} dtk")
+            root.after(1000, tick, n - 1)
+
+        tk.Button(root, text="Batalkan", command=batal).pack(side="left", padx=16, pady=12)
+        tk.Button(root, text="Kirim sekarang", command=root.destroy).pack(side="right", padx=16, pady=12)
+        root.protocol("WM_DELETE_WINDOW", root.destroy)   # menutup jendela = kirim (bawaan)
+        tick(detik)
+        root.mainloop()
+        return hasil["kirim"]
+    except Exception as e:
+        print(f"ℹ️ Gerbang persetujuan tidak tampil ({type(e).__name__}); data tetap dikirim")
+        return True
+
+
 def main():
     global driver, STATION_ID, PASSWORD, nama_observer, DRY_RUN  # driver global: bisa diganti setelah recovery
 
@@ -3532,6 +3572,8 @@ def main():
                         fallback_berhasil = fallback_ww_mist_ke_haze(driver, row)
                         if not fallback_berhasil:
                             raise Exception("Gagal klik Preview OK setelah percobaan dan fallback ww")
+                        if slot[0]:
+                            db.log_event(*slot, "ww_diubah", PERUBAHAN_OTOMATIS.get("ww", "ww 10->05"))   # [F3.6]
     
                     # [F1.4/F1.7] simpan sandi hasil Preview; dry-run berhenti di sini
                     sandi = baca_sandi(driver)
@@ -3564,6 +3606,15 @@ def main():
                         print("🧪 DRY-RUN: sampai Preview selesai; TIDAK mengirim.")
                         if slot[0]:
                             db.mark_skipped(*slot, "dry-run (tidak dikirim)")
+                        row_processed = True
+                        continue
+
+                    if not gerbang_persetujuan(slot, sandi, tampil=not args.no_gui):   # [F3.5]
+                        print("🛑 Dibatalkan pengamat sebelum SEND; jam ini tidak dikirim")
+                        if slot[0]:
+                            db.mark_skipped(*slot, "dibatalkan pengamat sebelum SEND (F3.5)")
+                            db.log_event(*slot, "dibatalkan_pengamat", "jendela gerbang persetujuan")
+                        notifier.kirim(f"🛑 Jam {slot[1]} UTC DIBATALKAN pengamat sebelum SEND (tidak dikirim).", "gagal")
                         row_processed = True
                         continue
 

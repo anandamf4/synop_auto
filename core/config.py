@@ -84,6 +84,7 @@ DEFAULTS = {
         "qc_popup_tunggu": 12,          # F3.11: batas (detik) mengawasi popup susulan setelah OK terakhir
         "qc_popup_tenang": 4,           # F3.11: layar dianggap tenang bila tak ada popup selama N detik
     },
+    "gerbang": {"aktif": True, "detik": 20},   # F3.5: jendela batal sebelum SEND; tanpa tindakan data TETAP terkirim
     "web": {"host": "0.0.0.0", "port": 8080, "menit_sebelum": 2},   # F2: form & dashboard (app.py)
     "notify": {                         # F3.7 Telegram (token & chat_id di .env, BUKAN di sini)
         "enabled": True,

@@ -84,8 +84,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
     print("== letak & bentuk kolom ==")
     check("keadaan tanah ada di bagian paling bawah (bukan 'Umum')", "bag-penguapan" in (r.get("bagianTanah") or ""), r.get("bagianTanah"))
-    check("urutan bagian bawah: penguapan, radiasi, tanah, iE, lama penyinaran",
-          [k for k in r.get("urutan", [])] == ["penguapan_mm", "radiasi_kosongkan", "radiasi_matahari", "land_cond", "penguapan_ie", "lama_penyinaran_jam"],
+    check("urutan kolom form bagian bawah (skema repo: keadaan tanah paling akhir; urutan ISI bot tetap penguapan, radiasi, tanah, iE, lama penyinaran)",
+          [k for k in r.get("urutan", [])] == ["penguapan_mm", "radiasi_kosongkan", "radiasi_matahari", "penguapan_ie", "lama_penyinaran_jam", "land_cond"],
           r.get("urutan"))
     check("jam 07: kolom khusus 00 UTC disembunyikan, keadaan tanah tetap tampil",
           "land_cond" not in r.get("hidden", []) and {"penguapan_mm", "penguapan_ie", "lama_penyinaran_jam"} <= set(r.get("hidden", [])), r.get("hidden"))

@@ -101,6 +101,12 @@ notify:
   rekap_jam_utc: "23:50"          # rekap hari UTC berjalan dikirim setelah jam ini
   nama_stasiun: "Sultan Thaha (96195)"
 
+# F3.5 gerbang persetujuan: setelah Preview & verifikasi sandi, jendela hitung-mundur menampilkan sandi + [Batalkan] [Kirim sekarang].
+# Tanpa tindakan data TETAP terkirim (auto-kirim). Tidak tampil bila --no-gui / tanpa layar. aktif:false = matikan.
+gerbang:
+  aktif: true
+  detik: 20
+
 # F2 form & dashboard web (python app.py). PIN opsional: isi WEB_PIN di .env
 web:
   host: "0.0.0.0"                 # 0.0.0.0 = bisa dibuka dari PC lain di jaringan stasiun; 127.0.0.1 = hanya PC ini
