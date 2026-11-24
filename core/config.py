@@ -50,6 +50,7 @@ DEFAULTS = {
         "retry_past_minutes": 90,
         "max_row_attempts": 3,            # rev 30: total percobaan per jam bila galat biasa (1=tanpa ulang); ulang ke-2 = muat ulang halaman, ke-3 = browser baru
         "max_row_menit": 25,              # rev 30: batas total waktu mengulang satu jam (menit) agar tidak menabrak jam berikutnya
+        "max_field_attempts": 3,          # rev 31: percobaan ULANG per langkah/field (wajib; opsional = satu lebih sedikit) SEBELUM jam dianggap gagal
         "auto_restart_maks": 5,           # rev 30: bot berhenti karena galat tak terduga -> restart otomatis, maks sekian kali per jam (0=mati)
         "auto_restart_jeda_detik": 30,
     },

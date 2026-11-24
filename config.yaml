@@ -34,7 +34,7 @@ chrome:
   # [F3.3] Profil Chrome TETAP khusus bot, agar sesi login BMKG Satu tersimpan (login tidak berulang tiap bot dibuka).
   # Kosong = perilaku lama (profil sementara, login tiap kali). Contoh: "chrome_profile" (di folder proyek).
   # JANGAN diarahkan ke profil Chrome harian Anda. Folder ini berisi cookie sesi; jangan dibagikan / di-commit.
-  profile_dir: ""
+  profile_dir: "chrome_profile"
   # [rev 28] Chrome kadang terbuka tetapi tidak menuju BMKG Satu (profil terkunci oleh Chrome yatim). Bot kini memastikan
   # halaman benar-benar terbuka; bila gagal: tutup Chrome yatim yang memakai profil bot, hapus berkas kunci, coba lagi.
   retry_buka: 3                   # berapa kali Chrome dicoba dibuka sebelum menyerah
@@ -57,6 +57,7 @@ runtime:
   retry_past_minutes: 90          # >0: slot gagal/terhenti dicoba ulang s.d. sekian menit setelah waktu eksekusi (rev 30: bawaan 90)
   # [rev 30] CADANGAN bila pengisian gagal (sebelumnya langsung lompat ke jam berikutnya):
   max_row_attempts: 3             # total percobaan per jam: 1=normal, 2=setelah MUAT ULANG halaman, 3=setelah BUKA BROWSER BARU
+  max_field_attempts: 3           # [rev 31] percobaan ULANG per field/klik (wajib 3, opsional 2) sebelum jam dianggap gagal -> baru tangga di atas
   max_row_menit: 25               # batas total waktu mengulang satu jam (menit)
   auto_restart_maks: 5            # bot berhenti karena galat tak terduga -> restart otomatis (maks per jam; 0 = mati)
   auto_restart_jeda_detik: 30

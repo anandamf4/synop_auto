@@ -54,8 +54,8 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 30
-  Terakhir diperbarui : 2026-11-22
+  Revisi catatan      : 31
+  Terakhir diperbarui : 2026-11-24
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
                         F1.10 (rev 19: aturan QC konsistensi di core/qc.py; 39 tes lulus),
@@ -102,6 +102,49 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 31 (2026-11-24) - F3.1 fields.py + FUNGSI GENERIK, PERCOBAAN ULANG PER LANGKAH (SEBELUM JAM DIANGGAP GAGAL), T21 SEBAGAI DATA:
+    * LATAR (permintaan pengguna): galat satu klik/kolom (kasus Arah Awan Rendah 22:00 UTC) langsung membuat jam gagal & terlempar ke jam berikutnya.
+      Rev 30 sudah menambah tangga PER JAM (muat ulang -> browser baru -> putaran berikut). Rev 31 menambah lapisan di BAWAHNYA: setiap langkah
+      (klik dropdown / isi kotak) DIULANG dulu di halaman yang sama; baru bila tetap gagal jam masuk tangga rev 30. Urutan kini:
+      langkah diulang (3x wajib / 2x opsional) -> jam diulang dengan muat ulang -> jam diulang dengan browser baru -> putaran berikut (retry_past_minutes 90).
+    * BERKAS BARU core/fields.py (DATA, tanpa selenium): FIELDS = 33 field (kunci = kolom Excel = id web bila ada): tipe (pilih/isi/combo), nama,
+      wajib, aktif (aturan R-xx, dokumentasi), cara cari combobox (xpath tunggal atau 'berlapis' posisi -> relatif-id -> xpath lama); TOMBOL_KIRIM (T21).
+      CATATAN: handoff awal menyebut bot/fields.py; folder bot/ tidak pernah dibuat -> peta ditaruh di core/fields.py (bersama modul data lain).
+    * V7SATU.py (net -155 baris): fungsi generik pilih_ant_select(driver, field_id, nilai) & isi_input(driver, field_id, nilai) + _ulangi (percobaan ulang
+      + _pulihkan_ui: ESC & lepas fokus antar percobaan; jendela/sesi mati TIDAK ditelan -> recovery sesi lama) + _input_terisi (kotak kosong setelah diisi
+      = gagal -> diulang; tak terbaca dianggap terisi) + _isi_jenis_jumlah. 14 panggilan dropdown & 8 isian langsung di isi_data kini lewat generik.
+      Fungsi lama TETAP ADA (zero-loss) sebagai pembungkus 1 baris. SEND_SEND_SUBMIT satu fungsi data-driven (TOMBOL_KIRIM) + _mode_kirim() dipakai juga
+      di main (menggantikan dua salinan kondisi 'send & update' tanpa 'send & submit').
+    * PERUBAHAN PERILAKU SENGAJA (bukan hanya refactor): (a) Arah menengah/tinggi/rendah-2/sebenarnya 1-2 sebelumnya klik sederhana (klik -> tunggu <li>);
+      kini memakai jalur pilih_opsi_ant_select (jalur Arah Awan Rendah: lewati bila sudah terpilih, 3 cara klik, verifikasi nilai terpilih). (b) pilih_opsi_ant_select:
+      pada percobaan ke-2/3 menu yang menggantung ditutup (ESC) dulu dan opsi diklik lewat JavaScript -- HIPOTESIS atas kasus 22:00 (menu lengkap tetapi nilai tetap
+      kosong); BELUM terbukti di web asli. (c) snapshot gagal field combobox: tag 'gagal_<field>_<nilai>' hanya untuk field WAJIB (tag lama 'pilih_arah_*' disaring
+      save_debug_snapshot sehingga snapshot Arah SELAMA INI TIDAK PERNAH TERSIMPAN kecuali speed.snapshot_optional=true). (d) Jenis/Jumlah awan rendah-2 kini
+      dicoba terpisah (sebelumnya berhenti di Jenis bila gagal). Hasil isi form pada data uji tetap sama.
+    * KONFIGURASI: runtime.max_field_attempts=3 (core/config.py + config.yaml). 1 = perilaku tanpa ulang per langkah. Opsional = satu lebih sedikit.
+    * TABEL PEMETAAN FUNGSI LAMA -> BARU (DoD F3.1):
+        pilih_dropdown_ant_select(div,nilai)            -> pilih_ant_select(field_id,nilai)  [tipe pilih; fungsi lama dipakai sebagai 1 percobaan]
+        isi_input_text(id,nilai)                        -> isi_input(field_id,nilai)         [+ cek kotak tidak kosong]
+        isi_jenis_dan_jumlah_awan_Rendah                -> _isi_jenis_jumlah('awan_rendah_jenis','awan_rendah_jumlah', GAGAL_WAJIB)
+        isi_jenis_dan_jumlah_awan_rendah_2              -> _isi_jenis_jumlah('awan_rendah_2_jenis','awan_rendah_2_jumlah')
+        isi_jenis_dan_jumlah_awan_menengah              -> _isi_jenis_jumlah('awan_menengah_jenis_1','awan_menengah_jumlah_1', GAGAL_OPSIONAL)
+        isi_jenis_dan_jumlah_awan_Tinggi                -> _isi_jenis_jumlah('awan_tinggi_jenis','awan_tinggi_jumlah', GAGAL_OPSIONAL)
+        pilih_arah_Awan_Rendah / _Menengah / _Tinggi    -> pilih_ant_select('cloud_arah_awan_rendah' / 'cloud_arah_menengah_1' / 'cloud_arah_tinggi')
+        pilih_arah_sebenarnya / _2                      -> pilih_ant_select('cloud_arah_sebenarnya_1' / 'cloud_arah_sebenarnya_2')
+        pilih_arah_2                                    -> pilih_ant_select('cloud_arah_2')
+        SEND_SEND_SUBMIT (3 cabang)                     -> 1 alur data-driven TOMBOL_KIRIM['update'|'submit'] + _mode_kirim()
+        TIDAK diubah: safe_click, attempt_click, wait_*, save_debug_snapshot, pilih_opsi_unsur, pilih_opsi_ant_select (+tweak b), pilih_ant_select_berlapis,
+        click_button_*, wait_for_*, klik_switch_jika_type, SEND_GTS/INASWITCH/GTS_OK, submit_with_retry, Preview*, login/stasiun/observer/tanggal, isi_per_jam,
+        Fill_AWS_Digi, isi_hujan_override, isi_penguapan_00, isi_lapisan_tambahan (pilih_dropdown_posisi), recover_session, ww fallback.
+    * Tes: tests/test_fields.py BARU (29): kelengkapan peta, XPath = skrip lama, nama fungsi lama utuh, ulang 2x lalu berhasil, wajib 3x/opsional 2x,
+      kotak kosong diulang, sesi mati tidak ditelan, isi_data end-to-end Arah Awan Rendah gagal 2x lalu berhasil, T21. Seluruh 20 berkas lulus
+      (test_bot_fill 31 & test_bot_flow 65 TIDAK diubah -> urutan panggilan pengisian identik dengan versi lama). XPath peta dicocokkan dengan literal git HEAD.
+      BELUM diuji di web BMKG Satu asli.
+    * TIDAK DIKERJAKAN (disengaja): putaran ulang kedua di AKHIR isi_data khusus field gagal (YAGNI; tangga per jam rev 30 sudah mengisi ulang semuanya);
+      isi_hujan_override/isi_penguapan_00/lapisan tambahan belum lewat generik (kodenya khusus; ubah bila gagal di lapangan).
+    * Berikutnya: (1) dry-run lalu kirim nyata dengan rev 31; cari di log 'mengulang langkah ini' / 'berhasil pada percobaan' (seberapa sering langkah perlu diulang);
+      (2) bila Arah Awan Rendah masih gagal 3x: kirim snapshot 'gagal_cloud_arah_awan_rendah_*' (.png+.html) -- butuh DOM menu saat gagal;
+      (3) F3.1 resmi [x] setelah dry-run membuktikan hasil form sama; (4) lanjut F3.5/F3.6, F1.10 QC tambahan, F4.3-F4.4.
   REV 30 (2026-11-23) - CADANGAN KEGAGALAN (TANGGA PERCOBAAN ULANG), KASUS KIRIM NYATA 22 NOV, WEB (RIWAYAT/NAVIGASI/JADWAL):
     * BUKTI: kirim nyata semalam (pantau 231604_kirim, memakai V7SATU rev 28, 6 slot 17:00-23:00 UTC, observer Ananda) + 2 snapshot gagal.
       Hasil: 3 dari 6 slot bermasalah, ketiganya "selesai begitu saja lalu lompat ke jam berikutnya" (TANPA percobaan ulang):
@@ -1708,7 +1751,7 @@ FASE 3 - BOT LEBIH TAHAN BANTING
 [x] F3.11 Popup web 'Koreksi QC' setelah Send (rev 21: kode+tes selesai; belum pernah terlihat popup asli)
     Hasil  : lihat REV 21. Bila gagal pada popup asli: snapshots/*koreksi_qc*.html -> perbaiki QC_POPUP_XPATHS.
 
-[ ] F3.1  fields.py + fungsi generik
+[~] F3.1  fields.py + fungsi generik  (rev 31: DIIMPLEMENTASI + percobaan ulang per langkah; tabel pemetaan di REV 31; 29 tes baru; menunggu dry-run/kirim nyata)
     Cara   : satu fungsi pilih_ant_select(field_id, nilai) dan isi_input;
              peta field (id, tipe, kondisi aktif, wajib/opsional) sebagai
              data; refactor semua fungsi pada bagian 5 (zero-loss);
@@ -1823,6 +1866,9 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
       salin dari jam sebelumnya harus mengisi form (bukan sekadar status). Dashboard jangan bergantung pada
       pengeditan Excel -> ada penyalinan antar tanggal (F2.8).
   K12 (2026-11-22, pengguna) Observer di form/dashboard OPSIONAL dan diingat; tidak boleh memaksa memilih ulang tiap edit.
+  K18 (2026-11-24, pengguna+AI) Galat satu field/klik tidak boleh langsung membuat jam gagal: LANGKAH diulang di halaman yang sama dulu
+      (runtime.max_field_attempts), baru tangga per jam rev 30. Peta field = DATA di core/fields.py (bukan bot/fields.py); fungsi lama dipertahankan
+      sebagai pembungkus (zero-loss). Sesi/jendela mati tidak diulang di tingkat langkah (dilempar ke recovery).
   K17 (2026-11-23, AI) Jadwal pengiriman disimpan di DB (bukan config.yaml) agar bot membacanya langsung tanpa restart; batas 'sebelum'
       = window_open_minutes (web belum membuka jam lebih awal), 'sesudah' <= 25 menit (pembulatan slot memakai +30 menit).
   K16 (2026-11-23, AI) Galat SETELAH tombol kirim akhir = status tak pasti -> JANGAN kirim ulang otomatis ([CEK-MANUAL]); lebih baik
@@ -2060,6 +2106,10 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                + pindah bulan, nama snapshot per slot, buang _tampak ganda. Web: riwayat berhalaman, navigasi jam + simpan&lanjut, jadwal
                pengiriman (DB). Berkas: V7SATU.py, app.py, config.yaml, core/{db,obsdb,notify,config}.py, web/{dashboard,form,riwayat}.html,
                tests/test_rev30_bot.py (BARU), test_app, test_bot_flow. Berikutnya: kirim semalaman dengan rev 30, amati "percobaan_gagal".
+
+  [2026-11-24] Rev 31 - F3.1 diimplementasi + percobaan ulang PER LANGKAH. core/fields.py (BARU), V7SATU.py (-155 baris; generik + pembungkus),
+               core/config.py, config.yaml, tests/test_fields.py (BARU). Berikutnya: dry-run & kirim nyata rev 31; kirim snapshot 'gagal_*' bila Arah Awan Rendah
+               masih gagal 3x.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #
