@@ -112,6 +112,7 @@ def run_main(rows, argv, db_path, update_mode=False, fail_form_once=False, isi_d
         V7.login = lambda drv: rec.add("login")
         V7.klik_tombol_oke_popup = lambda *a, **k: True
         V7.memilih_stasiun = lambda drv: None
+        V7.sesi_habis = lambda drv=None: False   # [rev 35] bawaan: sesi sehat (pemeriksaan pasif tak memuat ulang apa pun)
 
         def f_tanggal(drv, utc_date=None):
             state["tanggal"] = utc_date
@@ -346,7 +347,9 @@ _seg_asli, _habis_asli = V7.segarkan_sesi, V7.sesi_habis
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     V7.SESI_TERAKHIR_OK = 0.0
     def pra_seg(rec):
-        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), True)[1]       # meniru: tadinya ter-logout, kini login ulang
+        habis = {"v": True}
+        V7.sesi_habis = lambda drv=None: habis["v"]                           # [rev 35] ter-logout sampai login ulang dilakukan
+        V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), habis.update(v=False), True)[2]
     dbS = Path(d) / "s.db"
     rec = run_main([make_row(7)], ["--observer", "Tester", "--no-gui"], dbS, pra=pra_seg)
     nama = [c[0] for c in rec.calls]
@@ -358,7 +361,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     _c = _sq.connect(str(dbS)); _ev = [r[0] for r in _c.execute("SELECT event FROM events WHERE jam='07:00'")]; _c.close()
     check("[F3.3] waktu pengisian per jam dicatat sebagai kejadian 'waktu_isi' (tampil di Riwayat)", "waktu_isi" in _ev, _ev)
 
-    V7.SESI_TERAKHIR_OK = V7.time.time()       # sesi baru saja terbukti hidup -> pemeriksaan dilewati (hemat waktu)
+    V7.SESI_TERAKHIR_OK = V7.time.time()       # [rev 35] sesi sehat -> tidak ada pemuatan ulang
     dbT = Path(d) / "t.db"
     def pra_seg2(rec):
         V7.segarkan_sesi = lambda drv: (rec.add("segarkan"), True)[1]

@@ -30,6 +30,7 @@ from flask import (Flask, Response, abort, jsonify, make_response, redirect, ren
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+from core.paths import ROOT, BUNDLE  # noqa: E402  [rev 36] mode .exe: web/ & core/*.json dibaca dari BUNDLE
 from core.config import load_config, resolve_path  # noqa: E402
 from core.db import SendLog  # noqa: E402
 from core.formschema import build_schema, field_state, SEMUA_KOLOM  # noqa: E402
@@ -41,9 +42,9 @@ ERR, WRN, INF = "ERROR", "WARNING", "INFO"
 
 def create_app(cfg=None, db_path=None):
     cfg = cfg or load_config()
-    app = Flask(__name__, template_folder=str(ROOT / "web"), static_folder=str(ROOT / "web" / "static"))
+    app = Flask(__name__, template_folder=str(BUNDLE / "web"), static_folder=str(BUNDLE / "web" / "static"))
     app.config["JSON_AS_ASCII"] = False
-    V = Validator.from_config(cfg, ROOT)
+    V = Validator.from_config(cfg, BUNDLE)
     path_db = db_path or resolve_path(cfg, "db")
     OBS = ObsStore(path_db, tz_hours=V.tz, menit_sebelum=int((cfg.get("web", {}) or {}).get("menit_sebelum", 2)))
     LOG = SendLog(path_db)
@@ -66,7 +67,7 @@ def create_app(cfg=None, db_path=None):
 
     def daftar_observer():
         boleh = (cfg.get("observers", {}) or {}).get("allowed") or []
-        obs = [o["name"] for o in json.load(open(ROOT / "core" / "options.json", encoding="utf-8")).get("observer", [])
+        obs = [o["name"] for o in json.load(open(BUNDLE / "core" / "options.json", encoding="utf-8")).get("observer", [])
                if o.get("active", True)]
         return [o for o in obs if not boleh or o in boleh]
 
@@ -166,7 +167,13 @@ def create_app(cfg=None, db_path=None):
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
-            if hmac.compare_digest(request.form.get("pin", ""), PIN):
+            benar = hmac.compare_digest(request.form.get("pin", ""), PIN)
+            try:   # [rev 36] jejak akses (panel > Akses Remote > 'Akses terakhir'); PIN tidak pernah dicatat
+                LOG.log_event(dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"), "--", "akses_web",
+                              f"{'PIN benar' if benar else 'PIN salah'} · {request.remote_addr}")
+            except Exception:
+                pass
+            if benar:
                 r = make_response(redirect(request.args.get("next") or "/"))
                 r.set_cookie("pin_ok", hmac.new(PIN.encode(), b"synop", "sha256").hexdigest(), max_age=86400 * 30,
                              httponly=True, samesite="Lax")

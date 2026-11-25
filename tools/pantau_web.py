@@ -36,6 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from core.paths import ROOT  # noqa: E402  [rev 36] mode .exe: pantau_out/ di samping program
 
 # --------------------------------------------------------------------------- #
 #  JS: potret semua kolom form (label, id, nilai, aktif/nonaktif, bagian)       #

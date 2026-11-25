@@ -54,8 +54,8 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 34
-  Terakhir diperbarui : 2026-11-24
+  Revisi catatan      : 36
+  Terakhir diperbarui : 2026-11-25
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
                         F1.10 (rev 19: aturan QC konsistensi di core/qc.py; 39 tes lulus),
@@ -102,12 +102,68 @@ TUJUAN FILE INI
                         dari PPT ke validator (subset, WARNING dulu); (4) pemeriksaan QFF vs QFE
                         setelah Fill AWS Digi; (5) F3.7 notifikasi; (6) F2 form/dashboard;
                         (7) kemungkinan otomatisasi CLIMAT.
+  REV 36 (2026-11-25) - F4.3 APLIKASI DESKTOP LOKAL "SYNOP OTOMATIS" + PAKET .EXE (KODE SELESAI; MENUNGGU UJI DI PC STASIUN):
+    * Diminta pengguna: aplikasi utuh dari desain REV 33 (sketsa fleksibel) + perubahan terbaru (rev 28-35) + tutorial pemasangan + catatan handoff + rev36.patch.
+    * KEPUTUSAN (menjawab 'pertanyaan terbuka' REV 33): TOOLKIT = panel WEB LOKAL (Flask, hanya 127.0.0.1:8765) yang ditampilkan di JENDELA pywebview
+      (WebView2) dan otomatis jatuh ke browser bawaan bila pywebview/WebView2 tak ada. Alasan: desain sudah berupa HTML/CSS (token terang/malam dipakai
+      langsung), satu bahasa dengan dashboard, dan .exe tetap sederhana. KONTROL BOT DARI HP = TIDAK: panel tidak pernah dibuka lewat tunnel (tunnel hanya ke web
+      form); panel menolak Host selain 127.0.0.1/localhost (DNS-rebinding) dan POST tanpa header X-Panel (CSRF).
+    * LAYAR (menu = daftar MENU di panel/index.html; kartu modular; warna lewat token; pil status seragam ok/wt/of/er):
+        Beranda    : kartu Web form / Bot / Akses remote (Mulai-Hentikan), Jadwal hari ini (UTC) dari send_log+obsdb, Aktivitas terakhir (events), CEK SISTEM
+                     (Chrome, kredensial, WEB_PIN, cloudflared, Telegram + tombol 'Kirim pesan uji', Sesi BMKG Satu [rev 35], Struktur web/selector [F3.9], Database).
+        Bot Pengirim: observer, jam tertentu, proses jam lewat, Mulai (kirim nyata; dengan konfirmasi) / Dry-run / Hentikan, status+sesi+selector, log ringkas.
+        Pantau Web : Dry-run / Jelajah / Kirim nyata (terkunci sampai izin dicentang), hasil terakhir (isi_data vs <60 dtk V6, sandi, langkah terlambat), laporan, .zip.
+        Akses Remote: aktifkan cloudflared (WAJIB WEB_PIN & cloudflared), link, salin, QR (segno), keamanan, akses terakhir (jejak login web baru di app.py).
+        Log        : tail bot/web/remote/pantau.   Pengaturan: daftar putih config (disimpan di config.panel.yaml, menimpa config.yaml) + rahasia .env (tulis-saja).
+        Mode malam (localStorage). Tidak diambil dari sketsa: 'Bandingkan run' (belum ada sumber data; tambahkan bila diperlukan).
+    * ARSITEKTUR: tiap komponen = proses terpisah (core/proses.py: berkas PID logs/<nama>.pid + log logs/<nama>.log; Hentikan = seluruh pohon proses termasuk Chrome bot;
+      menutup panel TIDAK menghentikan bot; panel yang dibuka lagi mengenali proses hidup). synop_app.py = titik masuk tunggal (--jalankan bot|web|pantau|telegram) -> jalur
+      yang sama di mode skrip dan .exe. core/paths.py: ROOT (folder tulis: di samping .exe) vs BUNDLE (sumber daya baca-saja: web/, core/*.json); core/config.py, V7SATU.py,
+      app.py, tools/pantau_web.py disesuaikan (mode skrip: ROOT==BUNDLE -> perilaku lama TIDAK berubah). core/status.py: bot menulis data/status_bot.json (sesi, selector) untuk panel.
+      load_config(muat_env=False) + config.panel.yaml. Panel membuang salinan lama rahasia dari environment saat memulai anak agar .env terbaru selalu terbaca.
+    * PAKET: synop.spec (PyInstaller onedir; DUA exe: SynopOtomatis.exe tanpa konsol = panel, SynopWorker.exe berkonsol = bot/web/pantau agar stdout->log aman), build_exe.bat,
+      requirements-build.txt, requirements.txt (+segno, +pywebview win32), .env.example (BARU; README menyebutnya tetapi tak pernah ada), tools/__init__.py.
+      TERBUKTI di sandbox Linux: build berhasil; SynopWorker --jalankan telegram/web berjalan dari paket (template dari BUNDLE, data/ di samping exe); SynopOtomatis memulai web via SynopWorker.
+      BELUM TERBUKTI: build di Windows, jendela pywebview/WebView2, Chrome+Selenium dari .exe, SmartScreen/antivirus, cloudflared. 
+    * DOKUMEN: docs/PANDUAN_PEMASANGAN.md (kebutuhan, build, pemasangan pertama, pemakaian, akses HP, TABEL PENYESUAIAN [port, host, zona waktu WITA/WIT, nama stasiun, observer,
+      proxy, popup], pembaruan tanpa kehilangan data, pemecahan masalah). README: bagian aplikasi desktop.
+    * TES: tests/test_panel.py BARU (44): proses/PID/log, keamanan panel, validasi bot/pantau/remote, pengaturan & rahasia (tak pernah bocor), hasil pantau, dispatch, siapkan(), sintaks JS.
+      UI juga dijalankan di jsdom terhadap server panel hidup: 6 layar tampil tanpa galat JS (uji sekali pakai, tidak masuk repo). Seluruh tes lama tetap lulus.
+    * Berikutnya: (1) PC stasiun: jalankan build_exe.bat, buka SynopOtomatis.exe, isi kredensial, Cek sistem hijau, Dry-run lewat panel, lalu kirim nyata; laporkan hal yang perlu penyesuaian
+      (jendela WebView2? Chrome/driver dari .exe? teks popup sesi?); (2) F4.3 resmi [x] setelah langkah (1) lulus; (3) F4.4 autostart, F4.5 SOP, F4.6 uji paralel; (4) rev 35 tetap menunggu uji nyata.
+
+  REV 35 (2026-11-25) - F3.9 HEALTH CHECK SELECTOR, SESI PASIF (TANPA MUAT ULANG TIAP JAM), KALENDER KUAT:
+    * AKAR MASALAH KALENDER (snapshot 20261124_1100UTC__gagal-percobaan1): kalender terbuka, sel 24 ada & tidak nonaktif, tetapi 'No date selected'
+      dan Nama Observer masih disabled. tanggal_di_web() membaca value TOMBOL #input-datepicker (selalu kosong -> None) sehingga klik yang
+      TIDAK memilih apa pun dianggap berhasil (return True), lalu langkah jam/observer gagal. Nilai asli ada di <output data-selected> (kalender)
+      dan <label id=input-datepicker__value_> (kosong sampai ada tanggal).
+      PERBAIKAN (V7SATU.py): tanggal_di_web() kini membaca keduanya (+ parser label dd/mm/yyyy, ISO, 'Selasa, 24 November 2026'); hasil
+      'YYYY-MM-DD' | '' (belum dipilih) | None (tak terbaca). _pilih_tanggal_sekali: tangga cara klik DIVERIFIKASI tiap cara (CARA_KLIK_TANGGAL =
+      biasa -> js (klik span di dalam sel) -> aksi (ActionChains) -> vue (set localYMD bootstrap-vue; cadangan terakhir, bergantung internal Vue));
+      sel dicari ulang tiap cara (hindari stale). main: tanggal dipilih ulang bila tampilan web kosong/berbeda walau cache tanggal_aktif sama.
+      BELUM TERBUKTI DI WEB ASLI: penyebab klik diam belum diketahui pasti (log kegagalan tidak ada); verifikasi nyata + 4 cara klik adalah jaring pengaman.
+    * SESI PASIF (permintaan pengguna: jangan refresh tiap jam): pastikan_sesi() TIDAK lagi memanggil login() (buka ulang halaman) bila sesi
+      masih berlaku. sesi_habis() murni membaca DOM: halaman login ATAU popup 'sesi habis' (swal2/modal berisi kata sesi/session/expired/berakhir/...;
+      daftar kata bisa diubah di config session.kata_popup). Bila terdeteksi: snapshot 'popup_sesi_habis' -> klik OK -> tunggu halaman login ->
+      user & password stasiun diisi ulang (login()) -> popup awal -> stasiun; observer & tanggal dipilih ulang. Saat menunggu jam, bot memeriksa
+      pasif tiap session.pantau_pasif_detik (60) sehingga popup ditangani segera. cek_ulang_menit DIABAIKAN (dipertahankan di config agar valid).
+      BELUM TERUJI DI WEB ASLI: teks popup asli belum pernah dilihat. Bila popup tak terdeteksi: lihat snapshot/log, isi session.kata_popup.
+    * F3.9 (core/health.py BARU, tanpa selenium): periksa(execute_script, form) hanya MEMBACA halaman. Kerangka (input-datepicker, input-jam, select-observer
+      + label Stasiun/Tanggal/Jam/Nama Observer) dicek berkala saat menunggu (health.cek_detik 600); field berid wajib 'selalu' di core/fields.py dicek
+      sesudah jam dipilih, SEBELUM pengisian & SEND (cek_selector_form). Melapor lewat Telegram jenis 'selector' sekali per perubahan; tidak pernah
+      menggagalkan jam. Batas: form baru ada setelah jam dipilih, jadi cek field penuh terjadi menjelang jam (bukan jauh sebelumnya); field bersyarat tidak dicek.
+    * F3.10: kotak centang di rencana ketinggalan ([ ]); sebenarnya sudah selesai sejak rev 15 (pengguna: 'sudah berhasil') -> ditandai [x].
+    * Berkas: V7SATU.py, core/health.py (BARU), core/config.py, config.yaml, tests/test_rev30_bot.py (+11), tests/test_sesi_chrome.py, tests/test_bot_flow.py
+      (disesuaikan ke semantik pasif). Semua 664 pemeriksaan lulus di sandbox.
+    * Berikutnya: dry-run & kirim nyata (lihat apakah 'tanggal terverifikasi (cara ...)' muncul; cara mana yang dipakai); tunggu logout sesi berikutnya dan kirim
+      snapshot popup_sesi_habis; F4.3 paket .exe, F4.4 autostart, F4.5 SOP, F4.6 uji paralel.
+
   REV 34 (2026-11-24) - F3.5 GERBANG PERSETUJUAN + F3.6 DITUTUP:
     * F3.5 dikerjakan (lihat daftar fase). Config baru: gerbang.aktif / gerbang.detik (config.yaml + core/config.py).
     * F3.6: sudah terpenuhi; tambah event 'ww_diubah' (V7SATU.py, tepat setelah fallback_ww berhasil).
     * Berkas: V7SATU.py, core/config.py, config.yaml, tests/test_gerbang.py (BARU), tests/test_form_salin.py (urutan kolom disesuaikan ke skema
       repo: keadaan tanah paling akhir di form; bot tetap mengisi penguapan, radiasi, tanah, iE, lama penyinaran). Semua tes lulus.
-    * Berikutnya: F3.9 health check selector, F4.3 paket .exe (desain awal: REV 33), F4.4 autostart, F4.5 SOP, F4.6 uji paralel.
+    * Berikutnya: F4.3 paket .exe (desain awal: REV 33), F4.4 autostart, F4.5 SOP, F4.6 uji paralel.
 
   REV 33 (2026-11-24) - DESAIN AWAL APLIKASI DESKTOP LOKAL (F4.3 BAGIAN TAMPILAN) -- DESAIN SAJA, BELUM ADA KODE:
     * DISCLAIMER: ini DESAIN AWAL. Saat aplikasi dibuat, tata letak, menu, dan fitur boleh berubah dan bertambah; apa pun yang belum tergambar
@@ -1867,14 +1923,14 @@ FASE 3 - BOT LEBIH TAHAN BANTING
              pengelola BMKG Satu (K3).
     DoD    : keputusan tertulis (pakai/tidak) beserta alasannya.
 
-[ ] F3.9  Health check selector (pengganti API; K3)
+[~] F3.9  Health check selector (pengganti API; K3)  (rev 35: kode + tes selesai; menunggu dry-run/uji nyata)
     Tujuan : tahu lebih awal jika web berubah sebelum jam kirim.
     Cara   : fungsi yang memeriksa keberadaan semua field/toggle di
              fields.py (mode baca) saat start dan berkala; peringatan lewat
              notifikasi bila ada yang hilang/bergeser.
     DoD    : perubahan struktur web terdeteksi dan dilaporkan sebelum SEND.
 
-[ ] F3.10 Lapisan awan tambahan (K5): menengah-2 (prioritas, kasus Ac+As),
+[x] F3.10 Lapisan awan tambahan (K5)  (SELESAI rev 15; pengguna: 'sudah berhasil'; centang diperbarui rev 35): menengah-2 (prioritas, kasus Ac+As),
           lalu rendah-3 dan tinggi-2
     Tujuan : bisa mengisi lapisan tambahan secara andal.
     Cara   : toggle dicari lewat (seksi + urutan di seksi), BUKAN id hardcoded;
@@ -1896,8 +1952,8 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
     Pencarian per tanggal, siapa mengubah apa, ekspor.
 [~] F4.7  Cadangan kegagalan: tangga percobaan ulang, titik tak-kembali, retry putaran berikutnya, auto-restart (rev 30; menunggu uji kirim nyata)
 [~] F4.8  Jadwal pengiriman dari dashboard + navigasi jam di form (rev 30; menunggu uji pengguna)
-[ ] F4.3  Paket .exe (PyInstaller) atau shortcut desktop
-      (rev 33: DESAIN AWAL tampilan aplikasi sudah dibuat -- lihat REV 33; kode belum ada; desain boleh berubah/bertambah)
+[~] F4.3  Paket .exe (PyInstaller) atau shortcut desktop  (rev 36: aplikasi panel + synop.spec + build_exe.bat + panduan selesai di kode; MENUNGGU uji build/pakai di PC stasiun)
+      (desain awal: REV 33; hasil: REV 36)
 [ ] F4.4  Autostart (Windows Task Scheduler) + pemulihan otomatis saat PC
     restart
 [ ] F4.5  Dokumentasi & SOP pegawai (panduan singkat + troubleshooting)
@@ -2186,6 +2242,12 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
   [2026-11-24] Rev 31 - F3.1 diimplementasi + percobaan ulang PER LANGKAH. core/fields.py (BARU), V7SATU.py (-155 baris; generik + pembungkus),
                core/config.py, config.yaml, tests/test_fields.py (BARU). Berikutnya: dry-run & kirim nyata rev 31; kirim snapshot 'gagal_*' bila Arah Awan Rendah
                masih gagal 3x.
+
+  [2026-11-25] Rev 36 - F4.3 aplikasi desktop (panel Flask+pywebview), core/{paths,proses,status}.py, panel.py, panel/index.html, synop_app.py, synop.spec, build_exe.bat,
+               docs/PANDUAN_PEMASANGAN.md, tests/test_panel.py (+44), rev36.patch. Berikutnya: build & uji di PC stasiun (lihat REV 36).
+  [2026-11-25] Rev 35 - Kalender: verifikasi tanggal nyata + 4 cara klik (klik diam dianggap sukses = akar galat 24 Nov 11:00 UTC). Sesi: pemeriksaan pasif,
+               login ulang hanya bila popup/halaman login (OK -> login -> isi user/pw). F3.9 core/health.py. F3.10 centang [x]. Berkas: V7SATU.py, core/health.py,
+               core/config.py, config.yaml, tests/{test_rev30_bot,test_sesi_chrome,test_bot_flow}.py. Berikutnya: uji nyata (lihat REV 35).
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

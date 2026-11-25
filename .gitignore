@@ -7,3 +7,9 @@ rules_*/
 __pycache__/
 chrome_profile/
 pantau_out/
+panel_logs/
+logs/
+config.panel.yaml
+build/
+dist/
+*.spec.bak

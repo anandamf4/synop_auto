@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8"><title>SYNOP Otomatis</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Token warna (terang / malam) - sama dengan sketsa REV 33; warna HANYA lewat variabel ini */
+:root{--bg:#F3F5F9;--sf:#fff;--s2:#F6F8FB;--bd:#E1E6EE;--tx:#162133;--mu:#586A7E;--ac:#1D5FD1;--acb:#fff;--acs:#E7EFFD;--sb:#0E2747;--sbt:#BFD0E6;--sbh:#193A66;
+--ok:#12703F;--okb:#E0F3E8;--wn:#865000;--wnb:#FFEFCF;--of:#4A5967;--ofb:#EBEEF3;--er:#A32121;--erb:#FBE3E3;--sh:0 1px 2px rgba(16,32,60,.06),0 4px 14px rgba(16,32,60,.05)}
+body.dk{--bg:#0B1118;--sf:#131C29;--s2:#172233;--bd:#233147;--tx:#E4EBF4;--mu:#93A4B9;--ac:#6AA6FF;--acb:#08162B;--acs:#16294A;--sb:#080D14;--sbt:#93A4B9;--sbh:#142033;
+--ok:#5FD39A;--okb:#12301F;--wn:#F2B84B;--wnb:#33270F;--of:#9AA9BB;--ofb:#1C2736;--er:#FF8A8A;--erb:#3A1B1B;--sh:none}
+*{box-sizing:border-box}body{margin:0;font:13px/1.45 "Segoe UI",system-ui,sans-serif;color:var(--tx);background:var(--bg);display:flex;height:100vh;overflow:hidden}
+.sb{width:210px;flex:none;background:var(--sb);color:var(--sbt);display:flex;flex-direction:column;padding:18px 12px;gap:3px}
+.lg{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:14.5px;padding:2px 8px 18px}.lg i{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#2F80ED,#56CCF2)}
+.lg small{display:block;font-weight:400;font-size:11px;color:#8FA6C4}
+.nv{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-weight:500;position:relative;cursor:pointer;user-select:none}
+.nv:hover{background:var(--sbh)}.nv svg,.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nv.on{background:var(--sbh);color:#fff}.nv.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:#56A0FF}
+.slot{border:1px dashed #36517A;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#7F97B8;margin-top:6px}.sp{flex:1}
+.st{border-top:1px solid #1D3558;padding:12px 8px 0;font-size:11px;color:#8FA6C4;line-height:1.55}
+.mn{flex:1;padding:18px 24px 14px;display:flex;flex-direction:column;gap:14px;min-width:0;overflow-y:auto}
+.tb{display:flex;align-items:center;justify-content:space-between;gap:12px}.tb h1{margin:0;font-size:21px;letter-spacing:-.2px}.tb p{margin:2px 0 0;color:var(--mu);font-size:12px}
+.chips{display:flex;align-items:center;gap:8px}.chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--bd);background:var(--sf);border-radius:99px;padding:5px 11px;font-size:12px;font-weight:500;white-space:nowrap;cursor:default}
+.mono{font-family:Consolas,"JetBrains Mono",monospace}
+.sw{width:30px;height:17px;border-radius:99px;background:var(--bd);position:relative;display:inline-block;flex:none}.sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on{background:var(--ac)}.sw.on::after{left:15px;background:var(--acb)}
+.cd{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:15px;box-shadow:var(--sh)}.cd h2{margin:0 0 10px;font-size:12.5px;font-weight:600}
+.row{display:flex;gap:14px}.row>*{flex:1;min-width:0}.col{display:flex;flex-direction:column;gap:14px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.pl{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:2px 9px;font-size:11.5px;font-weight:600;white-space:nowrap}.pl::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ok{background:var(--okb);color:var(--ok)}.wt{background:var(--wnb);color:var(--wn)}.of{background:var(--ofb);color:var(--of)}.er{background:var(--erb);color:var(--er)}
+.bt{border:0;border-radius:8px;padding:8px 13px;font:600 12.5px "Segoe UI",sans-serif;cursor:pointer;background:var(--ac);color:var(--acb)}.bt:disabled{opacity:.45;cursor:default}
+.bt.sc{background:transparent;color:var(--tx);border:1px solid var(--bd)}.bt.dg{background:transparent;color:var(--er);border:1px solid var(--er)}.bt.sm{padding:5px 11px}
+.mu{color:var(--mu)}.tile{width:34px;height:34px;border-radius:9px;background:var(--acs);color:var(--ac);display:flex;align-items:center;justify-content:center;flex:none}
+.lbl{font-size:11.5px;font-weight:600;color:var(--mu);margin-bottom:5px;display:block}
+.in,select,input[type=text],input[type=number],input[type=password]{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;background:var(--s2);font:13px "Segoe UI",sans-serif;color:var(--tx);width:100%}
+.ln{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--bd)}.ln:first-of-type{border-top:0}.grow{flex:1;min-width:0}
+.tl{border-left:2px solid var(--bd);margin-left:6px;padding-left:16px;display:flex;flex-direction:column;gap:11px}
+.tl>div{display:flex;align-items:center;justify-content:space-between;position:relative}.tl>div::before{content:"";position:absolute;left:-22px;width:10px;height:10px;border-radius:50%;background:var(--bd)}
+.tl>div.now::before{background:var(--ac)}
+.ds{border:1px dashed var(--bd);border-radius:8px;padding:6px 10px;font-size:11px;color:var(--mu);text-align:center}
+.url{font-family:Consolas,monospace;font-size:15px;padding:12px;border:1px solid var(--bd);border-radius:8px;background:var(--s2);word-break:break-all}
+pre.log{margin:0;background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:10px;font:11.5px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:62vh}
+label.ck{display:flex;align-items:center;gap:8px;cursor:pointer}label.ck input{width:auto}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:8px;max-width:420px;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}.toast.on{opacity:1}
+.big{font-size:20px;font-weight:700}.sub{font-size:11px;color:var(--mu)}
+.bar{height:6px;border-radius:99px;background:var(--bd);overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--ac)}
+#qr{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:10}#qr.on{display:flex}#qr div{background:#fff;padding:24px;border-radius:14px;text-align:center;color:#111}#qr img{width:min(70vh,420px)}
+</style></head><body>
+<aside class="sb"><div class="lg"><i></i><span>SYNOP Otomatis<small>BMKG Satu · lokal</small></span></div>
+<div id="menu"></div><div class="slot">+ Menu baru dapat ditambah (daftar MENU di panel/index.html)</div><div class="sp"></div>
+<div class="st" id="stasiun">memuat…</div></aside>
+<main class="mn"><div class="tb"><div><h1 id="jd"></h1><p id="sd"></p></div>
+<div class="chips"><span class="chip mono" id="utc">UTC --:--:--</span><span class="chip" id="tg"></span>
+<span class="chip" id="mm" style="cursor:pointer">Mode malam <i class="sw" id="sw"></i></span></div></div>
+<div id="isi" class="col"></div></main><div class="toast" id="ts"></div>
+<div id="qr" onclick="this.classList.remove('on')"><div><img id="qri" alt="QR"><p>Pindai dari HP · ketuk untuk menutup</p></div></div>
+<script>
+const I={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',bot:'<rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 4v4M9 13h.01M15 13h.01"/>',mon:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',net:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',log:'<path d="M5 4h14v16H5zM8 9h8M8 13h8M8 17h5"/>',cfg:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+chrome:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>',kunci:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',pin:'<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>',awan:'<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/>',kirim:'<path d="M22 3L10 14M22 3l-7 18-4-8-8-4z"/>',sesi:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',web:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',db:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>'};
+const ic=n=>`<svg class="ic" viewBox="0 0 24 24">${I[n]||''}</svg>`;
+const MENU=[['beranda','Beranda','home'],['bot','Bot Pengirim','bot'],['pantau','Pantau Web','mon'],['remote','Akses Remote','net'],['log','Log','log'],['cfg','Pengaturan','cfg']];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pil=(st,t)=>`<span class="pl ${st}">${esc(t)}</span>`;
+let hal=localStorage.hal||'beranda',R=null,CEK=null,tk=0;
+const $=id=>document.getElementById(id);
+function toast(t){const e=$('ts');e.textContent=t;e.classList.add('on');clearTimeout(tk);tk=setTimeout(()=>e.classList.remove('on'),4200)}
+async function api(u,b){const o=b===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Panel':'1'},body:JSON.stringify(b)};
+ try{const r=await fetch(u,o);return await r.json().catch(()=>({ok:r.ok}))}catch(e){return{ok:false,pesan:'Panel tidak merespons'}}}
+async function aksi(nama,a,opsi){const r=await api('/api/proses',{nama,aksi:a,opsi});toast(r.pesan||(r.ok?'OK':'Gagal'));await muat();return r}
+function tema(on){document.body.classList.toggle('dk',on);$('sw').classList.toggle('on',on);localStorage.dk=on?1:''}
+$('mm').onclick=()=>tema(!document.body.classList.contains('dk'));tema(!!localStorage.dk);
+function menu(){$('menu').innerHTML=MENU.map(m=>`<div class="nv ${m[0]==hal?'on':''}" onclick="pergi('${m[0]}')">${ic(m[2])}${m[1]}</div>`).join('')}
+function pergi(h){hal=h;localStorage.hal=h;menu();render(true)}
+async function muat(){R=await api('/api/ringkas');if(!R||!R.proses)return;$('stasiun').innerHTML=`${esc(R.stasiun)}<br>${R.rev}`;
+ $('tg').innerHTML=`<span class="pl ${R.telegram?'ok':'of'}">Telegram ${R.telegram?'aktif':'belum diatur'}</span>`;render(false)}
+setInterval(()=>{if(R)$('utc').textContent='UTC '+new Date().toISOString().substr(11,8)},1000);
+const J={beranda:['Beranda','Kontrol semua komponen dari satu tempat. Semua berjalan lokal di PC ini.'],bot:['Bot Pengirim','Mengisi & mengirim data SYNOP ke BMKG Satu tiap jam dari data form web.'],
+pantau:['Pantau Web','Jalankan bot dalam mode pemantauan: tiap langkah diukur dan direkam.'],remote:['Akses Remote','Buka form dari HP di jaringan mana pun. Aplikasi tetap berjalan di PC ini.'],
+log:['Log','Keluaran terbaru tiap komponen.'],cfg:['Pengaturan','Pengaturan umum, kredensial, dan Telegram. Berlaku saat komponen dijalankan ulang.']};
+let polling=null;
+function render(paksa){if(!R)return;$('jd').textContent=J[hal][0];$('sd').textContent=J[hal][1];const f=V[hal];
+ if(paksa||!f.hidup){f.bangun()}f.hidup&&f.hidup();}
+function kartuProses(n,judul,ik,btn,ket){const p=R.proses[n];return `<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;gap:8px;align-items:center;font-weight:600">${ic(ik)}${judul}</span>${pil(p.st,p.ket)}</div>
+<p class="mu" style="min-height:34px;margin:8px 0">${esc(p.detail||ket)}</p><div style="display:flex;gap:8px;flex-wrap:wrap">${btn}</div></div>`}
+function observerSel(id){const k=localStorage['obs_'+id]||'';return `<select id="${id}" onchange="localStorage['obs_${id}']=this.value"><option value="">— pilih observer —</option>${R.observers.map(o=>`<option ${o==k?'selected':''}>${esc(o)}</option>`).join('')}</select>`}
+async function mulaiBot(dry){if(!dry&&!confirm('Mulai bot dalam mode KIRIM NYATA?\nData akan dikirim ke BMKG Satu tiap jam.'))return;
+ aksi('bot','mulai',{observer:$('obsb').value,dry_run:dry,konfirmasi_kirim_nyata:!dry,lampau:$('lampau')?.checked,jam:$('jamb')?.value||''})}
+const V={};
+V.beranda={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=()=>{
+ const pr=R.proses;const jd=R.jadwal.map(j=>`<div class="${j.sekarang?'now':''}"><span class="mono">${j.jam}</span>${pil(j.st,j.ket)}</div>`).join('')||'<span class="mu">Belum ada data hari ini.</span>';
+ const ak=R.aktivitas.map(a=>`<div class="ln"><span class="mono mu">${esc(a.waktu)}</span><span class="grow">${esc(a.jam&&a.jam!='--'?a.jam+' · ':'')}${esc(a.event)} ${esc(a.detail)}</span></div>`).join('')||'<span class="mu">Belum ada aktivitas.</span>';
+ const cek=CEK?CEK.map(c=>`<div class="ln"><span class="tile" style="width:30px;height:30px">${ic(c.ikon)}</span><div class="grow"><div style="font-weight:600">${esc(c.nama)}</div><div class="mu">${esc(c.detail)}</div></div>${c.aksi=='uji_telegram'?'<button class="bt sc sm" onclick="ujiTg(this)">Kirim pesan uji</button>':''}${pil(c.status,{ok:'Siap',wt:'Periksa',of:'Belum'}[c.status])}</div>`).join(''):'<span class="mu">Memeriksa…</span>';
+ const h=`<div class="row">${kartuProses('web','Web form & dashboard','web',`<button class="bt" onclick="api('/api/buka_web',{})">Buka</button>`+(pr.web.jalan?`<button class="bt sc" onclick="aksi('web','henti')">Hentikan</button>`:`<button class="bt" onclick="aksi('web','mulai')">Mulai</button>`),'Buka di localhost:'+R.port_web+' atau dari HP lewat Akses Remote.')}
+ ${kartuProses('bot','Bot pengirim','bot',pr.bot.jalan?`<button class="bt dg" onclick="aksi('bot','henti')">Hentikan</button>`:`<button class="bt" onclick="pergi('bot')">Atur & mulai…</button>`,'Atur observer lalu mulai di menu Bot Pengirim.')}
+ ${kartuProses('remote','Akses remote','net',pr.remote.jalan?`<button class="bt dg" onclick="aksi('remote','henti')">Matikan</button><button class="bt sc" onclick="pergi('remote')">Lihat link</button>`:`<button class="bt" onclick="aksi('remote','mulai')">Aktifkan</button>`,'Aktifkan untuk membuka form dari HP di jaringan mana pun.')}</div>
+ <div class="row" style="align-items:flex-start"><div class="col"><div class="cd"><h2>Jadwal hari ini (UTC)</h2><div class="tl">${jd}</div></div><div class="cd"><h2>Aktivitas terakhir</h2>${ak}</div></div>
+ <div class="cd"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">Cek sistem</h2><button class="bt sc sm" onclick="cekUlang()">Cek ulang</button></div>${cek}</div></div>`;
+ if($('b').dataset.h!==h){$('b').dataset.h=h;$('b').innerHTML=h}}}};
+async function cekUlang(){CEK=null;const r=await api('/api/cek');CEK=r.baris;if(hal=='beranda')V.beranda.hidup()}
+async function ujiTg(b){b.disabled=true;const r=await api('/api/telegram/uji',{});toast((r.ok?'Telegram: terkirim. ':'Telegram GAGAL: ')+(r.pesan||''));cekUlang()}
+V.bot={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=()=>{const b=$('b');if(!b.dataset.k){b.dataset.k=1;
+ b.innerHTML=`<div class="g2"><div class="cd"><h2>Jalankan bot</h2><div class="col" style="gap:10px"><div><span class="lbl">Observer</span>${observerSel('obsb')}</div>
+ <div><span class="lbl">Hanya jam tertentu (UTC, opsional)</span><input type="text" id="jamb" placeholder="07:00 atau 07:00,08:00"></div>
+ <label class="ck"><input type="checkbox" id="lampau"> Proses juga jam yang sudah lewat</label>
+ <div style="display:flex;gap:8px"><button class="bt" onclick="mulaiBot(false)">Mulai (kirim nyata)</button><button class="bt sc" onclick="mulaiBot(true)">Dry-run</button><button class="bt dg" onclick="aksi('bot','henti')">Hentikan</button></div>
+ <p class="sub">Menutup panel TIDAK menghentikan bot. Gerbang persetujuan: ${R.gerbang.aktif?`jendela batal ${R.gerbang.detik} dtk sebelum SEND`:'nonaktif'}.</p></div></div>
+ <div class="cd"><h2>Status</h2><div id="bs"></div></div></div><div class="cd"><h2>Log bot (terbaru)</h2><pre class="log" id="bl" style="max-height:34vh"></pre></div>`}
+ const p=R.proses.bot;$('bs').innerHTML=`<div class="ln">${pil(p.st,p.ket)}<span class="grow">${esc(p.detail)}</span></div>`+(CEK?CEK.filter(c=>['Sesi BMKG Satu','Struktur web (selector)','Kredensial BMKG Satu'].includes(c.nama)).map(c=>`<div class="ln">${pil(c.status,{ok:'Siap',wt:'Periksa',of:'Belum'}[c.status])}<span class="grow"><b>${esc(c.nama)}</b><br><span class="mu">${esc(c.detail)}</span></span></div>`).join(''):'');
+ api('/api/log?nama=bot&n=14').then(r=>{if($('bl'))$('bl').textContent=(r.baris||[]).join('\n')||'(belum ada log)'})}}};
+V.pantau={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=()=>{const b=$('b');if(!b.dataset.k){b.dataset.k=1;
+ b.innerHTML=`<div class="g2"><div class="cd"><h2>Jalankan pemantauan</h2><div class="col" style="gap:10px">
+ <div><span class="lbl">Mode</span><select id="pm" onchange="$('pz').style.display=this.value=='kirim'?'flex':'none'"><option value="dryrun">Dry-run (tanpa kirim)</option><option value="jelajah">Jelajah (hanya buka & potret form)</option><option value="kirim">Kirim nyata</option></select></div>
+ <label class="ck" id="pz" style="display:none;color:var(--er)"><input type="checkbox" id="pi"> Saya izinkan pengiriman SUNGGUHAN</label>
+ <div><span class="lbl">Jam (UTC)</span><input type="text" id="pj" value="00:00"></div><div><span class="lbl">Observer</span>${observerSel('obsp')}</div>
+ <div style="display:flex;gap:8px"><button class="bt" onclick="aksi('pantau','mulai',{mode:$('pm').value,jam:$('pj').value,observer:$('obsp').value,izin:$('pi').checked})">Mulai pemantauan</button><button class="bt dg" onclick="aksi('pantau','henti')">Hentikan</button></div>
+ <div id="ps"></div></div></div><div class="cd"><h2>Hasil terakhir</h2><div id="ph" class="mu">Memuat…</div></div></div><div class="cd"><h2>Log pemantauan</h2><pre class="log" id="pl" style="max-height:30vh"></pre></div>`}
+ const p=R.proses.pantau;$('ps').innerHTML=`<div class="ln">${pil(p.st,p.ket)}<span class="grow">${esc(p.detail)}</span></div>`;
+ api('/api/pantau/hasil').then(r=>{const h=r.hasil;if(!$('ph'))return;$('ph').innerHTML=!h?'Belum ada hasil.':`<div class="sub">${esc(h.nama)} · ${esc(h.mode)}</div>
+ <div class="row" style="margin:8px 0"><div><div class="sub">Pengisian form</div><div class="big">${h.isi_data==null?'—':h.isi_data.toFixed(1)+' dtk'}</div></div><div><div class="sub">Pembanding V6</div><div class="big">&lt; 60 dtk</div></div><div><div class="sub">Sandi</div><div class="big" style="font-size:13px">${esc(h.sandi||'—')}</div></div></div>
+ <h2>Langkah paling lambat</h2>${h.lambat.map(l=>`<div class="ln"><span class="grow">${esc(l.nama)}</span><b>${l.dtk} dtk</b></div>`).join('')}
+ <div style="display:flex;gap:8px;margin-top:10px"><a class="bt sc sm" href="/api/pantau/laporan" target="_blank" style="text-decoration:none">Buka laporan</a>${h.zip?'<a class="bt sc sm" href="/api/pantau/zip" style="text-decoration:none">Kemas .zip</a>':''}</div>`});
+ api('/api/log?nama=pantau&n=14').then(r=>{if($('pl'))$('pl').textContent=(r.baris||[]).join('\n')||'(belum ada log)'})}}};
+V.remote={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=async()=>{const r=await api('/api/remote');const lanjut=$('b');
+ const h=`<div class="row" style="align-items:flex-start"><div class="cd"><div style="display:flex;justify-content:space-between"><span class="lbl">Alamat untuk HP</span>${r.jalan?pil(r.url?'ok':'wt',r.url?'Aktif':'Menyambung'):pil('of','Mati')}</div>
+ <div class="url">${r.url?esc(r.url):(r.jalan?'Menunggu link dari Cloudflare…':'Belum aktif')}</div>
+ <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${r.jalan?`${r.url?`<button class="bt" onclick="salin('${esc(r.url)}')">Salin link</button><button class="bt sc" onclick="$('qri').src='/api/qr.svg?'+Date.now();$('qr').classList.add('on')">QR layar penuh</button>`:''}<button class="bt dg" onclick="aksi('remote','henti')">Matikan akses</button>`:`<button class="bt" onclick="aksi('remote','mulai')">Aktifkan akses remote</button>`}</div>
+ ${!r.cloudflared?'<p class="sub" style="color:var(--er)">cloudflared belum terpasang — lihat panduan pemasangan.</p>':''}</div>
+ <div class="col"><div class="cd"><h2>Keamanan</h2><div class="ln">${pil(r.pin?'ok':'er','PIN')}<span class="grow">${r.pin?'WEB_PIN terisi; wajib dimasukkan di HP':'WEB_PIN kosong — akses remote ditolak sampai diisi'}</span></div>
+ <div class="ln">${pil('ok','Link')}<span class="grow">Acak, berganti tiap diaktifkan</span></div><div class="ln">${pil(r.host_web=='127.0.0.1'?'ok':'wt','Port')}<span class="grow">${r.host_web=='127.0.0.1'?'Web form hanya menerima koneksi dari PC ini':'Web form juga terbuka di jaringan lokal stasiun (host '+esc(r.host_web)+')'}</span></div>
+ <p class="sub">Link acak hanya lapisan tambahan; pengaman utama tetap PIN. Panel ini tidak pernah ikut dibuka lewat tunnel.</p></div>
+ <div class="cd"><h2>Akses terakhir</h2>${(r.akses||[]).map(a=>`<div class="ln"><span class="mono mu">${esc(a.waktu)}</span><span class="grow">${esc(a.detail)}</span></div>`).join('')||'<span class="mu">Belum ada akses tercatat.</span>'}</div></div></div>`;
+ if(lanjut.dataset.h!==h){lanjut.dataset.h=h;lanjut.innerHTML=h}}}};
+function salin(t){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();toast('Link disalin')}
+V.log={bangun(){$('isi').innerHTML=`<div class="cd"><div style="display:flex;gap:8px;margin-bottom:10px"><select id="ln" style="width:auto" onchange="V.log.hidup()"><option value="bot">Bot pengirim</option><option value="web">Web form</option><option value="remote">Akses remote</option><option value="pantau">Pantau web</option></select>
+ <button class="bt sc sm" onclick="salin($('lp').textContent)">Salin</button></div><pre class="log" id="lp"></pre></div>`;
+ this.hidup=async()=>{const r=await api('/api/log?nama='+$('ln').value+'&n=400');const e=$('lp');if(!e)return;const b=e.scrollTop+e.clientHeight>=e.scrollHeight-30;e.textContent=(r.baris||[]).join('\n')||'(belum ada log)';if(b)e.scrollTop=e.scrollHeight}}};
+V.cfg={bangun(){$('isi').innerHTML='<div class="mu">Memuat…</div>';api('/api/pengaturan').then(r=>{let g='',h='';
+ r.daftar.forEach(d=>{if(d.grup!=g){h+=`${g?'</div>':''}<div class="cd"><h2>${esc(d.grup)}</h2>`;g=d.grup}
+ h+=`<div class="ln"><span class="grow">${esc(d.label)}<br><span class="sub mono">${d.kunci}</span></span>`+(d.tipe=='bool'?`<span class="sw ${d.nilai?'on':''}" style="cursor:pointer" data-k="${d.kunci}" data-t="bool" data-v="${d.nilai?1:''}" onclick="this.classList.toggle('on');this.dataset.v=this.classList.contains('on')?1:''"></span>`:`<input style="width:110px" ${d.tipe=='int'?'type="number" min="'+d.batas[0]+'" max="'+d.batas[1]+'"':'type="text"'} data-k="${d.kunci}" data-t="${d.tipe}" value="${esc(d.nilai)}">`)+'</div>'});
+ h+=`</div><div><button class="bt" onclick="simpanCfg()">Simpan pengaturan</button> <span class="sub">Disimpan di config.panel.yaml · berlaku saat komponen dijalankan ulang</span></div>
+ <div class="cd"><h2>Kredensial & rahasia (disimpan di .env, tidak pernah ditampilkan ulang)</h2>${r.rahasia.map(x=>`<div class="ln"><span class="grow"><b>${esc(x.label)}</b><br><span class="sub">${x.terisi?'Terisi'+(x.tampil?' · '+esc(x.tampil):''):'Belum diisi'}</span></span>
+ <input type="password" style="width:230px" placeholder="nilai baru" id="r_${x.kunci}" autocomplete="off"><button class="bt sc sm" onclick="simpanR('${x.kunci}')">Simpan</button></div>`).join('')}</div>`;
+ $('isi').innerHTML=h});this.hidup=()=>{}}};
+async function simpanCfg(){const p={};document.querySelectorAll('[data-k]').forEach(e=>{p[e.dataset.k]=e.dataset.t=='bool'?!!e.dataset.v:(e.dataset.t=='int'?Number(e.value):e.value)});const r=await api('/api/pengaturan',{perubahan:p});toast(r.pesan)}
+async function simpanR(k){const v=$('r_'+k).value;if(!v){toast('Isi nilainya dulu');return}const r=await api('/api/rahasia',{kunci:k,nilai:v});toast(r.pesan);if(r.ok)V.cfg.bangun()}
+menu();muat().then(()=>{cekUlang()});setInterval(muat,3000);setInterval(()=>{if(hal=='beranda')cekUlang()},30000);
+</script></body></html>

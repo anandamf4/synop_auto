@@ -293,8 +293,10 @@ M = muat()
 
 
 class DrvURL:
-    def __init__(self, url, login_form=False, galat=False):
-        self._u, self.lf, self.galat = url, login_form, galat
+    def __init__(self, url, login_form=False, galat=False, popup=None):
+        self._u, self.lf, self.galat, self.popup = url, login_form, galat, popup
+    def execute_script(self, js, *a):
+        return [self.popup] if self.popup else []
     @property
     def current_url(self):
         if self.galat:
@@ -308,6 +310,10 @@ check("di halaman /login -> sesi_habis True", M.sesi_habis(DrvURL(LOGIN)) is Tru
 check("di dalam BMKG Satu -> sesi_habis False", M.sesi_habis(DrvURL("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik")) is False)
 check("URL tak berubah tapi kolom login muncul -> True", M.sesi_habis(DrvURL("https://bmkgsatu.bmkg.go.id/x", login_form=True)) is True)
 check("browser mati -> None (tidak dianggap ter-logout)", M.sesi_habis(DrvURL("x", galat=True)) is None)
+check("[rev 35] popup 'sesi habis' tampil (belum di halaman login) -> True",
+      M.sesi_habis(DrvURL("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik", popup="Sesi Anda telah berakhir. OK")) is True)
+check("[rev 35] popup lain (tanpa kata sesi) -> bukan sesi habis",
+      M.sesi_habis(DrvURL("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik", popup="Data berhasil disimpan")) is False)
 
 print("-- segarkan_sesi: urutan login -> popup -> stasiun --")
 urut = []
@@ -317,8 +323,10 @@ M.memilih_stasiun = lambda drv: urut.append("stasiun")
 r = M.segarkan_sesi(DrvURL(LOGIN))
 check("ter-logout -> login ulang, popup, stasiun; mengembalikan True", urut == ["login", "popup", "stasiun"] and r is True, (urut, r))
 urut.clear()
-r = M.segarkan_sesi(DrvURL("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik"))
-check("masih masuk -> tetap melewati login() (web yang memutuskan), mengembalikan False", urut[0] == "login" and r is False, (urut, r))
+M.save_debug_snapshot = lambda drv, tag="x": None
+M.WebDriverWait = lambda drv, t: type("W", (), {"until": staticmethod(lambda fn: True)})()
+r = M.segarkan_sesi(DrvURL("https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik", popup="Sesi telah berakhir"))
+check("[rev 35] popup sesi habis -> klik OK dulu, lalu login, popup awal, stasiun", urut == ["popup", "login", "popup", "stasiun"] and r is True, (urut, r))
 
 print("-- pastikan_sesi --")
 
@@ -334,11 +342,12 @@ M.driver = DrvURL(LOGIN)
 panggil = []
 M.segarkan_sesi = lambda drv: (panggil.append(1), True)[1]
 n = Notif()
-M.SESI_TERAKHIR_OK = _t.time()
-check("sesi terbukti hidup < 10 menit lalu -> dilewati (tanpa reload)", M.pastikan_sesi(n, SLOT) == (True, False) and not panggil)
+M.driver = DrvURL(DASH)
 M.SESI_TERAKHIR_OK = _t.time() - 3600
+check("[rev 35] sesi masih berlaku (walau 1 jam tak dipastikan) -> TIDAK memuat ulang halaman", M.pastikan_sesi(n, SLOT) == (True, False) and not panggil)
+M.driver = DrvURL(LOGIN)
 r = M.pastikan_sesi(n, SLOT)
-check("sesi lama tak dipastikan (1 jam) -> diperiksa; dimuat ulang", r == (True, True) and len(panggil) == 1, (r, panggil))
+check("[rev 35] ter-logout -> login ulang; dimuat ulang", r == (True, True) and len(panggil) == 1, (r, panggil))
 check("ter-logout lalu pulih otomatis -> notifikasi Telegram terkirim", len(n.pesan) == 1 and "habis sendiri" in n.pesan[0][0], n.pesan)
 M.CFG["session"]["aktif"] = False
 check("session.aktif=false -> tidak melakukan apa pun", M.pastikan_sesi(n, SLOT, paksa=True) == (True, False))
@@ -346,6 +355,7 @@ M.CFG["session"]["aktif"] = True
 
 print("-- pastikan_sesi: pemeriksaan gagal -> browser baru --")
 M.SESI_TERAKHIR_OK = 0.0
+M.driver = DrvURL(LOGIN)
 M.segarkan_sesi = lambda drv: (_ for _ in ()).throw(RuntimeError("Chrome mati"))
 M.save_debug_snapshot = lambda drv, tag="x": None
 baru_drv = DrvURL(DASH)

@@ -22,7 +22,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-ROOT = Path(__file__).resolve().parent.parent
+from core.paths import ROOT, BUNDLE  # noqa: E402,F401  [rev 36] folder tulis (.exe: di samping program) & sumber daya terkemas
 
 DEFAULTS = {
     "station": {"name": "Stasiun Meteorologi Sultan Thaha"},
@@ -64,7 +64,13 @@ DEFAULTS = {
     "session": {                              # rev 28: BMKG Satu bisa logout sendiri tiap beberapa jam
         "aktif": True,
         "cek_sebelum_detik": 180,             # periksa sesi (login ulang bila perlu) sekian detik sebelum tiap eksekusi
-        "cek_ulang_menit": 10,                # lewati pemeriksaan bila sesi terbukti hidup < sekian menit lalu
+        "cek_ulang_menit": 10,                # [rev 35] DIABAIKAN (pemeriksaan kini pasif, tanpa muat ulang); dipertahankan agar config lama tetap valid
+        "pantau_pasif_detik": 60,             # [rev 35] tiap sekian detik saat menunggu: baca DOM (tanpa muat ulang) mencari popup/halaman login
+        "kata_popup": None,                   # [rev 35] None = daftar bawaan (KATA_POPUP_SESI); isi daftar kata bila teks popup asli berbeda
+    },
+    "health": {                               # [rev 35 / F3.9] health check selector (hanya membaca halaman)
+        "aktif": True,
+        "cek_detik": 600,                     # kerangka halaman dicek paling sering tiap sekian detik saat menunggu
     },
     "features": {
         "extra_layers": True,          # F3.10: isi lapisan tambahan (rendah-3, menengah-2, tinggi-2)
@@ -112,10 +118,11 @@ def _merge(base, extra):
     return out
 
 
-def load_config(path=None):
-    """Baca .env lalu config.yaml; kunci yang tidak ada memakai DEFAULTS."""
+def load_config(path=None, muat_env=True):
+    """Baca .env lalu config.yaml (+ config.panel.yaml dari panel desktop); kunci yang tidak ada memakai DEFAULTS.
+    muat_env=False: jangan memasukkan .env ke environment proses ini (dipakai panel agar proses anak selalu membaca .env terbaru)."""
     env_file = ROOT / ".env"
-    if load_dotenv is not None and env_file.exists():
+    if muat_env and load_dotenv is not None and env_file.exists():
         load_dotenv(env_file)
     cfg_path = Path(path) if path else ROOT / "config.yaml"
     user_cfg = {}
@@ -124,6 +131,10 @@ def load_config(path=None):
             raise RuntimeError("PyYAML belum terpasang. Jalankan: pip install -r requirements.txt")
         with open(cfg_path, encoding="utf-8") as f:
             user_cfg = yaml.safe_load(f) or {}
+    panel_cfg = ROOT / "config.panel.yaml"      # [rev 36] hanya diubah lewat panel (menu Pengaturan); menimpa config.yaml
+    if path is None and panel_cfg.exists() and yaml is not None:
+        with open(panel_cfg, encoding="utf-8") as f:
+            user_cfg = _merge(user_cfg, yaml.safe_load(f) or {})
     return _merge(DEFAULTS, user_cfg)
 
 

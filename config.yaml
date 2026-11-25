@@ -46,7 +46,14 @@ chrome:
 session:
   aktif: true
   cek_sebelum_detik: 180          # periksa sesi sekian detik sebelum waktu eksekusi
-  cek_ulang_menit: 10             # lewati pemeriksaan bila sesi terbukti hidup < sekian menit lalu
+  cek_ulang_menit: 10             # [rev 35] DIABAIKAN (pemeriksaan sesi kini pasif; tidak lagi memuat ulang halaman tiap jam)
+  pantau_pasif_detik: 60          # [rev 35] saat menunggu: tiap sekian detik baca DOM mencari popup 'sesi habis' / halaman login
+  # kata_popup: [sesi, session, expired]   # [rev 35] isi bila teks popup asli tak terdeteksi (lihat snapshots/*popup_sesi_habis*.html)
+
+# [rev 35 / F3.9] health check selector: hanya MEMBACA halaman; lapor (Telegram jenis 'selector') bila id/label web hilang
+health:
+  aktif: true
+  cek_detik: 600
 
 runtime:
   timezone_offset_hours: 7        # WIB = UTC+7 (jam di web berbasis UTC)

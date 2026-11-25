@@ -7,3 +7,5 @@ pyautogui>=0.9.54
 Pillow>=10.0
 Flask>=3.0
 psutil>=5.9
+segno>=1.6                                  # [rev 36] QR link akses remote di panel (opsional)
+pywebview>=5.0; sys_platform == "win32"     # [rev 36] jendela aplikasi panel (opsional; tanpa ini panel dibuka di browser)

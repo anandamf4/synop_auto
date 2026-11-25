@@ -309,7 +309,7 @@ def _cli():
     import argparse
     ROOT = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(ROOT))
-    from core.config import load_config
+    from core.config import load_config  # noqa: E402
     ap = argparse.ArgumentParser(description="Bantu setup Telegram")
     ap.add_argument("--cari-chat-id", action="store_true", help="tampilkan chat_id yang dikenal bot")
     ap.add_argument("--test", action="store_true", help="kirim pesan uji ke TELEGRAM_CHAT_ID")

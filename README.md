@@ -194,6 +194,10 @@ Useful options:
 
 Without `--process-past`, overdue slots are normally skipped unless the send log identifies an eligible failed/interrupted slot still inside `runtime.retry_past_minutes`. Always inspect the dashboard and the BMKG Satu website after an ambiguous send result. A `[CEK-MANUAL]` status means verify the website before taking any retry action.
 
+## Desktop app (rev 36)
+
+`python synop_app.py` (or `SynopOtomatis.exe` after `build_exe.bat`) opens a local control panel: start/stop the web form, bot, web monitor and remote access, check system health (Chrome, credentials, PIN, Telegram, session, selector health), read logs, and edit common settings. Each component runs as its own process; closing the panel does not stop the bot. The panel listens on `127.0.0.1:8765` only and is never exposed through the tunnel. See `docs/PANDUAN_PEMASANGAN.md` (Indonesian) for installation, packaging and adjustments.
+
 ## Optional remote access on Windows
 
 `jalankan_remote.bat` starts the web app on `127.0.0.1:8080` in a separate window and launches a Cloudflare Quick Tunnel. It requires a non-empty `WEB_PIN` in `.env`. If `cloudflared` is missing, the script attempts to install it using Windows Package Manager (`winget`); the first installation may require closing and rerunning the script.
@@ -227,6 +231,9 @@ python tests/test_app.py
 
 | Path | Role |
 | --- | --- |
+| `synop_app.py`, `panel.py`, `panel/index.html` | Desktop app entry point, local control panel backend, and its UI. |
+| `core/paths.py`, `core/proses.py`, `core/status.py` | Script/.exe paths, per-component process control, and bot status shared with the panel. |
+| `synop.spec`, `build_exe.bat`, `docs/PANDUAN_PEMASANGAN.md` | PyInstaller packaging and installation guide. |
 | `V7SATU.py` | Main Selenium bot, scheduler, retries, and submission flow. |
 | `app.py` | Flask form, dashboard, API, imports/exports, schedule controls, and history. |
 | `config.yaml` | Station, paths, input source, runtime, browser, QC, speed, and notification settings. |

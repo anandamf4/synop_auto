@@ -20,6 +20,8 @@ Cara pakai (di folder proyek):
     python V7SATU.py --observer "Nama" --no-gui
     python V7SATU.py --check-only          # hanya validasi Excel, tanpa browser
 """
+from core import health as _health
+from core import status as _status
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -50,6 +52,7 @@ from pathlib import Path
 # [F1.x] modul proyek: konfigurasi, validator, log status
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+from core.paths import ROOT, BUNDLE  # noqa: E402  [rev 36] mode .exe: ROOT = folder tulis di samping program; BUNDLE = sumber daya terkemas
 from core.config import load_config, resolve_path, get_credentials  # noqa: E402
 from core.fields import FIELDS, TOMBOL_KIRIM  # noqa: E402   [F3.1] peta field sebagai data
 from core.validator import Validator, load_excel, format_report  # noqa: E402
@@ -1697,6 +1700,7 @@ SESI_TERAKHIR_OK = 0.0   # [rev 28] waktu (time.time) terakhir sesi BMKG Satu te
 def _tandai_sesi_ok():
     global SESI_TERAKHIR_OK
     SESI_TERAKHIR_OK = time.time()
+    _status.tulis("sesi", ok=True, ket="sesi BMKG Satu aktif")   # [rev 36] untuk panel
 
 
 def _di_halaman_login(driver):
@@ -1717,17 +1721,36 @@ def _sudah_masuk(driver):
     return urlparse(CFG["urls"]["login"]).netloc in u and "/login" not in u
 
 
+KATA_POPUP_SESI = ("sesi", "session", "expired", "kedaluwarsa", "kadaluarsa", "berakhir", "login ulang", "login kembali", "masuk kembali",
+                   "unauthorized", "unauthenticated")
+_JS_TEKS_POPUP = ("var r=[];document.querySelectorAll('div.swal2-popup, div.ant-modal-wrap, div.modal.show, [role=dialog]').forEach(function(e){"
+                  "var b=e.getBoundingClientRect(); if(b.width>0&&b.height>0) r.push((e.innerText||'').trim());}); return r;")
+
+
+def popup_sesi_habis(drv):
+    """[rev 35] Teks popup 'sesi habis' yang sedang tampil (bertombol OK); None bila tak ada. Hanya membaca DOM, tidak memuat ulang apa pun."""
+    kata = tuple((CFG.get("session", {}) or {}).get("kata_popup") or KATA_POPUP_SESI)
+    try:
+        for t in drv.execute_script(_JS_TEKS_POPUP) or []:
+            if t and any(k in t.lower() for k in kata):
+                return t
+    except Exception:
+        pass
+    return None
+
+
 def sesi_habis(drv=None):
-    """[rev 28] True = tampak ter-logout (di halaman login); False = tampak masih masuk; None = tak bisa dipastikan (browser mati)."""
+    """[rev 35] True = sesi habis (halaman login ATAU popup 'sesi habis' tampil); False = tampak masih masuk; None = tak bisa dipastikan (browser mati).
+    Murni membaca DOM: aman dipanggil sering-sering tanpa mengganggu halaman."""
     drv = drv if drv is not None else driver
     if drv is None:
         return None
     try:
-        if "/login" in (drv.current_url or ""):
+        if "/login" in (drv.current_url or "") or drv.find_elements(By.ID, "login-email"):
             return True
-        return bool(drv.find_elements(By.ID, "login-email"))
     except Exception:
         return None
+    return True if popup_sesi_habis(drv) else False
 
 
 def _login_sekali(driver):
@@ -1818,27 +1841,37 @@ def login(driver, percobaan=2):
 
 
 def segarkan_sesi(drv):
-    """[rev 28] Pastikan sesi masih berlaku SEBELUM eksekusi. login() membuka /login: sesi masih berlaku -> web mengarahkan
-    ke dalam (dilewati); sesi sudah habis (BMKG Satu logout sendiri) -> form login diisi ulang. Lalu popup + stasiun.
-    Mengembalikan True bila tadinya ter-logout."""
+    """[rev 35] Dipanggil HANYA bila sesi terdeteksi habis. Alur seperti pengguna: popup 'sesi habis' -> klik OK -> web kembali ke halaman
+    login -> user & password stasiun diisi ulang -> popup awal + stasiun. Mengembalikan True bila tadinya ter-logout."""
+    teks = popup_sesi_habis(drv)
     habis = sesi_habis(drv)
-    print("🔐 Memeriksa sesi BMKG Satu" + (" (tampak ter-logout!)" if habis else "") + "...")
+    print("🔐 Sesi BMKG Satu habis — login ulang" + (f" (popup: {teks[:80]!r})" if teks else "") + "...")
+    if teks:
+        try:
+            save_debug_snapshot(drv, "popup_sesi_habis")
+        except Exception:
+            pass
+        klik_tombol_oke_popup(drv=drv)
+        try:
+            WebDriverWait(drv, 8).until(lambda d: _di_halaman_login(d))
+        except TimeoutException:
+            print("ℹ️ Setelah OK web belum ke halaman login; login() akan membukanya sendiri")
     login(drv)
     klik_tombol_oke_popup(drv=drv)
     memilih_stasiun(drv)
+    _status.tulis("sesi", ok=True, ket="login ulang otomatis berhasil")   # [rev 36] untuk panel
     return bool(habis)
 
 
 def pastikan_sesi(notifier=None, slot=None, paksa=False):
-    """[rev 28] Dipanggil main() beberapa menit sebelum tiap slot. Mengembalikan (ok, dimuat_ulang).
-    dimuat_ulang=True -> halaman dimuat ulang: pemanggil harus memilih ulang observer & tanggal.
-    Gagal total (mis. Chrome mati) -> recover_session (buka browser baru)."""
+    """[rev 35] Pemeriksaan sesi PASIF: tidak memuat ulang halaman bila sesi masih berlaku (dulu tiap jam login()/buka ulang halaman).
+    Login ulang hanya bila terdeteksi habis (halaman login / popup). Mengembalikan (ok, dimuat_ulang).
+    dimuat_ulang=True -> halaman dimuat ulang: pemanggil harus memilih ulang observer & tanggal. Gagal total -> recover_session."""
     global driver
-    sesi_cfg = CFG.get("session", {}) or {}
-    if not sesi_cfg.get("aktif", True):
+    if not (CFG.get("session", {}) or {}).get("aktif", True):
         return True, False
-    batas = float(sesi_cfg.get("cek_ulang_menit", 10)) * 60
-    if not paksa and SESI_TERAKHIR_OK and (time.time() - SESI_TERAKHIR_OK) < batas:
+    if not paksa and sesi_habis(driver) is False:
+        _tandai_sesi_ok()
         return True, False
     try:
         habis = segarkan_sesi(driver)
@@ -1863,6 +1896,52 @@ def pastikan_sesi(notifier=None, slot=None, paksa=False):
         if ok:
             driver = baru
         return ok, True
+
+
+# ---- [rev 35 / F3.9] health check selector: hanya membaca halaman, melapor bila struktur web berubah ----
+_SELECTOR_TERAKHIR = {"t": 0.0, "hilang": None}
+
+
+def _lapor_selector(notifier, slot, hilang, tahap):
+    """Cetak + Telegram sekali per perubahan daftar yang hilang (tidak membanjiri notifikasi)."""
+    hilang = [h for h in hilang if not h.startswith("(tidak terbaca")]   # halaman tak terbaca = bukan bukti web berubah
+    kunci = (tahap, tuple(sorted(hilang)))
+    _status.tulis("selector", tahap=tahap, hilang=list(hilang))   # [rev 36] untuk baris 'Struktur web' di panel
+    if _SELECTOR_TERAKHIR["hilang"] == kunci:
+        return
+    _SELECTOR_TERAKHIR["hilang"] = kunci if hilang else None
+    if not hilang:
+        return
+    pesan = f"⚠️ Struktur web BMKG Satu tampak berubah ({tahap}): tidak ditemukan {', '.join(hilang)}. Periksa sebelum jam kirim."
+    print(pesan)
+    if notifier is not None:
+        try:
+            notifier.kirim(pesan, "selector")
+        except Exception:
+            pass
+
+
+def cek_selector_berkala(drv, notifier=None, slot=None):
+    """Kerangka halaman sinoptik, paling sering tiap health.cek_detik (bawaan 600). Dilewati bila tidak sedang di halaman sinoptik."""
+    h = CFG.get("health", {}) or {}
+    if not h.get("aktif", True) or time.time() - _SELECTOR_TERAKHIR["t"] < float(h.get("cek_detik", 600)):
+        return
+    _SELECTOR_TERAKHIR["t"] = time.time()
+    try:
+        if _di_halaman_login(drv) or "sinoptik" not in (drv.current_url or ""):
+            return
+    except Exception:
+        return
+    _lapor_selector(notifier, slot, _health.periksa(lambda *a: drv.execute_script(*a)), "kerangka")
+
+
+def cek_selector_form(drv, notifier=None, slot=None):
+    """Sesudah jam dipilih, SEBELUM pengisian & SEND: kerangka + field wajib berid. Tidak pernah menggagalkan jam (hanya melapor)."""
+    if not (CFG.get("health", {}) or {}).get("aktif", True):
+        return []
+    hilang = _health.periksa(lambda *a: drv.execute_script(*a), form=True)
+    _lapor_selector(notifier, slot, hilang, "form")
+    return hilang
 
 
 def _buka_sinoptik(driver):
@@ -2082,17 +2161,60 @@ def _pilih_tanggal_sekali(driver, utc_date):
     sel = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, xpath_date)))
     if sel.get_attribute("aria-disabled") == "true":
         raise RuntimeError(f"tanggal {utc_date} dinonaktifkan di kalender (di luar rentang yang boleh dipilih)")
-    try:
+    # [rev 35] SUMBER BUG 24 Nov 11:00 UTC: dulu klik dianggap berhasil bila tanggal tak terbaca (tombol datepicker tak punya nilai),
+    # padahal kalender masih terbuka & 'No date selected'. Kini tiap cara klik DIVERIFIKASI (label/kalender), lalu cara berikutnya.
+    for cara in CARA_KLIK_TANGGAL:
+        try:
+            _klik_sel_tanggal(driver, xpath_date, utc_date, cara)
+        except Exception as e:
+            print(f"   ↪ cara klik '{cara}' error: {type(e).__name__}: {str(e)[:90]}")
+            continue
+        if _tunggu_tanggal(driver, utc_date, 2.5):
+            if _kalender_terbuka(driver):
+                try:
+                    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                except Exception:
+                    pass
+            print(f"   ✔ tanggal terverifikasi (cara '{cara}')")
+            return True
+        print(f"   ↪ cara klik '{cara}' belum memilih tanggal; mencoba cara lain...")
+    raise RuntimeError(f"tanggal {utc_date} tidak terpilih setelah cara klik: {', '.join(CARA_KLIK_TANGGAL)}")
+
+
+CARA_KLIK_TANGGAL = ("biasa", "js", "aksi", "vue")
+_JS_KLIK_SEL = "var s=arguments[0].querySelector('span.btn'); (s||arguments[0]).click();"
+# shortcut: cara 'vue' memakai internal bootstrap-vue (localYMD); hanya cadangan terakhir, ganti bila web mengubah komponen tanggal
+_JS_VUE_TANGGAL = ("var o=document.getElementById('input-datepicker__outer_'), v=o&&o.__vue__;"
+                   "if(v&&!('localYMD' in v)) v=v.$parent;"
+                   "if(!v||!('localYMD' in v)) return false; v.localYMD=arguments[0]; return true;")
+
+
+def _klik_sel_tanggal(driver, xpath_date, utc_date, cara):
+    """Satu cara memilih sel tanggal. Sel dicari ULANG tiap cara (kalender dirender ulang Vue -> elemen lama bisa stale)."""
+    if cara == "vue":
+        driver.execute_script(_JS_VUE_TANGGAL, utc_date)
+        return
+    sel = driver.find_element(By.XPATH, xpath_date)
+    if cara == "biasa":
         sel.click()
-    except Exception:
-        driver.execute_script("arguments[0].click();", sel)
-    akhir = time.time() + 3
-    while _kalender_terbuka(driver) and time.time() < akhir:
-        time.sleep(0.1)
-    terpilih = tanggal_di_web(driver)
-    if terpilih is not None and terpilih != utc_date:
-        raise RuntimeError(f"tanggal terpilih {terpilih}, bukan {utc_date}")
-    return True
+    elif cara == "js":
+        driver.execute_script(_JS_KLIK_SEL, sel)
+    else:   # aksi: gerakan mouse sungguhan (menembus elemen yang menghalangi klik biasa)
+        ActionChains(driver).move_to_element(sel).pause(0.1).click().perform()
+
+
+def _tunggu_tanggal(driver, utc_date, timeout):
+    """True bila web menampilkan utc_date terpilih. Label terisi tetapi formatnya tak dikenali + kalender sudah menutup = terpilih."""
+    akhir = time.time() + timeout
+    while True:
+        t = tanggal_di_web(driver)
+        if t == utc_date:
+            return True
+        if t is None and not _kalender_terbuka(driver) and _label_tanggal(driver):
+            return True
+        if time.time() >= akhir:
+            return False
+        time.sleep(0.15)
 
 
 def memilih_tanggal(driver, utc_date=None, percobaan=3):
@@ -2181,17 +2303,48 @@ def _ada_tombol(driver, teks):
         return False
 
 
-def tanggal_di_web(driver):
-    """Tanggal yang tampil di datepicker (dd/mm/yyyy) -> 'YYYY-MM-DD'; None bila tidak terbaca."""
-    try:
-        el = driver.find_element(By.ID, "input-datepicker")
-        teks = (el.get_attribute("value") or el.text or "").strip()
-        m = re.search(r"(\d{2})/(\d{2})/(\d{4})", teks)
-        if m:
-            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-    except Exception:
-        pass
+_BULAN = {"januari": 1, "februari": 2, "maret": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "agustus": 8, "september": 9,
+          "oktober": 10, "november": 11, "desember": 12, "january": 1, "february": 2, "march": 3, "may": 5, "june": 6, "july": 7,
+          "august": 8, "october": 10, "december": 12}
+_JS_TANGGAL_WEB = ("var o=document.querySelector('output[data-selected]'), l=document.getElementById('input-datepicker__value_');"
+                   "return [o?(o.getAttribute('data-selected')||''):'', l?(l.textContent||'').trim():null];")
+
+
+def _tgl_dari_teks(teks):
+    """'24/11/2026' | '2026-11-24' | 'Selasa, 24 November 2026' -> 'YYYY-MM-DD'; tak dikenali -> None."""
+    t = (teks or "").lower()
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        return m.group(0)
+    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", t)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    m = re.search(r"(\d{1,2})\s+([a-z]+)\s+(\d{4})", t)
+    if m and m.group(2) in _BULAN:
+        return f"{m.group(3)}-{_BULAN[m.group(2)]:02d}-{int(m.group(1)):02d}"
     return None
+
+
+def _label_tanggal(driver):
+    """Teks label nilai datepicker (#input-datepicker__value_); kosong = belum ada tanggal. None = tak terbaca."""
+    try:
+        return driver.execute_script(_JS_TANGGAL_WEB)[1]
+    except Exception:
+        return None
+
+
+def tanggal_di_web(driver):
+    """[rev 35] Tanggal terpilih di datepicker -> 'YYYY-MM-DD'; '' = belum ada tanggal terpilih; None = tak terbaca/format tak dikenali.
+    Dulu membaca value TOMBOL #input-datepicker (selalu kosong) sehingga selalu None -> semua pemeriksaan tanggal tak berarti."""
+    try:
+        sel, label = driver.execute_script(_JS_TANGGAL_WEB)
+    except Exception:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", sel or ""):
+        return sel
+    if label is None:
+        return None
+    return _tgl_dari_teks(label) or ("" if not label else None)
 
 
 def baca_sandi(driver):
@@ -3235,7 +3388,7 @@ def main():
         DRY_RUN = True
     filter_jam = {j.strip() for j in args.jam.split(",") if j.strip()} if args.jam else None
 
-    validator = Validator.from_config(CFG, ROOT)
+    validator = Validator.from_config(CFG, BUNDLE)
     db = SendLog(resolve_path(CFG, "db"))
     for _t, _j in db.pulihkan_terhenti():   # [rev 23] sisa status 'berjalan' dari proses yang terhenti -> 'gagal' (jujur)
         print(f"🩹 Slot {_t} {_j} UTC tertinggal 'berjalan' (proses sebelumnya berhenti) -> dicatat GAGAL; bisa dicoba ulang")
@@ -3348,6 +3501,8 @@ def main():
             print(f"\n⏳ Menunggu sampai {waktu_eksekusi} untuk eksekusi baris {index+1}...")
             sesi_dicek = False   # [rev 28] sesi BMKG Satu diperiksa sekali per slot, menjelang eksekusi
             pra_cek = float((CFG.get("session", {}) or {}).get("cek_sebelum_detik", 180))
+            pasif_detik = float((CFG.get("session", {}) or {}).get("pantau_pasif_detik", 60))
+            tick_sesi = 0.0
 
             # Countdown + monitoring perubahan Excel
             while waktu_tunggu > 0:
@@ -3372,6 +3527,15 @@ def main():
                             waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
                     notifier.rekap_jika_waktunya(db)   # [F3.7] rekap harian (sekali/hari, dibatasi 1x/menit)
                     last_check_time = time.time()
+
+                if time.time() - tick_sesi >= pasif_detik:   # [rev 35] pantau pasif (baca DOM saja): popup 'sesi habis' ditangani segera
+                    tick_sesi = time.time()
+                    if sesi_habis(driver) is True:
+                        _ok_s, _muat = pastikan_sesi(notifier, slot0, paksa=True)
+                        if _muat:
+                            observer_selected = False
+                            tanggal_aktif = None
+                    cek_selector_berkala(driver, notifier, slot0)
 
                 if not sesi_dicek and waktu_tunggu <= pra_cek:
                     sesi_dicek = True
@@ -3446,7 +3610,8 @@ def main():
                     print(f"🔎 observer_selected: {observer_selected}")
 
                     # [F1.5] pilih tanggal UTC sesuai slot (bukan tanggal saat script dimulai)
-                    if slot[0] and tanggal_aktif != slot[0]:
+                    # [rev 35] dipilih (ulang) bila belum pernah, ATAU tampilan web tak cocok (kosong/tanggal lain; mis. halaman dimuat ulang diam-diam)
+                    if slot[0] and (tanggal_aktif != slot[0] or tanggal_di_web(driver) not in (None, slot[0])):
                         if memilih_tanggal(driver, slot[0]) is False:
                             raise Exception(f"Gagal memilih tanggal {slot[0]} di web")
                         tanggal_aktif = slot[0]
@@ -3462,6 +3627,7 @@ def main():
                     _jeda(2)
                     Fill_AWS_Digi(driver)
                     _jeda(1)
+                    cek_selector_form(driver, notifier, slot)   # [F3.9] lapor bila struktur web berubah, sebelum pengisian & SEND
 
                     if not observer_selected:
                         # Tambah wait eksplisit: tunggu dropdown observer benar-benar siap

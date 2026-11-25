@@ -75,11 +75,12 @@ class Btn:
 class DrvKal:
     """Kalender bootstrap-vue palsu. bulan_tampil=(tahun,bulan). cell_muncul_setelah = jumlah pemeriksaan sebelum sel tampak."""
     def __init__(self, bulan=(2026, 11), kalender_bisa_buka=True, cell_muncul_setelah=0, klik_sel_gagal=False,
-                 disabled=(), next_disabled=True):
+                 disabled=(), next_disabled=True, klik_diam=0, vue_bisa=True):
         self.buka, self.bulan = False, bulan
         self.bisa, self.lag, self.klik_gagal, self.disabled = kalender_bisa_buka, cell_muncul_setelah, klik_sel_gagal, set(disabled)
         self.next_disabled = next_disabled
         self.js_klik, self.dipilih, self.ditutup_esc = [], None, 0
+        self.klik_diam, self.vue_bisa = klik_diam, vue_bisa   # klik_diam = berapa klik sel yang 'diam' (tak memilih; kasus 24 Nov)
         self.tgl = Btn(self, "tgl")
     def klik(self, nama, js=False):
         self.js_klik.append((nama, js))
@@ -91,6 +92,8 @@ class DrvKal:
         elif nama == "next":
             y, m = self.bulan; self.bulan = (y, m + 1) if m < 12 else (y + 1, 1)
         elif nama.startswith("sel:"):
+            if self.klik_diam > 0:
+                self.klik_diam -= 1; return
             self.dipilih = nama[4:]; self.buka = False
     def find_element(self, by, v):
         if v == "input-datepicker":
@@ -115,7 +118,14 @@ class DrvKal:
     def execute_script(self, js, *a):
         if "querySelectorAll" in js and "data-date" in js:
             return f"{self.bulan[0]}-{self.bulan[1]:02d}-15" if self.buka else None
-        if "arguments[0].click()" in js:
+        if "input-datepicker__value_" in js:   # [rev 35] pembacaan tanggal terpilih: [data-selected, label]
+            ymd = self.dipilih or ""
+            return [ymd, (f"{ymd[8:]}/{ymd[5:7]}/{ymd[:4]}" if ymd else "")]
+        if "localYMD" in js:   # [rev 35] cadangan terakhir (Vue)
+            if self.vue_bisa:
+                self.dipilih, self.buka = a[0], False
+            return self.vue_bisa
+        if ".click()" in js:
             el = a[0]
             if isinstance(el, CellEl):
                 self.klik("sel:" + el.tgl, js=True)
@@ -158,6 +168,42 @@ check("kalender tak pernah terbuka -> False setelah 3 percobaan (bukan lanjut di
 
 d = DrvKal(disabled=["2026-11-22"])
 check("tanggal dinonaktifkan kalender -> False, tidak diklik paksa", M.memilih_tanggal(d, "2026-11-22") is False and d.dipilih is None)
+
+
+print("== [rev 35] kalender: klik 'diam' (kasus 24 Nov 11:00 UTC) tidak lagi dianggap berhasil ==")
+d = DrvKal(klik_diam=1)
+check("klik biasa diam -> cara 'js' memilih; hasil terverifikasi", M.memilih_tanggal(d, "2026-11-22") is True and d.dipilih == "2026-11-22", d.js_klik)
+d = DrvKal(klik_diam=3)
+check("semua klik diam -> cadangan 'vue' memilih & terverifikasi", M.memilih_tanggal(d, "2026-11-22") is True and d.dipilih == "2026-11-22", d.js_klik)
+d = DrvKal(klik_diam=99, vue_bisa=False)
+check("semua cara gagal -> False (BUKAN True palsu seperti sebelum rev 35)", M.memilih_tanggal(d, "2026-11-22") is False and d.dipilih is None)
+check("tanggal_di_web: belum dipilih -> '' ; sudah -> YYYY-MM-DD",
+      M.tanggal_di_web(DrvKal()) == "" and M.tanggal_di_web(type("D", (DrvKal,), {})(klik_diam=0)) == "")
+d = DrvKal(); d.dipilih = "2026-11-24"
+check("tanggal_di_web membaca tanggal terpilih", M.tanggal_di_web(d) == "2026-11-24")
+check("parser label: dd/mm/yyyy, 'Selasa, 24 November 2026', ISO, asing -> None",
+      [M._tgl_dari_teks(x) for x in ("24/11/2026", "Selasa, 24 November 2026", "2026-11-24", "xyz")] == ["2026-11-24"] * 3 + [None])
+
+print("== [rev 35 / F3.9] health check selector ==")
+from core import health
+hilang = health.periksa(lambda js, ids, lab: ["input-jam", "label:tanggal"])
+check("elemen hilang dilaporkan apa adanya", hilang == ["input-jam", "label:tanggal"], hilang)
+seen = {}
+health.periksa(lambda js, ids, lab: seen.update(ids=ids) or [], form=True)
+check("mode form memeriksa kerangka + field berid wajib (ww, vv, CL...)", "input-jam" in seen["ids"] and "present_weather_ww" in seen["ids"] and "visibility_vv" in seen["ids"], seen)
+check("mode form tidak memeriksa field bersyarat (mis. cloud_vertical_vis)", "cloud_vertical_vis" not in seen["ids"])
+check("galat membaca halaman -> dilaporkan, tidak melempar", health.periksa(lambda *a: 1 / 0)[0].startswith("(tidak terbaca"))
+M2 = muat()
+pesan = []
+class N:
+    def kirim(self, t, jenis): pesan.append((t, jenis))
+class DH:
+    current_url = "https://bmkgsatu.bmkg.go.id/meteorologi/sinoptik"
+    def find_elements(self, *a): return []
+    def execute_script(self, js, ids=None, lab=None): return ["select-observer"]
+M2.CFG["health"] = {"aktif": True, "cek_detik": 0}
+M2.cek_selector_form(DH(), N(), ("2026-11-24", "11:00")); M2.cek_selector_form(DH(), N(), ("2026-11-24", "11:00"))
+check("selector hilang -> 1 pesan Telegram (jenis 'selector'), tidak diulang-ulang", len(pesan) == 1 and pesan[0][1] == "selector", pesan)
 
 # ======================================================================================================== snapshot
 print("== nama snapshot: slot + jam di depan ==")
