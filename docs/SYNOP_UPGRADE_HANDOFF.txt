@@ -2270,6 +2270,16 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                sebagai variabel environment Windows pengguna. Aplikasi tidak berubah.
   [2026-11-26] Rev 38c - panel/index.html: chip 'Telegram aktif' tidak lagi berkedut tiap 3 dtk (ditulis ulang tiap polling -> animasi pop); kini ditulis hanya saat berubah dan
                hanya titiknya yang berdenyut (sama seperti pil 'Jalan').
+  [2026-11-26] Rev 38d - panel/index.html: (1) pil status di Beranda/Bot/Pantau tidak lagi 'berdenyut' tiap beberapa detik. AKAR: pil punya animasi 'pop' yang diputar ulang tiap kali HTML-nya
+               ditulis; Beranda ditulis ulang seluruhnya tiap polling (3 dtk) karena teks hitung-mundur bot ('Eksekusi berikutnya dalam MM:SS') ada di dalam HTML kartu. Kini animasi 'pop' pada pil dihapus
+               (hanya titik .live yang berdenyut), teks detail diperbarui langsung (data-det / #bsd / #psd) sehingga halaman tidak ditulis ulang, dan posisi scroll jadwal dipertahankan.
+               (2) Tulisan 'Mode malam' hitam di mode malam: tombol tidak mewarisi warna -> .chip kini color:var(--tx). Sakelar tema diganti matahari <-> bulan (ikon berputar di bulatan geser).
+               Hanya panel/index.html yang berubah (cadangan: panel/index.html.bak, dibuat sekali). Berikutnya: build_exe.bat (atau salin index.html ke dist\SynopOtomatis\_internal\panel\).
+  [2026-11-26] Rev 39 - panel/index.html: tampilan mengikuti ukuran layar. AKAR (screenshot PC kantor, monitor besar): lebar konten dikunci .wrap{max-width:1200px} dan semua ukuran memakai px tetap
+               -> huruf kecil + pinggir kosong. Kini semua ukuran >2px diubah ke rem (px di @media dan garis 1-2px tetap), ukuran huruf akar = 16px x skala; skala otomatis =
+               min(lebar/1280, tinggi/650, 2,5) minimal 1 (laptop kecil tetap seperti semula; 2560x1440 -> 2x; 1920x1080 -> sekitar 1,5x), dihitung ulang saat jendela diubah ukurannya.
+               Tombol - / + (menyetel halus 70%-160%, tersimpan di localStorage 'zadj'; klik angka = kembali 100%). Hanya panel/index.html yang berubah; backend tidak.
+               CATATAN revisi berikutnya: ukuran di index.html kini rem (px/16) - jangan mencocokkan teks px lama. Berikutnya: salin panel\index.html ke PC kantor, cek di monitor besar.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #
