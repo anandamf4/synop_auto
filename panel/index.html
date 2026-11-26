@@ -2,7 +2,7 @@
 <html lang="id"><head><meta charset="utf-8"><title>SYNOP Otomatis</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>/* rev39: ukuran dalam rem; skala = ukur() di bawah */
-.zm{gap:.125rem;padding:.1875rem .375rem}.zm button{border:0;background:none;color:var(--tx);font:700 .8125rem inherit;cursor:pointer;min-width:1.5rem;height:1.5rem;border-radius:99px;padding:0 .25rem}.zm button:hover{background:var(--acs);color:var(--ac)}.zm #zv{font-weight:600;min-width:2.75rem}
+.zm{gap:.125rem;padding:.1875rem .375rem}.zm button{border:0;background:none;color:var(--tx);font-weight:700;font-size:.8125rem;cursor:pointer;min-width:1.5rem;height:1.5rem;border-radius:99px;padding:0 .25rem}.zm button:hover{background:var(--acs);color:var(--ac)}.zm #zv{font-weight:600;min-width:2.75rem}
 
 /* Token desain (terang / malam). Warna HANYA lewat variabel ini; jarak lewat --g (antar-kartu) dan --r (sudut) */
 :root{--bg:#F3F6FB;--sf:#fff;--s2:#F6F8FC;--bd:#E2E8F1;--bd2:#C9D3E2;--tx:#14202F;--mu:#5A6B7F;--ac:#1F63D8;--ac2:#164FB4;--acb:#fff;--acs:#E8F0FE;--sb:#0D2342;--sb2:#0A1B33;--sbt:#B7C9E2;--sbh:#173A66;
@@ -12,7 +12,7 @@ body.dk{--bg:#0A1017;--sf:#121B28;--s2:#16212F;--bd:#223046;--bd2:#2E405B;--tx:#
 --ok:#5FD39A;--okb:#12301F;--wn:#F2B84B;--wnb:#33270F;--of:#9AA9BB;--ofb:#1C2736;--er:#FF8A8A;--erb:#3A1B1B;--sh:none;--sh2:0 0.875rem 2.5rem rgba(0,0,0,.6)}
 *{box-sizing:border-box}
 body{margin:0;font:0.84375rem/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;color:var(--tx);background:var(--bg);display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
-button{font-family:inherit}
+button{font-family:inherit}/* rev42 */input,select,textarea,.in{font-family:inherit}
 :focus-visible{outline:2px solid var(--ac);outline-offset:2px;border-radius:0.375rem}
 /* ---- sidebar ---- */
 .sb{width:14.125rem;flex:none;background:linear-gradient(180deg,var(--sb),var(--sb2));color:var(--sbt);display:flex;flex-direction:column;padding:1.25rem 0.75rem 0.875rem;gap:0.25rem}
@@ -20,7 +20,7 @@ button{font-family:inherit}
 .lg i{width:2.25rem;height:2.25rem;border-radius:0.6875rem;background:linear-gradient(135deg,#2F80ED,#56CCF2);display:flex;align-items:center;justify-content:center;box-shadow:0 0.25rem 0.75rem rgba(47,128,237,.45);flex:none}
 .lg i svg{width:1.25rem;height:1.25rem;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .lg small{display:block;font-weight:400;font-size:0.6875rem;color:#8FA6C4;margin-top:2px}
-.nv{display:flex;align-items:center;gap:0.6875rem;padding:0.625rem 0.75rem;border-radius:0.625rem;font:500 0.84375rem inherit;position:relative;cursor:pointer;color:inherit;background:none;border:0;text-align:left;width:100%;transition:background .15s,color .15s,transform .12s}
+.nv{display:flex;align-items:center;gap:0.6875rem;padding:0.625rem 0.75rem;border-radius:0.625rem;font-weight:500;font-size:0.84375rem;position:relative;cursor:pointer;color:inherit;background:none;border:0;text-align:left;width:100%;transition:background .15s,color .15s,transform .12s}
 .nv:hover{background:var(--sbh);color:#fff}.nv:active{transform:scale(.97)}
 .nv svg,.ic{width:1.125rem;height:1.125rem;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .nv.on{background:var(--sbh);color:#fff}.nv.on::before{content:"";position:absolute;left:-0.75rem;top:0.5625rem;bottom:0.5625rem;width:0.1875rem;border-radius:0 0.1875rem 0.1875rem 0;background:#56A0FF;animation:bar .25s var(--ease)}
@@ -56,10 +56,10 @@ button{font-family:inherit}
 .pl::before{content:"";width:0.375rem;height:0.375rem;border-radius:50%;background:currentColor}.pl.live::before{animation:pulse 1.6s infinite}
 .chips .pl{animation:none}
 .ok{background:var(--okb);color:var(--ok)}.wt{background:var(--wnb);color:var(--wn)}.of{background:var(--ofb);color:var(--of)}.er{background:var(--erb);color:var(--er)}
-.bn{display:flex;align-items:center;gap:0.75rem;width:100%;text-align:left;border:1px solid var(--wn);background:var(--wnb);color:var(--wn);border-radius:var(--r);padding:0.75rem 1rem;cursor:pointer;font:500 0.8125rem inherit;transition:transform .12s,box-shadow .15s}
+.bn{display:flex;align-items:center;gap:0.75rem;width:100%;text-align:left;border:1px solid var(--wn);background:var(--wnb);color:var(--wn);border-radius:var(--r);padding:0.75rem 1rem;cursor:pointer;font-weight:500;font-size:0.8125rem;transition:transform .12s,box-shadow .15s}
 .bn:hover{box-shadow:var(--sh2);transform:translateY(-1px)}.bn .go{margin-left:auto;font-weight:700;white-space:nowrap}
 /* ---- tombol: hover naik, klik menekan + riak, sibuk = putar, sukses = cincin hijau, gagal = goyang ---- */
-.bt{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;border:1px solid transparent;border-radius:0.625rem;padding:0.5625rem 1rem;font:600 0.8125rem inherit;cursor:pointer;background:var(--ac);color:var(--acb);
+.bt{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;border:1px solid transparent;border-radius:0.625rem;padding:0.5625rem 1rem;font-weight:600;font-size:0.8125rem;cursor:pointer;background:var(--ac);color:var(--acb);
  box-shadow:0 1px 2px rgba(20,60,140,.25);transition:transform .12s var(--ease),box-shadow .18s,background .18s,border-color .18s,opacity .18s}
 .bt:hover{background:var(--ac2);transform:translateY(-1px);box-shadow:0 0.375rem 0.875rem rgba(20,60,140,.28)}.bt:active{transform:translateY(0) scale(.96);box-shadow:none}
 .bt.sc{background:var(--sf);color:var(--tx);border-color:var(--bd2);box-shadow:none}.bt.sc:hover{background:var(--s2);border-color:var(--ac);box-shadow:none}
@@ -71,7 +71,7 @@ button{font-family:inherit}
 .rp{position:absolute;border-radius:50%;background:rgba(255,255,255,.4);transform:scale(0);animation:rp .55s ease-out;pointer-events:none}.bt.sc .rp,.bt.dg .rp{background:rgba(31,99,216,.18)}
 .mu{color:var(--mu)}.sub{font-size:0.71875rem;color:var(--mu)}.big{font-size:1.25rem;font-weight:700}
 .lbl{font-size:0.75rem;font-weight:600;color:var(--mu);margin-bottom:0.375rem;display:block}
-.in,select,input[type=text],input[type=number],input[type=password]{border:1px solid var(--bd2);border-radius:0.625rem;padding:0.5625rem 0.6875rem;background:var(--s2);font:0.84375rem inherit;color:var(--tx);width:100%;transition:border-color .15s,box-shadow .15s,background .15s}
+.in,select,input[type=text],input[type=number],input[type=password]{border:1px solid var(--bd2);border-radius:0.625rem;padding:0.5625rem 0.6875rem;background:var(--s2);font-size:0.84375rem;color:var(--tx);width:100%;transition:border-color .15s,box-shadow .15s,background .15s}
 .in:hover,select:hover,input:hover{border-color:var(--ac)}.in:focus,select:focus,input:focus{outline:0;border-color:var(--ac);box-shadow:0 0 0 0.1875rem var(--acs);background:var(--sf)}
 label.ck{display:flex;align-items:center;gap:0.5625rem;cursor:pointer;user-select:none}label.ck input{width:1rem;height:1rem;accent-color:var(--ac)}
 .ln{display:flex;align-items:center;gap:0.75rem;padding:0.6875rem 0;border-top:1px solid var(--bd)}.ln:first-of-type{border-top:0;padding-top:2px}.grow{flex:1;min-width:0}
@@ -95,7 +95,7 @@ pre.log .e{color:#FF8E8E}pre.log .w{color:#F2C46B}pre.log .o{color:#6FD9A3}pre.l
 .sn .th{display:block;aspect-ratio:16/10;background:var(--s2);overflow:hidden;position:relative}.sn .th img{width:100%;height:100%;object-fit:cover;object-position:top;display:block;transition:transform .3s var(--ease)}.sn:hover .th img{transform:scale(1.04)}
 .sn .th .nf{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mu)}
 .sn .mt{display:flex;flex-direction:column;gap:0.1875rem;padding:0.6875rem 0.8125rem 0.8125rem;align-items:flex-start}.sn .mt b{font-size:0.8125rem}
-.tab{display:inline-flex;gap:0.25rem;background:var(--s2);border:1px solid var(--bd);border-radius:0.625rem;padding:0.1875rem}.tab button{border:0;background:none;color:var(--mu);font:600 0.78125rem inherit;padding:0.375rem 0.8125rem;border-radius:0.4375rem;cursor:pointer;transition:background .15s,color .15s}
+.tab{display:inline-flex;gap:0.25rem;background:var(--s2);border:1px solid var(--bd);border-radius:0.625rem;padding:0.1875rem}.tab button{border:0;background:none;color:var(--mu);font-weight:600;font-size:0.78125rem;padding:0.375rem 0.8125rem;border-radius:0.4375rem;cursor:pointer;transition:background .15s,color .15s}
 .tab button.on{background:var(--sf);color:var(--tx);box-shadow:0 1px 0.1875rem rgba(0,0,0,.12)}
 #lb{position:fixed;inset:0;background:rgba(6,12,22,.88);display:none;flex-direction:column;z-index:20;backdrop-filter:blur(0.1875rem)}#lb.on{display:flex;animation:fi .2s}
 #lb .hd{display:flex;align-items:center;gap:0.625rem;padding:0.75rem 1.125rem;color:#E4EBF4;flex-wrap:wrap}#lb .hd .grow b{display:block;font-size:0.875rem}#lb .hd .grow span{font-size:0.75rem;color:#9FB1C7}
@@ -168,9 +168,14 @@ function tema(on){document.body.classList.toggle('dk',on);$('sw').classList.togg
 $('mm').onclick=()=>tema(!document.body.classList.contains('dk'));tema(!!localStorage.dk);
 function menu(){$('menu').innerHTML=MENU.map(m=>`<button class="nv ${m[0]==hal?'on':''}" onclick="pergi('${m[0]}')">${ic(m[2])}<span>${m[1]}</span>${m[0]=='snapshot'&&R&&R.snap_gagal?`<span class="bdg" title="Kegagalan 24 jam terakhir">${R.snap_gagal}</span>`:''}</button>`).join('')}
 function pergi(h){hal=h;localStorage.hal=h;lbTutup();menu();$('mn').scrollTop=0;render(true)}
-async function muat(){const r=await api('/api/ringkas');if(!r||!r.proses)return;const nb=!R||R.snap_gagal!==r.snap_gagal;R=r;$('stasiun').innerHTML=`${esc(R.stasiun)}<br>${R.rev}`;
+async function muat(){const r=await api('/api/ringkas?sejak='+(parseFloat(localStorage.snapSeen)||0));if(!r||!r.proses)return;const nb=!R||R.snap_gagal!==r.snap_gagal;R=r;hmSinkron();$('stasiun').innerHTML=`${esc(R.stasiun)}<br>${R.rev}`;
  put('tg',`<span class="pl ${R.telegram?'ok live':'of'}">Telegram ${R.telegram?'aktif':'belum diatur'}</span>`);   /* ditulis hanya bila berubah; hanya titiknya yang berdenyut */if(nb)menu();render(false)}
-setInterval(()=>{if(R)$('utc').textContent='UTC '+new Date().toISOString().substr(11,8)},1000);
+setInterval(()=>{if(R)$('utc').textContent='UTC '+new Date().toISOString().substr(11,8);hmTik()},1000);
+/* hitung mundur bot: server hanya dibaca tiap 3 dtk, jadi detik dihitung di sini (tanpa beban tambahan ke server) */
+let HM={t:0,raw:null};
+function hmSinkron(){const p=R.proses.bot;if(p.hm==null){HM={t:0,raw:null};return}if(p.hm===HM.raw)return;const t=Date.now()+p.hm*1000;HM={t:HM.t&&Math.abs(t-HM.t)<2500?Math.min(t,HM.t):t,raw:p.hm};hmTik()}
+function hmTik(){const p=R&&R.proses&&R.proses.bot;if(!p||p.hm==null||!HM.t)return;const s=Math.max(0,Math.ceil((HM.t-Date.now())/1000)),d='Eksekusi berikutnya dalam '+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+ p.detail=DET.bot=d;document.querySelectorAll('[data-det=bot],#bsd').forEach(e=>{if(e.textContent!==d)e.textContent=d})}
 const J={beranda:['Beranda','Kontrol semua komponen dari satu tempat. Semua berjalan lokal di PC ini.','home'],bot:['Bot Pengirim','Mengisi & mengirim data SYNOP ke BMKG Satu tiap jam dari data form web.','bot'],
 pantau:['Pantau Web','Jalankan bot dalam mode pemantauan: tiap langkah diukur dan direkam.','mon'],snapshot:['Snapshot','Gambar layar & halaman yang disimpan bot saat ada kegagalan, untuk melihat letak kesalahannya.','snap'],
 remote:['Akses Remote','Buka form dari HP di jaringan mana pun. Aplikasi tetap berjalan di PC ini.','net'],log:['Log','Keluaran terbaru tiap komponen.','log'],cfg:['Pengaturan','Pengaturan umum, kredensial, dan Telegram. Berlaku saat komponen dijalankan ulang.','cfg']};
@@ -244,7 +249,8 @@ function sGambar(){const L=sDaftar();
  $('sm').innerHTML=L.length>SJ?`<button class="bt sc" onclick="SJ+=48;sGambar()">Tampilkan lebih banyak (${L.length-SJ})</button>`:''}
 function sFilter(f){SF=f;SJ=48;sGambar()}
 async function snapMuat(manual,b=BT){const r=await sibuk(api('/api/snapshot'),manual?b:null);if(!r||!r.daftar||!$('sg'))return;const sig=r.daftar.map(x=>x.id).join('|');
- if(sig!==SIG||manual){SIG=sig;SN=r.daftar;sGambar()}if(manual)toast(SN.length+' snapshot dimuat','ok')}
+ if(sig!==SIG||manual){SIG=sig;SN=r.daftar;sGambar()}
+ {const m=Math.max(0,...r.daftar.filter(x=>x.gagal).map(x=>x.mtime));if(m>(parseFloat(localStorage.snapSeen)||0)){localStorage.snapSeen=m;if(R&&R.snap_gagal){R.snap_gagal=0;menu()}}}  /* galeri dibuka = kegagalan dianggap sudah dilihat: lencana & banner hilang sampai ada kegagalan baru */if(manual)toast(SN.length+' snapshot dimuat','ok')}
 async function bukaFolder(){const r=await sibuk(api('/api/snapshot/folder',{}));toast(r.pesan||'',r.ok?'ok':'er')}
 V.snapshot={bangun(){SIG='';$('isi').innerHTML=`<div id="b" class="pg"><div class="cd"><div class="ch"><div class="tab" id="stab"></div><span class="fl"><button class="bt sc sm" onclick="snapMuat(true)">${ic('ref')}Muat ulang</button><button class="bt sc sm" onclick="bukaFolder()">${ic('folder')}Buka folder</button></span></div>
  <p class="sub" style="margin:0 0 0.875rem">Klik gambar untuk memperbesar; gunakan ← → untuk berpindah dan Esc untuk menutup. Tombol “Lihat HTML” menampilkan halaman BMKG Satu saat kegagalan terjadi.</p><div id="sg" class="sg"><div class="sk" style="grid-column:1/-1"></div></div><div id="sm" class="fl" style="justify-content:center;margin-top:0.875rem"></div></div></div>`;

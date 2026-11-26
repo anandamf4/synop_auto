@@ -1,14 +1,14 @@
 {% extends "base.html" %}{% block judul %}Form {{ jam }}{% endblock %}
 {% block kepala %}
 <style>
-.kepala{display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:64px;z-index:20}
+.kepala{display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:var(--top-kepala,64px);z-index:20}   /* rev41: top diukur script di bawah */
 .kepala h1{margin:0;font-size:19px;color:var(--judul);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .kepala h1 span{font:700 22px var(--mono)}
 .kepala h1 small{font-weight:500;font-size:14px}
 .kepala label{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--redup)}
 .alat{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .dua{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
-.samping{position:sticky;top:132px}
+.samping{position:sticky;top:var(--top-samping,132px);max-height:calc(100vh - var(--top-samping,132px) - 12px);overflow-y:auto}.samping .kartu{margin-bottom:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px 16px}
 .f{display:flex;flex-direction:column;gap:4px;transition:opacity var(--dur)}[hidden]{display:none!important}   /* rev 32: kolom khusus jam 00 UTC disembunyikan di jam lain */
 .f label{font-size:13px;color:var(--redup);font-weight:500}.f label b{color:var(--merah)}
@@ -34,7 +34,7 @@
 .aksi-bawah .redup{font-size:13.5px}
 .jam-nav{gap:6px;padding:0 12px;font-variant-numeric:tabular-nums;font-family:var(--mono);font-weight:600}
 .jam-nav svg{flex:none}
-@media (max-width:1020px){.dua{grid-template-columns:1fr}.samping{position:static}.kepala{top:60px}}
+@media (max-width:1020px){.dua{grid-template-columns:1fr}.samping{position:static;max-height:none;overflow:visible}}
 @media (max-width:760px){.bag-penguapan .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}.bag-penguapan .f label{min-height:0}}
 @media (max-width:640px){.kepala{position:static}.grid{grid-template-columns:1fr}}
 </style>
@@ -59,6 +59,11 @@
  <div id="form"></div>
  <aside class="samping"><div class="kartu" id="temuan-box"><h2><svg class="i"><use href="#i-list"/></svg>Pemeriksaan</h2><div class="hit" id="hit"></div><div id="temuan" class="redup">memuat…</div></div></aside>
 </div>
+<script>/* rev41: letak sticky mengikuti tinggi nyata header & bilah judul (bilah bisa 2 baris), jadi kartu Pemeriksaan tidak tertimpa */
+(()=>{const a=document.querySelector('.atas'),k=document.querySelector('.kepala'),r=document.documentElement.style;if(!k)return;
+ function u(){const h=a?a.offsetHeight:0,s=getComputedStyle(k).position=='sticky'?k.offsetHeight+12:0;r.setProperty('--top-kepala',h+'px');r.setProperty('--top-samping',(h+s+12)+'px')}
+ u();addEventListener('resize',u);if(window.ResizeObserver){const o=new ResizeObserver(u);o.observe(k);if(a)o.observe(a)}})();
+</script>
 <div class="kartu aksi-bawah">
   <button class="utama" id="simpan" type="button" disabled><svg class="i"><use href="#i-save"/></svg>Simpan</button>
   <button id="simpan-lanjut" type="button" disabled title="Simpan lalu buka jam {{ nxt[1] }} UTC"><svg class="i"><use href="#i-save"/></svg>Simpan &amp; ke {{ nxt[1] }}<svg class="i"><use href="#i-right"/></svg></button>

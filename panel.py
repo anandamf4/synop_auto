@@ -33,7 +33,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-REV = "rev 38"
+REV = "rev 40"
 PORT_PANEL = 8765
 KUNCI_ENV = ("BMKG_STATION_ID", "BMKG_PASSWORD", "WEB_PIN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 RAHASIA = {"BMKG_STATION_ID": "ID stasiun BMKG Satu", "BMKG_PASSWORD": "Password BMKG Satu", "WEB_PIN": "PIN halaman web",
@@ -256,12 +256,13 @@ class Panel:
         for nama in ("web", "bot", "remote", "pantau"):
             jalan = self.proc.jalan(nama)
             st, ket = ("of", "Mati") if not jalan else ("ok", "Jalan")
-            detail = ""
+            detail, hms = "", None
             if jalan and nama == "bot":
                 hm = self.proc.hitung_mundur("bot")
                 lg = self.proc.ekor("bot", 1)
                 if hm:
                     st, ket, detail = "wt", "Siaga", f"Eksekusi berikutnya dalam {hm[0]:02d}:{hm[1]:02d}"
+                    hms = hm[0] * 60 + hm[1]   # detik; panel menghitung mundur sendiri tiap 1 dtk di antara dua polling
                 else:
                     detail = (lg[0][:140] if lg else "Memulai...")
             elif jalan and nama == "remote":
@@ -275,7 +276,7 @@ class Panel:
                 detail = "Belum berjalan" if not lg else "Terakhir: " + lg[-1][:120]
             elif jalan and nama == "web":
                 detail = f"Port {int((cfg.get('web', {}) or {}).get('port', 8080))}"
-            out[nama] = {"jalan": jalan, "st": st, "ket": ket, "detail": detail, "sejak": self.proc.sejak(nama)}
+            out[nama] = {"jalan": jalan, "st": st, "ket": ket, "detail": detail, "hm": hms, "sejak": self.proc.sejak(nama)}
         return out
 
     def jadwal_dan_aktivitas(self, cfg):
@@ -440,9 +441,10 @@ def daftar_snapshot(cfg, batas=300):
     return out[:batas]
 
 
-def hitung_snapshot_gagal(cfg, jam=24):
-    batas = time.time() - jam * 3600
-    return sum(1 for x in daftar_snapshot(cfg) if x["gagal"] and x["mtime"] >= batas)
+def hitung_snapshot_gagal(cfg, jam=24, sejak=0.0):
+    """Kegagalan 24 jam terakhir yang BELUM dilihat (mtime > sejak = waktu galeri terakhir dibuka)."""
+    batas = max(time.time() - jam * 3600, sejak)
+    return sum(1 for x in daftar_snapshot(cfg) if x["gagal"] and x["mtime"] > batas)
 
 
 # =========================================================================== Flask
@@ -481,7 +483,7 @@ def buat_app(panel=None):
                         "telegram": tg, "port_web": int((cfg.get("web", {}) or {}).get("port", 8080)),
                         "host_web": (cfg.get("web", {}) or {}).get("host", "0.0.0.0"), "pin": bool(env.get("WEB_PIN")),
                         "observers": P.observer_list(cfg), "gerbang": cfg.get("gerbang", {}),
-                        "snap_gagal": hitung_snapshot_gagal(cfg)})
+                        "snap_gagal": hitung_snapshot_gagal(cfg, sejak=request.args.get("sejak", 0.0, type=float))})
 
     @app.route("/api/cek")
     def cek():

@@ -54,8 +54,8 @@ TUJUAN FILE INI
 ================================================================================
 1. STATUS SAAT INI (PERBARUI SETIAP SESI)
 ================================================================================
-  Revisi catatan      : 36
-  Terakhir diperbarui : 2026-11-25
+  Revisi catatan      : 42
+  Terakhir diperbarui : 2026-11-26
   Tahap selesai       : A0, F0.1-F0.5, F1.1-F1.9 (lulus dry-run di web asli),
                         F3.4 (rev 18: 24 dari 24 sandi 14 Nov 2026 sesuai, 0 bermasalah),
                         F1.10 (rev 19: aturan QC konsistensi di core/qc.py; 39 tes lulus),
@@ -2280,6 +2280,29 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                min(lebar/1280, tinggi/650, 2,5) minimal 1 (laptop kecil tetap seperti semula; 2560x1440 -> 2x; 1920x1080 -> sekitar 1,5x), dihitung ulang saat jendela diubah ukurannya.
                Tombol - / + (menyetel halus 70%-160%, tersimpan di localStorage 'zadj'; klik angka = kembali 100%). Hanya panel/index.html yang berubah; backend tidak.
                CATATAN revisi berikutnya: ukuran di index.html kini rem (px/16) - jangan mencocokkan teks px lama. Berikutnya: salin panel\index.html ke PC kantor, cek di monitor besar.
+  [2026-11-26] Rev 40 - TIGA PERBAIKAN (V7SATU.py, panel.py, panel/index.html, tests/test_panel.py: 59 lulus).
+               (1) Hitung mundur bot patah 3 dtk. AKAR: bot menulis tiap 1 dtk, tetapi panel hanya membaca log tiap polling 3 dtk. Kini /api/ringkas memuat proses.bot.hm (detik) dan
+               index.html menghitung mundur sendiri tiap 1 dtk (hmSinkron/hmTik; sinkron ulang tiap polling, ambil nilai terkecil agar tidak mundur-maju). Beban server TIDAK bertambah (polling tetap 3 dtk).
+               (2) Lencana & banner snapshot kini hilang setelah galeri dibuka: panel menyimpan waktu kegagalan terbaru yang sudah dilihat (localStorage 'snapSeen') dan mengirimnya sbg
+               ?sejak= ke /api/ringkas; hitung_snapshot_gagal hanya menghitung mtime > sejak. Kegagalan BARU memunculkannya lagi. Berkas snapshot tidak dihapus.
+               (3) Tanggal dipilih DI AWAL tunggu (hipotesis pengguna: jendela Chrome sudah dipindah/diminimalkan saat jam eksekusi). V7SATU.pra_pilih_tanggal(): dipanggil begitu baris
+               memasuki masa tunggu, dan segera setelah halaman dimuat ulang oleh pastikan_sesi (pemeriksaan -180 dtk / popup sesi habis) - dulu tanggal_aktif=None lalu dipilih saat eksekusi.
+               Gagal pra-pilih BUKAN fatal: langkah lama di eksekusi (cek tanggal_di_web, pilih ulang, error bila tak cocok) tetap ada sebagai cadangan. Observer TIDAK ikut dimajukan (belum diminta).
+               BELUM teruji: pra_pilih_tanggal butuh Chrome/web asli (tes offline tak mencakup). Uji: jalankan bot, lihat log 'Memilih tanggal' muncul tepat setelah 'Menunggu sampai ...'.
+               Bila galat tanggal masih terjadi, cek snapshot: kalau tanggal sudah benar tapi galat muncul lagi di eksekusi, penyebabnya halaman dimuat ulang diam-diam (bukan jendela). REV panel = 40.
+               Berikutnya: build_exe.bat ulang (V7SATU.py & panel.py ikut dikemas; index.html saja boleh disalin ke dist\\SynopOtomatis\\_internal\\panel\\), uji 1-2 jam nyata.
+  [2026-11-26] Rev 41 - web/form.html: judul kartu 'Pemeriksaan' terpotong saat halaman digulir. AKAR: bilah judul jam (.kepala, sticky) tingginya berubah-ubah (isinya flex-wrap,
+               bisa 2 baris di layar sempit/zoom), tetapi kartu Pemeriksaan (.samping, sticky) menempel di top:132px TETAP (mengira bilah hanya 1 baris) -> bilah (z-index 20) menimpa kartu.
+               Perbaikan: script kecil mengukur tinggi header (.atas) & .kepala (ResizeObserver + resize) dan mengisi variabel CSS --top-kepala / --top-samping; top kedua elemen memakainya
+               (nilai lama 64px/132px tinggal cadangan). Kartu Pemeriksaan diberi max-height + gulir sendiri agar daftar temuan yang panjang tidak keluar layar. Aturan media 1020px
+               yang memaksa .kepala{top:60px} dihapus (menimpa variabel). Hanya web/form.html yang berubah. BELUM dilihat di layar nyata -> cek: gulir form, kartu Pemeriksaan harus
+               tetap utuh di bawah bilah judul, juga saat jendela dipersempit.
+  [2026-11-26] Rev 42 - panel/index.html: tombol/menu/kolom isian tampak kecil di monitor besar (PC kantor) padahal judul & teks sudah membesar. AKAR: 6 deklarasi CSS berbentuk
+               'font:600 0.8125rem inherit' (.bt, .nv, .tab button, .zm button, .chip-tombol, input/select) TIDAK VALID (kata 'inherit' tidak boleh jadi nama font di dalam singkatan font);
+               browser membuang seluruh deklarasi -> elemen memakai ukuran bawaan Chrome 13,33px TETAP (tidak ikut rem). Di laptop (skala 1) 13,33px kebetulan mendekati 13px rancangan,
+               jadi tampak benar; di monitor besar teks lain membesar sedangkan tombol tidak. (Kesalahan ini sudah ada sejak rev 38 dalam px; rev 39 baru memunculkannya.)
+               Perbaikan: 'font:W S inherit' -> 'font-weight:W;font-size:S' dan aturan baru 'input,select,textarea,.in{font-family:inherit}' (button sudah punya). Semua ukuran tetap rem sehingga
+               ikut skala otomatis + tombol -/+. Hanya panel/index.html yang berubah. CATATAN revisi berikutnya: JANGAN menulis 'font:... inherit'; pakai font-size/font-weight terpisah.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

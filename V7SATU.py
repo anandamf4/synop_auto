@@ -2243,6 +2243,19 @@ def memilih_tanggal(driver, utc_date=None, percobaan=3):
     return False
 
 
+def pra_pilih_tanggal(tanggal, aktif):
+    """[rev 40] Pilih tanggal slot SEKARANG (selagi menunggu; jendela Chrome biasanya masih di depan), bukan saat jam eksekusi tiba.
+    Mengembalikan tanggal bila terpilih, selain itu None (bukan fatal: langkah eksekusi memilih ulang seperti sebelumnya)."""
+    if not tanggal:
+        return aktif
+    try:
+        if tanggal_di_web(driver) == tanggal or memilih_tanggal(driver, tanggal) is True:
+            return tanggal
+    except Exception as e:
+        print(f"⚠️ Pilih tanggal lebih awal gagal ({type(e).__name__}: {str(e)[:100]}); diulang saat eksekusi")
+    return None
+
+
 def isi_per_jam(driver, row):
     try:
         print(f"\n⏰ Memilih jam {row['jam_input']}...")
@@ -3503,6 +3516,7 @@ def main():
             pra_cek = float((CFG.get("session", {}) or {}).get("cek_sebelum_detik", 180))
             pasif_detik = float((CFG.get("session", {}) or {}).get("pantau_pasif_detik", 60))
             tick_sesi = 0.0
+            tanggal_aktif = pra_pilih_tanggal(slot0[0], tanggal_aktif)   # [rev 40] tanggal dipilih di awal tunggu
 
             # Countdown + monitoring perubahan Excel
             while waktu_tunggu > 0:
@@ -3534,7 +3548,7 @@ def main():
                         _ok_s, _muat = pastikan_sesi(notifier, slot0, paksa=True)
                         if _muat:
                             observer_selected = False
-                            tanggal_aktif = None
+                            tanggal_aktif = pra_pilih_tanggal(slot0[0], None)
                     cek_selector_berkala(driver, notifier, slot0)
 
                 if not sesi_dicek and waktu_tunggu <= pra_cek:
@@ -3542,8 +3556,8 @@ def main():
                     print()
                     _ok_s, _muat = pastikan_sesi(notifier, slot0)
                     if _muat:
-                        observer_selected = False   # halaman dimuat ulang: observer & tanggal dipilih ulang di langkah baris
-                        tanggal_aktif = None
+                        observer_selected = False   # halaman dimuat ulang: observer dipilih ulang di langkah baris
+                        tanggal_aktif = pra_pilih_tanggal(slot0[0], None)   # [rev 40] tanggal langsung dipilih ulang, tidak menunggu jam eksekusi
                     sekarang = datetime.now()
                     waktu_tunggu = (waktu_eksekusi - sekarang).total_seconds()
 
