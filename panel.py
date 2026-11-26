@@ -32,7 +32,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-REV = "rev 36"
+REV = "rev 37"
 PORT_PANEL = 8765
 KUNCI_ENV = ("BMKG_STATION_ID", "BMKG_PASSWORD", "WEB_PIN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 RAHASIA = {"BMKG_STATION_ID": "ID stasiun BMKG Satu", "BMKG_PASSWORD": "Password BMKG Satu", "WEB_PIN": "PIN halaman web",
@@ -200,6 +200,9 @@ class Panel:
             if mode != "jelajah" and not obs:
                 return False, "Pilih nama observer dulu"
             args = ["--mode", mode, "--jam", jam, "--no-gui"] + (["--observer", obs] if obs else []) + (["--izinkan-kirim"] if mode == "kirim" else [])
+            if mode != "jelajah":
+                # [rev 37] argumen setelah '--' diteruskan ke bot: --jam membatasi jam yang diproses, --process-past = proses jam yang sudah lewat
+                args += ["--", "--jam", jam] + (["--process-past"] if opsi.get("lampau") else [])
             cmd = perintah("pantau", args)
         elif nama == "remote":
             return self.mulai_remote(cfg, env)

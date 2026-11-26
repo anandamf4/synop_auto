@@ -14,7 +14,16 @@ import runpy
 import sys
 
 
+def _paksa_utf8():
+    # Di .exe PyInstaller variabel PYTHONIOENCODING diabaikan, jadi stdout/stderr yang diarahkan ke logs/*.log memakai cp1252
+    # dan print("🌐 ...") crash dengan UnicodeEncodeError. reconfigure() berlaku di mode skrip maupun .exe.
+    for s in (sys.stdout, sys.stderr):
+        if s is not None and hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main():
+    _paksa_utf8()
     multiprocessing.freeze_support()
     from core import paths
     paths.siapkan()            # .exe pertama kali: salin config.yaml & .env.example bawaan, buat data/ snapshots/ logs/

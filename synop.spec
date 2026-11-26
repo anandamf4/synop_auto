@@ -22,6 +22,7 @@ for paket in ("selenium", "webview", "segno"):          # selenium membawa selen
 a = Analysis(["synop_app.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hidden, hookspath=[], runtime_hooks=[],
              excludes=["matplotlib", "scipy", "IPython", "pytest", "notebook"], noarchive=False)
 pyz = PYZ(a.pure)
-panel = EXE(pyz, a.scripts, [], exclude_binaries=True, name="SynopOtomatis", console=False, debug=False, strip=False, upx=False)
-kerja = EXE(pyz, a.scripts, [], exclude_binaries=True, name="SynopWorker", console=True, debug=False, strip=False, upx=False)
+UTF8 = {"options": [("utf8", None, "OPTION")]}   # python -X utf8: semua I/O teks default UTF-8 (cadangan selain _paksa_utf8)
+panel = EXE(pyz, a.scripts, [], exclude_binaries=True, name="SynopOtomatis", console=False, debug=False, strip=False, upx=False, **UTF8)
+kerja = EXE(pyz, a.scripts, [], exclude_binaries=True, name="SynopWorker", console=True, debug=False, strip=False, upx=False, **UTF8)
 coll = COLLECT(panel, kerja, a.binaries, a.datas, strip=False, upx=False, name="SynopOtomatis")

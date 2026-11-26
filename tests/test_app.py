@@ -27,6 +27,13 @@ def check(n, c, info=""):
 T, J = "2026-11-14", "07:00"
 
 
+
+def cfg_tanpa_pin():
+    cfg = load_config()                  # membaca .env -> bisa mengisi WEB_PIN; harus dibuang SESUDAH ini, bukan sebelum
+    os.environ.pop("WEB_PIN", None)
+    return cfg
+
+
 def op(app, col, kode):
     return next(o for o in opsi_kolom(app.validator, col) if o.split(" ")[0] == kode)
 
@@ -99,9 +106,12 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         r = c.post("/api/impor", data={"berkas": (open(xl, "rb"), "in.xlsx"), "observer": "Tester"}, content_type="multipart/form-data")
         j = r.get_json()
         check("impor Excel nyata: 24 baris masuk, 0 ditolak", j["ok"] and j["masuk"] == 24 and not j["ditolak"], j)
-        r = c.get(f"/ekspor/{T}.xlsx")
-        df = pd.read_excel(io.BytesIO(r.data))
-        check("ekspor: berkas Excel berisi 24 baris dengan kolom lengkap", len(df) == 24 and "waktu_eksekusi" in df.columns and "cloud_low_type_cl" in df.columns, len(df))
+        # tanggal slot diturunkan dari waktu_eksekusi di Excel (bukan T tetap), jadi ekspor semua tanggal yang masuk
+        with app.obs._conn() as _c:
+            _tgl = [x[0] for x in _c.execute("SELECT DISTINCT tanggal_utc FROM observasi ORDER BY 1")]
+            _n_db = _c.execute("SELECT COUNT(*) FROM observasi").fetchone()[0]   # DB tes juga memuat baris dari tes sebelumnya
+        df = pd.concat([pd.read_excel(io.BytesIO(c.get(f"/ekspor/{t}.xlsx").data)) for t in _tgl], ignore_index=True)
+        check("ekspor: semua baris di DB (24 dari Excel + sisa tes lain) dengan kolom lengkap", len(df) == _n_db >= 24 and "waktu_eksekusi" in df.columns and "cloud_low_type_cl" in df.columns, len(df))
     r = c.post("/api/impor", data={"berkas": (io.BytesIO(b"ini bukan berkas excel"), "x.xlsx")}, content_type="multipart/form-data")
     check("berkas rusak ditolak dengan pesan (bukan crash)", r.status_code == 400 and not r.get_json()["ok"])
 
@@ -191,9 +201,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
           and c3.get("/").status_code == 200 and c3.get(f"/form/{T}/01:00").status_code == 200)
 
 print("\n== PIN ==")
-os.environ["WEB_PIN"] = "4321"
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app2 = create_app(load_config(), db_path=str(Path(d) / "b.db"))
+    _cfg = load_config()
+    os.environ["WEB_PIN"] = "4321"
+    app2 = create_app(_cfg, db_path=str(Path(d) / "b.db"))
     c2 = app2.test_client()
     check("tanpa PIN: halaman diarahkan ke /login, API 401", c2.get("/").status_code == 302 and c2.get("/api/status").status_code == 401)
     check("PIN salah ditolak", c2.post("/login", data={"pin": "0000"}).status_code == 401)
@@ -203,7 +214,7 @@ os.environ.pop("WEB_PIN", None)
 print("\n== [rev 28] observer opsional & diingat ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     os.environ.pop("WEB_PIN", None)
-    app4 = create_app(load_config(), db_path=str(Path(d) / "o.db"))
+    app4 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "o.db"))
     c4 = app4.test_client()
     cer = {"cloud_cover_oktas_m": op(app4, "cloud_cover_oktas_m", "0"), "visibility": 10, "ww": op(app4, "ww", "00"),
            "w1": op(app4, "w1", "0"), "w2": op(app4, "w2", "0"), "land_cond": op(app4, "land_cond", "0")}
@@ -233,7 +244,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
 print("\n== [rev 28] Riwayat jam ini (sebelumnya Internal Server Error) ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app5 = create_app(load_config(), db_path=str(Path(d) / "r.db"))
+    app5 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "r.db"))
     c6 = app5.test_client()
     app5.log.log_event(T, "07:00", "form_simpan", "Tester: data baru")
     app5.log.log_event(T, "07:00", "terkirim", "sandi AAXX")
@@ -260,7 +271,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
 print("\n== [rev 28] tata letak bagian jam 00 UTC ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app5 = create_app(load_config(), db_path=str(Path(d) / "l.db"))
+    app5 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "l.db"))
     sk = app5.test_client().get("/api/skema").get_json()
     pg = next(b for b in sk["bagian"] if b["id"] == "penguapan")
     check("bagian penguapan punya catatan tunggal (kosong = pakai nilai AWS)", pg.get("catatan") and "AWS" in pg["catatan"], pg.get("catatan"))
@@ -283,7 +294,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
 print("\n== [rev 30] jadwal pengiriman (dashboard) ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app7 = create_app(load_config(), db_path=str(Path(d) / "j.db"))
+    app7 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "j.db"))
     c7 = app7.test_client()
     J = lambda **k: c7.post("/api/jadwal", json=k)
     g = c7.get("/api/jadwal?tanggal=2026-11-22").get_json()
@@ -326,7 +337,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
 print("\n== [rev 30] riwayat berhalaman ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app8 = create_app(load_config(), db_path=str(Path(d) / "p.db"))
+    app8 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "p.db"))
     c8 = app8.test_client()
     for i in range(60):
         app8.log.log_event("2026-11-22", "07:00", "form_simpan", f"baris-{i:02d}")
@@ -348,7 +359,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
 
 print("\n== [rev 30] navigasi jam di form ==")
 with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
-    app9 = create_app(load_config(), db_path=str(Path(d) / "n.db"))
+    app9 = create_app(cfg_tanpa_pin(), db_path=str(Path(d) / "n.db"))
     c9 = app9.test_client()
     f = c9.get("/form/2026-11-22/07:00").get_data(as_text=True)
     check("tombol jam sebelumnya (06:00) & berikutnya (08:00)", 'href="/form/2026-11-22/06:00"' in f and 'href="/form/2026-11-22/08:00"' in f)

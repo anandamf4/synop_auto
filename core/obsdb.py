@@ -252,8 +252,10 @@ class ObsStore:
         if not rows:
             return pd.DataFrame(columns=URUTAN_KOLOM)
         df = pd.DataFrame(rows)
-        urut = [c for c in URUTAN_KOLOM if c in df.columns] + [c for c in df.columns if c not in URUTAN_KOLOM]
-        df = df[urut]
+        # DB hanya menyimpan kolom yang terisi; bot mengakses row['awan_rendah_2_jenis'] dst. -> kolom yang tak ada HARUS ada (NaN),
+        # persis seperti Excel. Tanpa ini: KeyError 'awan_rendah_2_jenis' -> "Gagal isi data" di setiap percobaan (rev 37).
+        urut = URUTAN_KOLOM + [c for c in df.columns if c not in URUTAN_KOLOM]
+        df = df.reindex(columns=urut)
         df["waktu_eksekusi"] = pd.to_datetime(df["waktu_eksekusi"])
         return df.reset_index(drop=True)
 

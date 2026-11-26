@@ -2248,6 +2248,17 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
   [2026-11-25] Rev 35 - Kalender: verifikasi tanggal nyata + 4 cara klik (klik diam dianggap sukses = akar galat 24 Nov 11:00 UTC). Sesi: pemeriksaan pasif,
                login ulang hanya bila popup/halaman login (OK -> login -> isi user/pw). F3.9 core/health.py. F3.10 centang [x]. Berkas: V7SATU.py, core/health.py,
                core/config.py, config.yaml, tests/{test_rev30_bot,test_sesi_chrome,test_bot_flow}.py. Berikutnya: uji nyata (lihat REV 35).
+  [2026-11-25] Rev 36b - HOTFIX .exe: UnicodeEncodeError cp1252 saat web/bot dijalankan dari SynopWorker.exe (print berisi emoji ke logs/*.log). AKAR: PyInstaller
+               mengabaikan PYTHONIOENCODING yang diset core/proses.py, sehingga stdout/stderr (diarahkan ke berkas) memakai cp1252. Perbaikan: synop_app._paksa_utf8()
+               (reconfigure UTF-8 di awal main) + opsi "-X utf8" di synop.spec. tests/test_app.py: helper cfg_tanpa_pin() (11 GAGAL + KeyError 'total' di PC pengguna
+               = .env berisi WEB_PIN yang diisi ulang load_config() SESUDAH tes membuangnya; bukan bug app). BELUM beres: tes "ekspor 24 baris" GAGAL (1 baris) di PC pengguna,
+               tak bisa direproduksi tanpa legacy/INPUT_PARAMETER_baru.xlsx (tidak ada di repo) - butuh uji lokal. Berikutnya: build_exe.bat ulang, uji web/bot/remote.
+  [2026-11-26] Rev 37 - BUG bot sumber DB: 'Gagal mengisi data: awan_rendah_2_jenis' di semua percobaan (dry-run & kirim nyata). AKAR: ObsStore.to_dataframe hanya
+               memuat kolom yang tersimpan di DB; V7SATU mengakses row['awan_rendah_2_jenis'] dst. -> KeyError (Excel tak kena karena kolomnya selalu ada).
+               Perbaikan: to_dataframe di-reindex ke URUTAN_KOLOM (kolom hilang = NaN). Tes baru tests/test_db_kolom.py (jalur asli DB -> isi_data; menjaga semua
+               row['...'] di V7SATU ada di DataFrame). Pantau Web: checkbox 'Proses juga jam yang sudah lewat' -> '-- --jam HH:MM --process-past' ke bot (sebelumnya
+               --jam & --process-past tidak diteruskan). Panel REV=37. Catatan: tests/test_obsdb.py 4 GAGAL sudah ada sebelumnya (membandingkan dengan isi Excel lama).
+               Berikutnya: build_exe.bat ulang, uji dry-run --process-past jam 00:00, lalu kirim nyata.
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #

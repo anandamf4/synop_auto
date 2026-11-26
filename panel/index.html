@@ -107,10 +107,11 @@ V.bot={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=()=>{const b=
  api('/api/log?nama=bot&n=14').then(r=>{if($('bl'))$('bl').textContent=(r.baris||[]).join('\n')||'(belum ada log)'})}}};
 V.pantau={bangun(){$('isi').innerHTML='<div id="b"></div>';this.hidup=()=>{const b=$('b');if(!b.dataset.k){b.dataset.k=1;
  b.innerHTML=`<div class="g2"><div class="cd"><h2>Jalankan pemantauan</h2><div class="col" style="gap:10px">
- <div><span class="lbl">Mode</span><select id="pm" onchange="$('pz').style.display=this.value=='kirim'?'flex':'none'"><option value="dryrun">Dry-run (tanpa kirim)</option><option value="jelajah">Jelajah (hanya buka & potret form)</option><option value="kirim">Kirim nyata</option></select></div>
+ <div><span class="lbl">Mode</span><select id="pm" onchange="$('pz').style.display=this.value=='kirim'?'flex':'none';$('pl2').style.display=this.value=='jelajah'?'none':'flex'"><option value="dryrun">Dry-run (tanpa kirim)</option><option value="jelajah">Jelajah (hanya buka & potret form)</option><option value="kirim">Kirim nyata</option></select></div>
  <label class="ck" id="pz" style="display:none;color:var(--er)"><input type="checkbox" id="pi"> Saya izinkan pengiriman SUNGGUHAN</label>
  <div><span class="lbl">Jam (UTC)</span><input type="text" id="pj" value="00:00"></div><div><span class="lbl">Observer</span>${observerSel('obsp')}</div>
- <div style="display:flex;gap:8px"><button class="bt" onclick="aksi('pantau','mulai',{mode:$('pm').value,jam:$('pj').value,observer:$('obsp').value,izin:$('pi').checked})">Mulai pemantauan</button><button class="bt dg" onclick="aksi('pantau','henti')">Hentikan</button></div>
+ <label class="ck" id="pl2"><input type="checkbox" id="plp"> Proses juga jam yang sudah lewat (--process-past)</label>
+ <div style="display:flex;gap:8px"><button class="bt" onclick="aksi('pantau','mulai',{mode:$('pm').value,jam:$('pj').value,observer:$('obsp').value,izin:$('pi').checked,lampau:$('plp').checked})">Mulai pemantauan</button><button class="bt dg" onclick="aksi('pantau','henti')">Hentikan</button></div>
  <div id="ps"></div></div></div><div class="cd"><h2>Hasil terakhir</h2><div id="ph" class="mu">Memuat…</div></div></div><div class="cd"><h2>Log pemantauan</h2><pre class="log" id="pl" style="max-height:30vh"></pre></div>`}
  const p=R.proses.pantau;$('ps').innerHTML=`<div class="ln">${pil(p.st,p.ket)}<span class="grow">${esc(p.detail)}</span></div>`;
  api('/api/pantau/hasil').then(r=>{const h=r.hasil;if(!$('ph'))return;$('ph').innerHTML=!h?'Belum ada hasil.':`<div class="sub">${esc(h.nama)} · ${esc(h.mode)}</div>

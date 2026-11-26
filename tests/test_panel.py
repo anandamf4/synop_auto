@@ -94,6 +94,13 @@ check("pantau 'kirim' terkunci tanpa izin", r.status_code == 400 and "izin" in r
 r = post("/api/proses", {"nama": "pantau", "aksi": "mulai", "opsi": {"mode": "dryrun", "observer": "B", "jam": "00:00"}})
 check("pantau dry-run dimulai", r.status_code == 200 and "--mode" in dipanggil["args"] and "--izinkan-kirim" not in dipanggil["args"], dipanggil)
 post("/api/proses", {"nama": "pantau", "aksi": "henti"})
+r = post("/api/proses", {"nama": "pantau", "aksi": "mulai", "opsi": {"mode": "dryrun", "observer": "B", "jam": "00:00", "lampau": True}})
+_a = dipanggil["args"]
+check("[rev 37] pantau + lampau: '-- --jam 00:00 --process-past' diteruskan ke bot", r.status_code == 200 and _a[_a.index("--") + 1:] == ["--jam", "00:00", "--process-past"], _a)
+post("/api/proses", {"nama": "pantau", "aksi": "henti"})
+r = post("/api/proses", {"nama": "pantau", "aksi": "mulai", "opsi": {"mode": "dryrun", "observer": "B", "jam": "00:00"}})
+check("[rev 37] pantau tanpa centang lampau: --process-past TIDAK ikut", "--process-past" not in dipanggil["args"], dipanggil["args"])
+post("/api/proses", {"nama": "pantau", "aksi": "henti"})
 check("komponen tak dikenal ditolak", post("/api/proses", {"nama": "rm", "aksi": "mulai"}).status_code == 400)
 
 print("== Akses remote ==")
