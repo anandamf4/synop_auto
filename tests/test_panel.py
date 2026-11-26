@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 passed = failed = 0
+WEB_PIN_AWAL = os.environ.get("WEB_PIN")      # bisa sudah ada di Windows pengguna (setx / $env:WEB_PIN); yang diuji: tes TIDAK mengubahnya
 
 
 def check(name, cond, info=""):
@@ -131,7 +132,7 @@ resp = c.get("/api/pengaturan", headers=H).data.decode("utf-8")
 check("password/PIN/token TIDAK pernah dikembalikan API", "pw rahasia" not in resp and "aneh" not in resp)
 check("kunci rahasia tak dikenal ditolak", post("/api/rahasia", {"kunci": "PATH", "nilai": "x"}).status_code == 400
       and post("/api/rahasia", {"kunci": "WEB_PIN", "nilai": "a\nb"}).status_code == 400)
-check("load_config(muat_env=False) tidak mengotori environment panel", "WEB_PIN" not in os.environ)
+check("load_config(muat_env=False) tidak mengotori environment panel", os.environ.get("WEB_PIN") == WEB_PIN_AWAL)
 
 print("== Pantau (hasil terakhir) ==")
 run = TMP / "pantau_out" / "20261125_100000_dryrun"
@@ -164,10 +165,36 @@ check("siapkan(): berkas bawaan disalin bila belum ada, TIDAK menimpa milik peng
       (tujuan / ".env.example").exists() and (tujuan / "config.yaml").read_text(encoding="utf-8") == "punya_pengguna: true\n"
       and all((tujuan / d).is_dir() for d in ("data", "snapshots", "logs")))
 
+print("== [rev 38] galeri snapshot ==")
+_sd = TMP / "snapshots"
+_sd.mkdir(exist_ok=True)
+_png = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c63f8cfc0f01f0005850180a4a98c210000000049454e44ae426082")
+for _n in ("20261125_0000UTC__gagal-percobaan3__20261126-000442WIB", "20261126_0100UTC__koreksi_qc__20261126-075901WIB", "tanpa-slot__popup_galat_setelah_kirim__20261125-223501WIB"):
+    (_sd / f"{_n}.png").write_bytes(_png)
+    (_sd / f"{_n}.html").write_text("<html><script>alert(1)</script>x</html>", encoding="utf-8")
+(_sd / "yatim.png").write_bytes(_png)                    # hanya png, tanpa pasangan html
+(_sd / "catatan.txt").write_text("bukan snapshot")
+_l = c.get("/api/snapshot", headers=H).get_json()["daftar"]
+_d = {x["id"]: x for x in _l}
+check("daftar memuat pasangan png+html, mengabaikan berkas lain (.txt)", len(_l) == 4 and "catatan" not in _d, [x["id"] for x in _l])
+_g = _d["20261125_0000UTC__gagal-percobaan3__20261126-000442WIB"]
+check("nama diurai: slot, waktu, label, gagal", _g["slot"] == "2026-11-25 00:00 UTC" and _g["waktu"] == "2026-11-26 00:04:42 WIB" and _g["label"] == "gagal-percobaan3" and _g["gagal"] and _g["png"] and _g["html"], _g)
+check("koreksi_qc bukan kegagalan; 'galat' & tanpa-slot dikenali gagal", not _d["20261126_0100UTC__koreksi_qc__20261126-075901WIB"]["gagal"] and _d["tanpa-slot__popup_galat_setelah_kirim__20261125-223501WIB"]["gagal"])
+check("berkas tanpa pasangan tetap tampil (png saja)", _d["yatim"]["png"] and not _d["yatim"]["html"])
+check("ringkasan memuat jumlah kegagalan 24 jam (2)", c.get("/api/ringkas", headers=H).get_json()["snap_gagal"] == 2)
+_r = c.get(f"/api/snapshot/{_g['id']}/png", headers=H)
+check("gambar disajikan sebagai image/png", _r.status_code == 200 and _r.mimetype == "image/png" and _r.data == _png)
+_r = c.get(f"/api/snapshot/{_g['id']}/html", headers=H)
+check("HTML disajikan dengan CSP sandbox (skrip halaman BMKG tidak jalan)", _r.status_code == 200 and "sandbox" in _r.headers.get("Content-Security-Policy", "") and "default-src 'none'" in _r.headers["Content-Security-Policy"])
+check("path traversal / nama aneh / jenis salah ditolak 404", all(c.get(u, headers=H).status_code == 404 for u in ("/api/snapshot/..%2Fconfig/png", "/api/snapshot/..%5Cconfig/png", "/api/snapshot/tidak_ada/png", f"/api/snapshot/{_g['id']}/exe")))
+check("host asing ditolak untuk snapshot (DNS-rebinding)", c.get("/api/snapshot", headers={"Host": "evil.example.com"}).status_code == 403)
+
 print("== Antarmuka ==")
 html = (ROOT / "panel" / "index.html").read_text(encoding="utf-8")
 js = html[html.index("<script>") + 8:html.index("</script>")]
-check("menu sketsa lengkap (Beranda, Bot Pengirim, Pantau Web, Akses Remote, Log, Pengaturan)", all(t in js for t in ("Beranda", "Bot Pengirim", "Pantau Web", "Akses Remote", "'Log'", "Pengaturan")))
+check("menu sketsa lengkap (Beranda, Bot Pengirim, Pantau Web, Akses Remote, Log, Pengaturan) + Snapshot", all(t in js for t in ("Beranda", "Bot Pengirim", "Pantau Web", "Akses Remote", "'Log'", "Pengaturan", "Snapshot")))
+check("[rev 38] Pengaturan tidak dibangun ulang saat simpan rahasia (tidak terlempar ke atas)", "V.cfg.bangun()" not in js.split("async function simpanR")[1])
+check("[rev 38] umpan balik tombol: sibuk() + riak + toast ada", all(t in js for t in ("async function sibuk", "function ripple", "function toast")))
 check("mode malam & token warna ada", "body.dk" in html and "--ok:" in html)
 import shutil  # noqa: E402
 if shutil.which("node"):

@@ -11,6 +11,7 @@ Tampilan: jendela aplikasi (pywebview) bila terpasang; bila tidak, browser bawaa
 """
 import datetime as dt
 import json
+import os
 import re
 import socket
 import subprocess
@@ -32,7 +33,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-REV = "rev 37"
+REV = "rev 38"
 PORT_PANEL = 8765
 KUNCI_ENV = ("BMKG_STATION_ID", "BMKG_PASSWORD", "WEB_PIN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 RAHASIA = {"BMKG_STATION_ID": "ID stasiun BMKG Satu", "BMKG_PASSWORD": "Password BMKG Satu", "WEB_PIN": "PIN halaman web",
@@ -407,6 +408,43 @@ class Panel:
                 "zip": (folder / f"pantau_{d.name}.zip").exists()}
 
 
+# =========================================================================== snapshot kegagalan
+_RE_SNAP = re.compile(r"^(?:(\d{8})_(\d{4})UTC|tanpa-slot)__(.+?)__(\d{8})-(\d{6})([A-Za-z]*)$")
+_RE_GAGAL = re.compile(r"gagal|failed|exception|error|galat|habis|no_modal", re.I)
+_RE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def daftar_snapshot(cfg, batas=300):
+    """Pasangan <nama>.png + <nama>.html di folder snapshots/ (dibuat V7SATU.save_debug_snapshot), terbaru dulu."""
+    d = resolve_path(cfg, "snapshots")
+    if not d.is_dir():
+        return []
+    kel = {}
+    for f in d.iterdir():
+        if f.is_file() and f.suffix.lower() in (".png", ".html"):
+            kel.setdefault(f.stem, {})[f.suffix.lower()[1:]] = f
+    out = []
+    for stem, fs in kel.items():
+        m = _RE_SNAP.match(stem)
+        label = m.group(3) if m else stem
+        it = {"id": stem, "label": label, "png": "png" in fs, "html": "html" in fs, "gagal": bool(_RE_GAGAL.search(label)),
+              "mtime": max(f.stat().st_mtime for f in fs.values()), "slot": None, "waktu": None}
+        if m:
+            if m.group(1):
+                g, j = m.group(1), m.group(2)
+                it["slot"] = f"{g[:4]}-{g[4:6]}-{g[6:]} {j[:2]}:{j[2:]} UTC"
+            w, t = m.group(4), m.group(5)
+            it["waktu"] = f"{w[:4]}-{w[4:6]}-{w[6:]} {t[:2]}:{t[2:4]}:{t[4:]} {m.group(6)}".strip()
+        out.append(it)
+    out.sort(key=lambda x: x["mtime"], reverse=True)
+    return out[:batas]
+
+
+def hitung_snapshot_gagal(cfg, jam=24):
+    batas = time.time() - jam * 3600
+    return sum(1 for x in daftar_snapshot(cfg) if x["gagal"] and x["mtime"] >= batas)
+
+
 # =========================================================================== Flask
 def buat_app(panel=None):
     P = panel or Panel()
@@ -442,7 +480,8 @@ def buat_app(panel=None):
                         "utc": dt.datetime.now(dt.timezone.utc).strftime("%H:%M:%S"), "proses": P.status_proses(cfg), "jadwal": jadwal, "aktivitas": akt,
                         "telegram": tg, "port_web": int((cfg.get("web", {}) or {}).get("port", 8080)),
                         "host_web": (cfg.get("web", {}) or {}).get("host", "0.0.0.0"), "pin": bool(env.get("WEB_PIN")),
-                        "observers": P.observer_list(cfg), "gerbang": cfg.get("gerbang", {})})
+                        "observers": P.observer_list(cfg), "gerbang": cfg.get("gerbang", {}),
+                        "snap_gagal": hitung_snapshot_gagal(cfg)})
 
     @app.route("/api/cek")
     def cek():
@@ -527,6 +566,42 @@ def buat_app(panel=None):
         if jenis == "zip" and h["zip"]:
             return send_file(d / f"pantau_{h['nama']}.zip", as_attachment=True)
         abort(404)
+
+
+    @app.route("/api/snapshot")
+    def snapshot_daftar():
+        return jsonify({"daftar": daftar_snapshot(P.cfg())})
+
+    @app.route("/api/snapshot/<sid>/<jenis>")
+    def snapshot_berkas(sid, jenis):
+        # nama dari klien: hanya huruf/angka/_.- dan harus berada di folder snapshots (cegah path traversal)
+        if not _RE_ID.match(sid) or jenis not in ("png", "html"):
+            abort(404)
+        d = resolve_path(P.cfg(), "snapshots").resolve()
+        f = (d / f"{sid}.{jenis}").resolve()
+        if f.parent != d or not f.is_file():
+            abort(404)
+        if jenis == "png":
+            r = send_file(f, mimetype="image/png")
+            r.headers["Cache-Control"] = "private, max-age=3600"
+            return r
+        # HTML hasil simpan dari halaman BMKG: ditampilkan tanpa skrip/jaringan (sandbox + CSP) agar aman dibuka di panel
+        r = Response(f.read_bytes(), mimetype="text/html")
+        r.headers["Content-Security-Policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+        return r
+
+    @app.route("/api/snapshot/folder", methods=["POST"])
+    def snapshot_folder():
+        d = resolve_path(P.cfg(), "snapshots")
+        d.mkdir(parents=True, exist_ok=True)
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(str(d))          # Windows: buka di Explorer
+            else:
+                webbrowser.open(d.as_uri())
+        except OSError as e:
+            return jsonify({"ok": False, "pesan": f"Tidak bisa membuka folder: {e}"}), 500
+        return jsonify({"ok": True, "pesan": f"Folder dibuka: {d}"})
 
     app.panel = P
     return app

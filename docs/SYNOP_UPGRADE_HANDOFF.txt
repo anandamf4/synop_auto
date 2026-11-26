@@ -2259,6 +2259,17 @@ FASE 4 - DASHBOARD, DISTRIBUSI, STABILISASI
                row['...'] di V7SATU ada di DataFrame). Pantau Web: checkbox 'Proses juga jam yang sudah lewat' -> '-- --jam HH:MM --process-past' ke bot (sebelumnya
                --jam & --process-past tidak diteruskan). Panel REV=37. Catatan: tests/test_obsdb.py 4 GAGAL sudah ada sebelumnya (membandingkan dengan isi Excel lama).
                Berikutnya: build_exe.bat ulang, uji dry-run --process-past jam 00:00, lalu kirim nyata.
+  [2026-11-26] Rev 38 - TAMPILAN PANEL dirombak (panel/index.html): token desain baru + tata letak berbasis grid dengan jarak seragam (penyebab kartu berhimpit: blok di dalam
+               #b tidak punya gap); animasi klik (riak, tekan, tombol berputar min 0,5 dtk lalu cincin hijau sukses / goyang gagal), toast berwarna, dialog konfirmasi kirim nyata,
+               transisi halaman, log berwarna ala konsol, mode malam diperhalus. PENGATURAN: simpan kredensial tidak lagi membangun ulang halaman (tidak terlempar ke atas),
+               bilah simpan menempel di bawah + penanda 'ada perubahan'. FITUR BARU: menu Snapshot = galeri gambar layar/HTML kegagalan dari folder snapshots/ (filter Gagal,
+               lightbox <- -> Esc, Lihat HTML dalam iframe sandbox + CSP, Buka folder), lencana jumlah kegagalan 24 jam di menu + banner di Beranda. panel.py: /api/snapshot,
+               /api/snapshot/<id>/<png|html>, /api/snapshot/folder, ringkas.snap_gagal (nama divalidasi, anti path-traversal). tests/test_panel.py: 57 lulus.
+               Catatan: baris 'Menu baru dapat ditambah' di sidebar dihapus (daftar MENU di index.html tetap). Berikutnya: build_exe.bat ulang, cek tampilan di jendela panel.
+  [2026-11-26] Rev 38b - tests/test_panel.py: tes 'tidak mengotori environment' kini membandingkan WEB_PIN sebelum/sesudah (bukan 'tidak ada'), karena WEB_PIN bisa sudah ada
+               sebagai variabel environment Windows pengguna. Aplikasi tidak berubah.
+  [2026-11-26] Rev 38c - panel/index.html: chip 'Telegram aktif' tidak lagi berkedut tiap 3 dtk (ditulis ulang tiap polling -> animasi pop); kini ditulis hanya saat berubah dan
+               hanya titiknya yang berdenyut (sama seperti pil 'Jalan').
 
 ################################################################################
 #  AKHIR FILE - SYNOP-UPGRADE-HANDOFF  (revisi tertera di bagian 1)            #
